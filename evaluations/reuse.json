@@ -1,0 +1,48 @@
+{
+  "aws": {
+    "warm_map_seconds": 1.96,
+    "warm_search_catalog": {
+      "documents": 20370,
+      "scanned": 0,
+      "reused": 20370,
+      "deleted": 0,
+      "truncated": 447,
+      "seconds": 0.911
+    },
+    "unchanged_vector_index": {
+      "embedded": 0,
+      "reused": 20370,
+      "model": "BAAI/bge-small-en-v1.5",
+      "seconds": 0.063
+    },
+    "observed_initial_build": {
+      "embedded": 20370,
+      "reused": 0,
+      "model": "BAAI/bge-small-en-v1.5",
+      "seconds": 1265.471
+    }
+  },
+  "k8s": {
+    "warm_map_seconds": 2.326,
+    "warm_search_catalog": {
+      "documents": 25788,
+      "scanned": 0,
+      "reused": 25788,
+      "deleted": 0,
+      "truncated": 322,
+      "seconds": 1.17
+    },
+    "unchanged_vector_index": {
+      "embedded": 0,
+      "reused": 25788,
+      "model": "BAAI/bge-small-en-v1.5",
+      "seconds": 0.054
+    },
+    "observed_initial_build": {
+      "embedded": 25788,
+      "reused": 0,
+      "model": "BAAI/bge-small-en-v1.5",
+      "seconds": 1149.481
+    }
+  }
+}

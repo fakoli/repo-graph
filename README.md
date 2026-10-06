@@ -43,7 +43,7 @@ codex plugin add repo-graph@fakoli-agent-plugins
 ```
 
 Then use `$repo-graph` or `$repo-graph /path/to/repository` in a fresh task.
-This repository is also a standalone Codex marketplace with the same plugin.
+The standalone repository retains the same Codex plugin manifest and skill.
 
 For Pi:
 
@@ -66,6 +66,12 @@ card, tree, radial and file-count treemap layouts. Data includes a table and
 directed dependency matrix; export filtered scope data as CSV or the viewport
 as SVG. The Search tab queries the whole indexed corpus through the opt-in
 loopback viewer. It preserves the query when returning from a diagram.
+
+Semantic search is experimental in 0.4.0. Hybrid retrieval found an expected
+source area in the top five for 5/8 AWS and 3/8 Kubernetes benchmark queries,
+below the 75% relevance target. Inspect evidence and use identifiers or a source
+prefix for precision. The diagrams, indexing and browser workflow checks passed;
+these checks do not establish search relevance.
 
 Search modes are `hybrid` (default), `semantic` and `keyword`:
 
@@ -90,8 +96,9 @@ appear in the structural map and supported text languages in search. Every
 canvas shows at most 24 nodes and 40 links. Full paths and aggregated observed
 imports remain in `graph.json`; Mermaid covers the first root page.
 
-Search stores one bounded file synopsis of comments/declarations/documentation
-and its 384-dimensional vector in SQLite. It does not index every function or
+Search stores every inventoried file path, with one bounded synopsis of comments,
+declarations and documentation for supported text and its 384-dimensional vector
+in SQLite. It does not index every function or
 entire files. Late declarations can be omitted. Exact vector retrieval fetches
 512 vectors per block, bounding transient vector memory; query I/O remains
 linear in the indexed corpus. Full structural inventory is held in memory.
@@ -108,7 +115,7 @@ HTML/JSON/SQLite data can reveal private names, source evidence and paths: revie
 before sharing. The corpus and vectors remain local. Model setup downloads weights
 only. The viewer loads no remote resources. Its single-request server binds only
 to loopback and rejects foreign Host/Origin and non-JSON search requests; it serves
-only the two generated HTML files. Run it only for locally generated output you
+only the generated HTML, JSON and Mermaid artifacts. Run it only for locally generated output you
 trust. Ctrl+C stops it. Repeated maps replace generated files in the output
 location; do not store unrelated files there. Sources are never executed.
 

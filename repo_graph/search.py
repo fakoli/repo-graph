@@ -11,8 +11,9 @@ import sqlite3
 import time
 
 MODEL = "BAAI/bge-small-en-v1.5"
+STOPWORDS = set("a an the and or of to in on for with by from is are was were be been which that this these those how where what when why will can as it its us our".split())
 READ_LIMIT = 64 * 1024
-TEXT_EXTENSIONS = {".md", ".rst", ".txt", ".go", ".py", ".js", ".jsx", ".ts", ".tsx",
+TEXT_EXTENSIONS = {".md", ".markdown", ".mdx", ".rst", ".txt", ".go", ".py", ".js", ".jsx", ".ts", ".tsx",
                    ".rs", ".java", ".kt", ".c", ".h", ".cpp", ".hpp", ".cs", ".rb", ".sh", ".tf", ".sql", ".vue", ".svelte"}
 SECRET = re.compile(r"(?:gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{16})")
 
@@ -31,7 +32,7 @@ def synopsis(path: str, source: str) -> str:
         line = line.strip()
         if not line or re.search(r"copyright|spdx|licensed under|permission is hereby", line, re.I):
             continue
-        if (Path(path).suffix in {".md", ".rst", ".txt"} or
+        if (Path(path).suffix in {".md", ".markdown", ".mdx", ".rst", ".txt"} or
             re.match(r"(?://|#|/\*|\*|\"\"\"|'''|func |def |class |pub |fn |export |interface |type |resource |data )", line)):
             # Evidence retains original line references; identifier terms aid exact retrieval.
             lines.append(f"L{number}: {SECRET.sub('[redacted]', line[:180])}")
@@ -49,7 +50,7 @@ def connect(output: Path, *, readonly: bool = False) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS docs(id INTEGER PRIMARY KEY, path TEXT UNIQUE NOT NULL,
           stamp TEXT NOT NULL, digest TEXT NOT NULL, body TEXT NOT NULL, terms TEXT NOT NULL, vector BLOB);
-        CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(terms, content='docs', content_rowid='id');
+        CREATE VIRTUAL TABLE IF NOT EXISTS fts USING fts5(terms, content='docs', content_rowid='id', tokenize='porter unicode61');
         CREATE TRIGGER IF NOT EXISTS docs_ai AFTER INSERT ON docs BEGIN
           INSERT INTO fts(rowid,terms) VALUES(new.id,new.terms); END;
         CREATE TRIGGER IF NOT EXISTS docs_ad AFTER DELETE ON docs BEGIN
@@ -58,6 +59,12 @@ def connect(output: Path, *, readonly: bool = False) -> sqlite3.Connection:
           INSERT INTO fts(fts,rowid,terms) VALUES('delete',old.id,old.terms);
           INSERT INTO fts(rowid,terms) VALUES(new.id,new.terms); END;
         """)
+        if 'porter' not in db.execute("SELECT sql FROM sqlite_master WHERE name='fts'").fetchone()[0]:
+            db.executescript("""BEGIN;
+              DROP TABLE fts;
+              CREATE VIRTUAL TABLE fts USING fts5(terms,content='docs',content_rowid='id',tokenize='porter unicode61');
+              INSERT INTO fts(fts) VALUES('rebuild');
+              COMMIT;""")
     return db
 
 
@@ -67,8 +74,7 @@ def catalog(root: Path, files: list[str], output: Path) -> dict:
     with closing(connect(output)) as db, db:
         db.execute("CREATE TEMP TABLE seen(path TEXT PRIMARY KEY)")
         for path in files:
-            if Path(path).suffix.lower() not in TEXT_EXTENSIONS:
-                continue
+            is_text = Path(path).suffix.lower() in TEXT_EXTENSIONS
             resolved = (root / path).resolve()
             if root not in resolved.parents or not resolved.is_file():
                 continue
@@ -76,16 +82,15 @@ def catalog(root: Path, files: list[str], output: Path) -> dict:
             stamp = f"{stat.st_mtime_ns}:{stat.st_size}"
             db.execute("INSERT INTO seen VALUES(?)", (path,))
             old = db.execute("SELECT stamp,digest FROM docs WHERE path=?", (path,)).fetchone()
-            truncated += stat.st_size > READ_LIMIT
+            truncated += is_text and stat.st_size > READ_LIMIT
             if old and old['stamp'] == stamp:
                 reused += 1
                 continue
-            with resolved.open('rb') as stream:
-                source = stream.read(READ_LIMIT).decode('utf-8', errors='replace')
-            body = synopsis(path, source)
-            if not body:
-                db.execute("DELETE FROM docs WHERE path=?", (path,))
-                continue
+            source = ''
+            if is_text:
+                with resolved.open('rb') as stream:
+                    source = stream.read(READ_LIMIT).decode('utf-8', errors='replace')
+            body = synopsis(path, source) or words(path)
             digest = hashlib.sha256(body.encode()).hexdigest()
             if old and old['digest'] == digest:
                 db.execute("UPDATE docs SET stamp=? WHERE path=?", (stamp, path))
@@ -167,7 +172,7 @@ class Search:
             count = db.execute(f"SELECT count(*) FROM docs WHERE {where}", params).fetchone()[0]
             candidate_count = max(50, limit * 5)
             if mode != 'semantic':
-                terms = re.findall(r'\w+', words(query))[:32]
+                terms = [term for term in re.findall(r'\w+', words(query)) if term.lower() not in STOPWORDS][:32]
                 expression = ' OR '.join('"' + term + '"' for term in terms)
                 hits = db.execute(f"""SELECT docs.id FROM fts JOIN docs ON docs.id=fts.rowid
                     WHERE fts MATCH ? AND {where} ORDER BY bm25(fts),docs.path LIMIT ?""",

@@ -1,6 +1,8 @@
 """Opt-in loopback UI. No arbitrary file serving, origins or repository writes."""
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
+from contextlib import closing
+from .search import connect
 from urllib.parse import urlsplit
 
 
@@ -13,7 +15,7 @@ class Handler(BaseHTTPRequestHandler):
         pass  # Query text is never logged.
 
     def respond(self, status, value, mime='application/json'):
-        body = json.dumps(value).encode() if mime == 'application/json' else value
+        body = value if isinstance(value, bytes) else json.dumps(value).encode()
         self.send_response(status)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(body)))
@@ -30,11 +32,14 @@ class Handler(BaseHTTPRequestHandler):
         if not self.trusted(): self.respond(403, {'error':'Untrusted origin'}); return
         name = urlsplit(self.path).path
         if name == '/api/status':
-            self.respond(200, {'semantic':self.server.engine.embedder is not None}); return
-        if name not in {'/', '/architecture.html', '/graph.html'}:
+            with closing(connect(self.server.engine.output, readonly=True)) as db:
+                total, ready = db.execute('SELECT count(*),sum(vector IS NOT NULL) FROM docs').fetchone()
+            self.respond(200, {'semantic':self.server.engine.embedder is not None and total > 0 and total == ready}); return
+        if name not in {'/', '/architecture.html', '/graph.html', '/graph.json', '/architecture.mmd', '/architecture.md'}:
             self.respond(404, {'error':'Not found'}); return
         file = self.server.engine.output / ('architecture.html' if name == '/' else name[1:])
-        self.respond(200, file.read_bytes(), 'text/html; charset=utf-8')
+        mime = 'text/html; charset=utf-8' if file.suffix == '.html' else 'application/json' if file.suffix == '.json' else 'text/plain; charset=utf-8'
+        self.respond(200, file.read_bytes(), mime)
 
     def do_POST(self):
         if not self.trusted(): self.respond(403, {'error':'Untrusted origin'}); return

@@ -1,0 +1,597 @@
+{
+  "repository": "terraform-provider-aws",
+  "commit": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+  "judgments_sha256": "c47857a8b9743193b285e159af301b3f8d3658d92e6b893d149e084b2e27baaa",
+  "files": 20370,
+  "directories": 6657,
+  "import_links": 6944,
+  "scan": {
+    "scanned": 0,
+    "reused": 9528,
+    "truncated": 441,
+    "code_files": 9528
+  },
+  "search_corpus": {
+    "documents": 20370,
+    "scanned": 3672,
+    "reused": 16698,
+    "deleted": 0,
+    "truncated": 447,
+    "seconds": 1.064
+  },
+  "index_bytes": 100900864,
+  "html_bytes": 4030121,
+  "cold_cli_seconds": 0.804,
+  "modes": {
+    "keyword": {
+      "hit_rate_at_5": 0.5,
+      "mrr_at_10": 0.3770833333333333,
+      "warm_latency_p50_seconds": 0.0087,
+      "warm_latency_p95_seconds": 0.0195,
+      "queries": [
+        {
+          "query": "manage encrypted key material and rotate encryption keys",
+          "relevant": [
+            "internal/service/kms/",
+            "website/docs/r/kms_"
+          ],
+          "first_relevant_rank": 1,
+          "hit_at_5": true,
+          "reciprocal_rank": 1.0,
+          "paths": [
+            "website/docs/r/kms_external_key.html.markdown",
+            "website/docs/r/ebs_default_kms_key.html.markdown",
+            "website/docs/r/kms_key.html.markdown",
+            "website/docs/r/xray_encryption_config.html.markdown",
+            "website/docs/r/cloudfront_field_level_encryption_profile.html.markdown",
+            "internal/service/iam/encryption.go",
+            "website/docs/r/glue_data_catalog_encryption_settings.html.markdown",
+            "website/docs/r/glue_security_configuration.html.markdown",
+            "website/docs/r/s3_bucket_server_side_encryption_configuration.html.markdown",
+            "internal/service/kms/secrets_data_source_test.go"
+          ]
+        },
+        {
+          "query": "configure a private virtual network address range",
+          "relevant": [
+            "internal/service/ec2/vpc",
+            "website/docs/r/vpc."
+          ],
+          "first_relevant_rank": 10,
+          "hit_at_5": false,
+          "reciprocal_rank": 0.1,
+          "paths": [
+            "website/docs/r/dx_private_virtual_interface.html.markdown",
+            "website/docs/r/dx_hosted_private_virtual_interface.html.markdown",
+            "website/docs/d/prefix_list.html.markdown",
+            "website/docs/r/dx_bgp_peer.html.markdown",
+            "website/docs/r/network_interface.html.markdown",
+            "website/docs/d/ec2_public_ipv4_pool.html.markdown",
+            "website/docs/r/dx_hosted_private_virtual_interface_accepter.html.markdown",
+            "internal/service/directconnect/public_virtual_interface_test.go",
+            "website/docs/r/dx_public_virtual_interface.html.markdown",
+            "internal/service/ec2/vpc_network_interface.go"
+          ]
+        },
+        {
+          "query": "store objects in a bucket with version history",
+          "relevant": [
+            "internal/service/s3/bucket_versioning",
+            "website/docs/r/s3_bucket_versioning"
+          ],
+          "first_relevant_rank": 0,
+          "hit_at_5": false,
+          "reciprocal_rank": 0,
+          "paths": [
+            "internal/service/cloudfront/trust_store_test.go",
+            "website/docs/r/lb_trust_store_revocation.html.markdown",
+            "website/docs/r/lb_trust_store.html.markdown",
+            "website/docs/r/cloudfront_trust_store.html.markdown",
+            "internal/service/elbv2/testdata/TrustStore/basic/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/basic_v6.3.0/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/region_override/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/tagsComputed1/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/tagsComputed2/main_gen.tf",
+            "internal/service/s3/delete.go"
+          ]
+        },
+        {
+          "query": "grant access permissions by attaching a policy to a role",
+          "relevant": [
+            "internal/service/iam/role_policy_attachment",
+            "website/docs/r/iam_role_policy_attachment"
+          ],
+          "first_relevant_rank": 0,
+          "hit_at_5": false,
+          "reciprocal_rank": 0,
+          "paths": [
+            "website/docs/r/s3control_access_grants_location.html.markdown",
+            "website/docs/d/lakeformation_permissions.html.markdown",
+            "website/docs/r/s3control_access_grant.html.markdown",
+            "website/docs/r/network_interface_permission.html.markdown",
+            "website/docs/r/opensearchserverless_access_policy.html.markdown",
+            "examples/alexa/main.tf",
+            "internal/service/s3control/access_grants_location_test.go",
+            "website/docs/r/s3control_access_grants_instance_resource_policy.html.markdown",
+            "internal/service/s3control/access_grants_instance_resource_policy.go",
+            "internal/service/s3control/access_grants_instance_resource_policy_test.go"
+          ]
+        },
+        {
+          "query": "host a serverless function with environment variables",
+          "relevant": [
+            "internal/service/lambda/function",
+            "website/docs/r/lambda_function"
+          ],
+          "first_relevant_rank": 4,
+          "hit_at_5": true,
+          "reciprocal_rank": 0.25,
+          "paths": [
+            "website/docs/ephemeral-resources/lambda_invocation.html.markdown",
+            "internal/service/codebuild/exports_test.go",
+            "internal/service/codebuild/start_build_action_test.go",
+            "website/docs/r/lambda_function.html.markdown",
+            "internal/tags/key_value_tags.go",
+            "internal/service/lambda/function_test.go",
+            "docs/acc-test-environment-variables.md",
+            "website/docs/r/lambda_invocation.html.markdown",
+            "internal/vcr/envvar.go",
+            "website/docs/r/amplify_app.html.markdown"
+          ]
+        },
+        {
+          "query": "provision a managed relational database cluster",
+          "relevant": [
+            "internal/service/rds/cluster",
+            "website/docs/r/rds_cluster"
+          ],
+          "first_relevant_rank": 6,
+          "hit_at_5": false,
+          "reciprocal_rank": 0.16666666666666666,
+          "paths": [
+            "website/docs/d/rds_global_cluster.html.markdown",
+            "website/docs/list-resources/rds_cluster.html.markdown",
+            "website/docs/list-resources/rds_cluster_instance.html.markdown",
+            "website/docs/d/rds_clusters.html.markdown",
+            "website/docs/r/rds_global_cluster.html.markdown",
+            "website/docs/r/rds_cluster_snapshot_copy.html.markdown",
+            "website/docs/r/db_cluster_snapshot.html.markdown",
+            "website/docs/d/db_cluster_snapshot.html.markdown",
+            "website/docs/r/rds_cluster_activity_stream.html.markdown",
+            "website/docs/d/rds_cluster.html.markdown"
+          ]
+        },
+        {
+          "query": "aws_sqs_queue",
+          "relevant": [
+            "internal/service/sqs/queue",
+            "website/docs/r/sqs_queue"
+          ],
+          "first_relevant_rank": 1,
+          "hit_at_5": true,
+          "reciprocal_rank": 1.0,
+          "paths": [
+            "website/docs/r/sqs_queue.html.markdown",
+            "website/docs/r/sqs_queue_redrive_allow_policy.html.markdown",
+            "website/docs/list-resources/sqs_queue.html.markdown",
+            "website/docs/list-resources/sqs_queue_policy.html.markdown",
+            "website/docs/r/sqs_queue_redrive_policy.html.markdown",
+            "internal/service/sqs/queues_data_source_test.go",
+            "internal/service/sqs/testdata/QueueRedrivePolicy/basic/main_gen.tf",
+            "internal/service/sqs/testdata/QueueRedriveAllowPolicy/basic/main_gen.tf",
+            "internal/service/sqs/testdata/QueueRedrivePolicy/basic_v6.18.0/main_gen.tf",
+            "internal/service/sqs/testdata/QueueRedrivePolicy/basic_v6.9.0/main_gen.tf"
+          ]
+        },
+        {
+          "query": "resourceBucketVersioning",
+          "relevant": [
+            "internal/service/s3/bucket_versioning"
+          ],
+          "first_relevant_rank": 2,
+          "hit_at_5": true,
+          "reciprocal_rank": 0.5,
+          "paths": [
+            "website/docs/r/s3_bucket_versioning.html.markdown",
+            "internal/service/s3/bucket_versioning_test.go",
+            "internal/service/s3/bucket_versioning_list.go",
+            "internal/service/s3/bucket_versioning.go",
+            "website/docs/list-resources/s3_bucket_versioning.html.markdown",
+            "internal/service/s3/testdata/BucketObject/basic/main_gen.tf",
+            "internal/service/s3/testdata/BucketVersioning/basic/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/basic_v6.0.0/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/region_override/main_gen.tf",
+            "internal/service/s3/bucket_versioning_list_test.go"
+          ]
+        }
+      ]
+    },
+    "semantic": {
+      "hit_rate_at_5": 0.375,
+      "mrr_at_10": 0.4253472222222222,
+      "warm_latency_p50_seconds": 0.0702,
+      "warm_latency_p95_seconds": 0.0734,
+      "queries": [
+        {
+          "query": "manage encrypted key material and rotate encryption keys",
+          "relevant": [
+            "internal/service/kms/",
+            "website/docs/r/kms_"
+          ],
+          "first_relevant_rank": 8,
+          "hit_at_5": false,
+          "reciprocal_rank": 0.125,
+          "paths": [
+            "internal/service/secretsmanager/secret_rotation_data_source.go",
+            "internal/service/paymentcryptography/testdata/Key/region_override/main_gen.tf",
+            "website/docs/r/paymentcryptography_key.html.markdown",
+            "internal/service/glue/data_catalog_encryption_settings_data_source.go",
+            "website/docs/ephemeral-resources/kms_secrets.html.markdown",
+            "internal/service/secretsmanager/secret_rotation_migrate.go",
+            "internal/service/paymentcryptography/key_alias.go",
+            "website/docs/r/kms_ciphertext.html.markdown",
+            "internal/service/glue/data_catalog_encryption_settings.go",
+            "internal/service/sfn/flex.go"
+          ]
+        },
+        {
+          "query": "configure a private virtual network address range",
+          "relevant": [
+            "internal/service/ec2/vpc",
+            "website/docs/r/vpc."
+          ],
+          "first_relevant_rank": 0,
+          "hit_at_5": false,
+          "reciprocal_rank": 0,
+          "paths": [
+            "internal/service/directconnect/public_virtual_interface_test.go",
+            "website/docs/r/network_interface.html.markdown",
+            "website/docs/r/dx_private_virtual_interface.html.markdown",
+            "examples/networking/subnet/variables.tf",
+            "website/docs/r/dx_hosted_private_virtual_interface.html.markdown",
+            "examples/two-tier/main.tf",
+            "internal/service/networkmanager/testdata/VPCAttachment/tags_defaults/main_gen.tf",
+            "internal/service/networkmanager/testdata/VPCAttachment/tags_ignore/main_gen.tf",
+            "website/docs/r/dx_public_virtual_interface.html.markdown",
+            "internal/service/networkmanager/testdata/VPCAttachment/tags/main_gen.tf"
+          ]
+        },
+        {
+          "query": "store objects in a bucket with version history",
+          "relevant": [
+            "internal/service/s3/bucket_versioning",
+            "website/docs/r/s3_bucket_versioning"
+          ],
+          "first_relevant_rank": 6,
+          "hit_at_5": false,
+          "reciprocal_rank": 0.16666666666666666,
+          "paths": [
+            "internal/service/s3/bucket_object_data_source.go",
+            "version/VERSION",
+            "internal/service/s3/test-fixtures/populate_bucket.py",
+            "internal/service/s3/testdata/BucketVersioning/list_basic/query.tfquery.hcl",
+            "internal/service/s3/testdata/BucketObject/tagsComputed1/main_gen.tf",
+            "internal/service/s3/bucket_versioning.go",
+            "internal/service/s3/testdata/BucketVersioning/list_basic/main.tf",
+            "internal/service/s3/testdata/BucketObject/basic/main_gen.tf",
+            "internal/service/s3/testdata/BucketVersioning/list_include_resource/main.tf",
+            "internal/service/s3/testdata/BucketObject/tagsComputed2/main_gen.tf"
+          ]
+        },
+        {
+          "query": "grant access permissions by attaching a policy to a role",
+          "relevant": [
+            "internal/service/iam/role_policy_attachment",
+            "website/docs/r/iam_role_policy_attachment"
+          ],
+          "first_relevant_rank": 1,
+          "hit_at_5": true,
+          "reciprocal_rank": 1.0,
+          "paths": [
+            "website/docs/r/iam_role_policy_attachment.html.markdown",
+            "examples/alexa/main.tf",
+            "internal/service/quicksight/role_custom_permission.go",
+            "internal/service/iam/testdata/tmpl/role_policy_attachment_basic.gtpl",
+            "internal/service/iam/testdata/RolePolicyAttachment/list_basic/main.tfquery.hcl",
+            "website/docs/r/iam_policy_attachment.html.markdown",
+            "internal/service/iam/testdata/RolePolicyAttachment/list_include_resource/main.tfquery.hcl",
+            "internal/service/iam/role_policy_attachment_test.go",
+            "website/docs/r/iam_role_policy.html.markdown",
+            "website/docs/r/iam_role.html.markdown"
+          ]
+        },
+        {
+          "query": "host a serverless function with environment variables",
+          "relevant": [
+            "internal/service/lambda/function",
+            "website/docs/r/lambda_function"
+          ],
+          "first_relevant_rank": 9,
+          "hit_at_5": false,
+          "reciprocal_rank": 0.1111111111111111,
+          "paths": [
+            "examples/opensearchserverless/variables.tf",
+            "internal/service/serverlessrepo/exports_test.go",
+            "internal/service/opensearchserverless/const.go",
+            "examples/opensearchserverless/outputs.tf",
+            "internal/service/serverlessrepo/service_endpoint_resolver_gen.go",
+            "internal/service/emrserverless/exports_test.go",
+            "internal/service/redshift/testdata/tmpl/namespace_registration_serverless.gtpl",
+            "examples/networking/region/variables.tf",
+            "website/docs/r/lambda_function.html.markdown",
+            "internal/service/opensearchserverless/exports_test.go"
+          ]
+        },
+        {
+          "query": "provision a managed relational database cluster",
+          "relevant": [
+            "internal/service/rds/cluster",
+            "website/docs/r/rds_cluster"
+          ],
+          "first_relevant_rank": 0,
+          "hit_at_5": false,
+          "reciprocal_rank": 0,
+          "paths": [
+            "website/docs/r/odb_cloud_autonomous_vm_cluster.html.markdown",
+            "website/docs/r/msk_cluster_policy.html.markdown",
+            "website/docs/d/odb_cloud_autonomous_vm_clusters.html.markdown",
+            "examples/transit-gateway-intra-region-peering/variables.tf",
+            "examples/networking/regions.tf",
+            "website/docs/d/odb_cloud_autonomous_vm_cluster.html.markdown",
+            "website/docs/r/msk_cluster.html.markdown",
+            "internal/service/dsql/testdata/tmpl/cluster_policy_basic.gtpl",
+            "website/docs/d/odb_cloud_vm_clusters.html.markdown",
+            "examples/odb/autonomous_vm_cluster.tf"
+          ]
+        },
+        {
+          "query": "aws_sqs_queue",
+          "relevant": [
+            "internal/service/sqs/queue",
+            "website/docs/r/sqs_queue"
+          ],
+          "first_relevant_rank": 1,
+          "hit_at_5": true,
+          "reciprocal_rank": 1.0,
+          "paths": [
+            "website/docs/r/sqs_queue.html.markdown",
+            "internal/service/sqs/testdata/Queue/basic_v6.18.0/main_gen.tf",
+            "internal/service/sqs/testdata/Queue/basic_v6.9.0/main_gen.tf",
+            "internal/service/sqs/queues_data_source.go",
+            "internal/service/sqs/queue_data_source.go",
+            "website/docs/r/sqs_queue_policy.html.markdown",
+            "internal/service/sqs/testdata/Queue/list_basic/main.tf",
+            "internal/service/sqs/testdata/Queue/basic/main_gen.tf",
+            "internal/service/sqs/queue_list.go",
+            "internal/service/sqs/testdata/Queue/list_include_resource/main.tf"
+          ]
+        },
+        {
+          "query": "resourceBucketVersioning",
+          "relevant": [
+            "internal/service/s3/bucket_versioning"
+          ],
+          "first_relevant_rank": 1,
+          "hit_at_5": true,
+          "reciprocal_rank": 1.0,
+          "paths": [
+            "internal/service/s3/bucket_versioning.go",
+            "internal/service/sagemaker/image_version_migrate.go",
+            "internal/service/s3/bucket_versioning_list.go",
+            "internal/service/s3/testdata/BucketVersioning/basic_v6.9.0/main_gen.tf",
+            "internal/service/s3/testdata/BucketVersioning/basic_v6.30.0/main_gen.tf",
+            "internal/service/s3/testdata/BucketVersioning/basic/main_gen.tf",
+            "website/docs/r/s3_bucket_versioning.html.markdown",
+            "internal/service/s3/testdata/BucketVersioning/list_include_resource/query.tfquery.hcl",
+            "internal/service/s3/bucket_versioning_test.go",
+            "internal/service/rds/instance_migrate.go"
+          ]
+        }
+      ]
+    },
+    "hybrid": {
+      "hit_rate_at_5": 0.625,
+      "mrr_at_10": 0.575,
+      "warm_latency_p50_seconds": 0.07145,
+      "warm_latency_p95_seconds": 0.081,
+      "queries": [
+        {
+          "query": "manage encrypted key material and rotate encryption keys",
+          "relevant": [
+            "internal/service/kms/",
+            "website/docs/r/kms_"
+          ],
+          "first_relevant_rank": 1,
+          "hit_at_5": true,
+          "reciprocal_rank": 1.0,
+          "paths": [
+            "website/docs/r/kms_external_key.html.markdown",
+            "website/docs/r/xray_encryption_config.html.markdown",
+            "website/docs/r/kms_key.html.markdown",
+            "website/docs/r/kms_replica_external_key.html.markdown",
+            "website/docs/r/paymentcryptography_key.html.markdown",
+            "website/docs/ephemeral-resources/kms_secrets.html.markdown",
+            "website/docs/r/glue_data_catalog_encryption_settings.html.markdown",
+            "website/docs/r/secretsmanager_secret_rotation.html.markdown",
+            "website/docs/d/kms_secrets.html.markdown",
+            "website/docs/r/kms_ciphertext.html.markdown"
+          ]
+        },
+        {
+          "query": "configure a private virtual network address range",
+          "relevant": [
+            "internal/service/ec2/vpc",
+            "website/docs/r/vpc."
+          ],
+          "first_relevant_rank": 10,
+          "hit_at_5": false,
+          "reciprocal_rank": 0.1,
+          "paths": [
+            "website/docs/r/dx_private_virtual_interface.html.markdown",
+            "website/docs/r/dx_hosted_private_virtual_interface.html.markdown",
+            "website/docs/r/network_interface.html.markdown",
+            "internal/service/directconnect/public_virtual_interface_test.go",
+            "website/docs/r/dx_public_virtual_interface.html.markdown",
+            "website/docs/r/nat_gateway.html.markdown",
+            "website/docs/r/dx_bgp_peer.html.markdown",
+            "website/docs/r/dx_hosted_private_virtual_interface_accepter.html.markdown",
+            "website/docs/r/vpc_ipv6_cidr_block_association.html.markdown",
+            "internal/service/ec2/vpc_network_interface_list_test.go"
+          ]
+        },
+        {
+          "query": "store objects in a bucket with version history",
+          "relevant": [
+            "internal/service/s3/bucket_versioning",
+            "website/docs/r/s3_bucket_versioning"
+          ],
+          "first_relevant_rank": 0,
+          "hit_at_5": false,
+          "reciprocal_rank": 0,
+          "paths": [
+            "internal/service/s3/testdata/BucketObject/basic/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/basic/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/tagsComputed1/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/tagsComputed1/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/basic_v6.0.0/main_gen.tf",
+            "internal/service/s3/testdata/Object/basic/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/tagsComputed2/main_gen.tf",
+            "internal/service/s3/test-fixtures/populate_bucket.py",
+            "internal/service/s3/testdata/BucketObject/region_override/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/basic_v6.3.0/main_gen.tf"
+          ]
+        },
+        {
+          "query": "grant access permissions by attaching a policy to a role",
+          "relevant": [
+            "internal/service/iam/role_policy_attachment",
+            "website/docs/r/iam_role_policy_attachment"
+          ],
+          "first_relevant_rank": 2,
+          "hit_at_5": true,
+          "reciprocal_rank": 0.5,
+          "paths": [
+            "examples/alexa/main.tf",
+            "website/docs/r/iam_role_policy_attachment.html.markdown",
+            "website/docs/d/iam_role_policy_attachments.html.markdown",
+            "website/docs/r/ssoadmin_permissions_boundary_attachment.html.markdown",
+            "website/docs/r/iam_policy_attachment.html.markdown",
+            "internal/service/iam/testdata/RolePolicyAttachment/list_basic/main.tf",
+            "website/docs/r/accountaccess_entitlement.html.markdown",
+            "website/docs/r/iam_role_policy_attachments_exclusive.html.markdown",
+            "website/docs/list-resources/iam_role_policy_attachment.html.markdown",
+            "website/docs/r/ssoadmin_customer_managed_policy_attachment.html.markdown"
+          ]
+        },
+        {
+          "query": "host a serverless function with environment variables",
+          "relevant": [
+            "internal/service/lambda/function",
+            "website/docs/r/lambda_function"
+          ],
+          "first_relevant_rank": 1,
+          "hit_at_5": true,
+          "reciprocal_rank": 1.0,
+          "paths": [
+            "website/docs/r/lambda_function.html.markdown",
+            "internal/envvar/envvar.go",
+            "website/docs/r/serverlessapplicationrepository_cloudformation_stack.html.markdown",
+            "examples/opensearchserverless/variables.tf",
+            "website/docs/ephemeral-resources/lambda_invocation.html.markdown",
+            "internal/service/codebuild/exports_test.go",
+            "internal/service/serverlessrepo/exports_test.go",
+            "internal/service/codebuild/start_build_action_test.go",
+            "internal/service/opensearchserverless/const.go",
+            "examples/opensearchserverless/outputs.tf"
+          ]
+        },
+        {
+          "query": "provision a managed relational database cluster",
+          "relevant": [
+            "internal/service/rds/cluster",
+            "website/docs/r/rds_cluster"
+          ],
+          "first_relevant_rank": 0,
+          "hit_at_5": false,
+          "reciprocal_rank": 0,
+          "paths": [
+            "website/docs/d/rds_clusters.html.markdown",
+            "website/docs/d/odb_cloud_autonomous_vm_cluster.html.markdown",
+            "website/docs/r/odb_cloud_autonomous_vm_cluster.html.markdown",
+            "website/docs/d/odb_cloud_autonomous_vm_clusters.html.markdown",
+            "website/docs/d/rds_cluster.html.markdown",
+            "website/docs/d/db_cluster_snapshot.html.markdown",
+            "website/docs/list-resources/rds_cluster_instance.html.markdown",
+            "website/docs/d/odb_cloud_vm_cluster.html.markdown",
+            "website/docs/r/odb_cloud_vm_cluster.html.markdown",
+            "website/docs/d/odb_cloud_vm_clusters.html.markdown"
+          ]
+        },
+        {
+          "query": "aws_sqs_queue",
+          "relevant": [
+            "internal/service/sqs/queue",
+            "website/docs/r/sqs_queue"
+          ],
+          "first_relevant_rank": 1,
+          "hit_at_5": true,
+          "reciprocal_rank": 1.0,
+          "paths": [
+            "website/docs/r/sqs_queue.html.markdown",
+            "website/docs/list-resources/sqs_queue_policy.html.markdown",
+            "website/docs/r/sqs_queue_policy.html.markdown",
+            "website/docs/list-resources/sqs_queue.html.markdown",
+            "website/docs/r/sqs_queue_redrive_policy.html.markdown",
+            "internal/service/sqs/queue_list.go",
+            "website/docs/r/sqs_queue_redrive_allow_policy.html.markdown",
+            "internal/service/sqs/queues_data_source_test.go",
+            "internal/service/sqs/testdata/Queue/basic_v6.18.0/main_gen.tf",
+            "internal/service/sqs/queue_data_source.go"
+          ]
+        },
+        {
+          "query": "resourceBucketVersioning",
+          "relevant": [
+            "internal/service/s3/bucket_versioning"
+          ],
+          "first_relevant_rank": 1,
+          "hit_at_5": true,
+          "reciprocal_rank": 1.0,
+          "paths": [
+            "internal/service/s3/bucket_versioning.go",
+            "internal/service/s3/bucket_versioning_list.go",
+            "website/docs/r/s3_bucket_versioning.html.markdown",
+            "internal/service/s3/bucket_versioning_test.go",
+            "internal/service/s3/testdata/BucketVersioning/basic/main_gen.tf",
+            "internal/service/s3/testdata/BucketVersioning/basic_v6.9.0/main_gen.tf",
+            "internal/service/s3/testdata/BucketVersioning/basic_v6.30.0/main_gen.tf",
+            "internal/service/s3/testdata/BucketVersioning/region_override/main_gen.tf",
+            "internal/service/s3/bucket_versioning_list_test.go",
+            "internal/service/s3/testdata/BucketObject/basic_v6.0.0/main_gen.tf"
+          ]
+        }
+      ]
+    }
+  },
+  "embedding_runtime": {
+    "model": "BAAI/bge-small-en-v1.5",
+    "threads": 4,
+    "provider": "CPUExecutionProvider",
+    "python": "3.12.14",
+    "platform": "Linux x86_64",
+    "fastembed": "0.7.4",
+    "onnxruntime": "1.30.0",
+    "numpy": "2.5.3",
+    "model_files_sha256": {
+      "model_optimized.onnx": "51f1bd0addd6e859e42c2c8021a5e5461385bb676a649f4b269aa445449f2431"
+    }
+  },
+  "embedded_documents": 20370,
+  "checks": {
+    "all_files_in_system": true,
+    "system_node_cap": true,
+    "all_corpus_embedded": true,
+    "hybrid_hit_at_5_at_least_75_percent": false,
+    "hybrid_warm_p95_under_one_second": true
+  }
+}

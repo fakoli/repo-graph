@@ -1,0 +1,21 @@
+{
+  "files": 25788,
+  "searchMode": "hybrid",
+  "loadMs": 185,
+  "checks": [
+    "inventory count",
+    "JSON and Mermaid downloads",
+    "view system",
+    "view atlas",
+    "view tree",
+    "view radial",
+    "view treemap",
+    "view table",
+    "view matrix",
+    "search to source diagram",
+    "query preserved",
+    "narrow viewport search",
+    "no browser errors; load under 5 seconds"
+  ],
+  "browserErrors": []
+}
