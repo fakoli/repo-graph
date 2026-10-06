@@ -1,0 +1,10 @@
+{
+  "name":"repo-graph-agent",
+  "version":"0.4.0",
+  "private":true,
+  "license":"MIT",
+  "keywords":["pi-package"],
+  "pi":{"skills":["./skills"]},
+  "scripts":{"test":"node tests/test_repo_graph_views.cjs", "test:ux":"node tests/ux.mjs"},
+  "devDependencies":{"playwright":"1.63.0"}
+}

@@ -1,0 +1,114 @@
+{
+  "terraform-provider-aws": [
+    {
+      "query": "manage encrypted key material and rotate encryption keys",
+      "relevant": [
+        "internal/service/kms/",
+        "website/docs/r/kms_"
+      ]
+    },
+    {
+      "query": "configure a private virtual network address range",
+      "relevant": [
+        "internal/service/ec2/vpc",
+        "website/docs/r/vpc."
+      ]
+    },
+    {
+      "query": "store objects in a bucket with version history",
+      "relevant": [
+        "internal/service/s3/bucket_versioning",
+        "website/docs/r/s3_bucket_versioning"
+      ]
+    },
+    {
+      "query": "grant access permissions by attaching a policy to a role",
+      "relevant": [
+        "internal/service/iam/role_policy_attachment",
+        "website/docs/r/iam_role_policy_attachment"
+      ]
+    },
+    {
+      "query": "host a serverless function with environment variables",
+      "relevant": [
+        "internal/service/lambda/function",
+        "website/docs/r/lambda_function"
+      ]
+    },
+    {
+      "query": "provision a managed relational database cluster",
+      "relevant": [
+        "internal/service/rds/cluster",
+        "website/docs/r/rds_cluster"
+      ]
+    },
+    {
+      "query": "aws_sqs_queue",
+      "relevant": [
+        "internal/service/sqs/queue",
+        "website/docs/r/sqs_queue"
+      ]
+    },
+    {
+      "query": "resourceBucketVersioning",
+      "relevant": [
+        "internal/service/s3/bucket_versioning"
+      ]
+    }
+  ],
+  "kubernetes": [
+    {
+      "query": "choose which machine will run a pending workload",
+      "relevant": [
+        "pkg/scheduler/"
+      ]
+    },
+    {
+      "query": "replace unhealthy application replicas to maintain desired count",
+      "relevant": [
+        "pkg/controller/replicaset/",
+        "pkg/controller/replication/"
+      ]
+    },
+    {
+      "query": "serve external HTTP traffic through routing rules",
+      "relevant": [
+        "pkg/apis/networking/",
+        "staging/src/k8s.io/api/networking/"
+      ]
+    },
+    {
+      "query": "mount persistent storage volumes into containers",
+      "relevant": [
+        "pkg/volume/",
+        "pkg/kubelet/volumemanager/"
+      ]
+    },
+    {
+      "query": "enforce permissions before accepting an API request",
+      "relevant": [
+        "staging/src/k8s.io/apiserver/pkg/authorization/",
+        "plugin/pkg/auth/authorizer/"
+      ]
+    },
+    {
+      "query": "restart failing containers and run health checks",
+      "relevant": [
+        "pkg/kubelet/prober/",
+        "pkg/kubelet/kuberuntime/"
+      ]
+    },
+    {
+      "query": "kube-scheduler",
+      "relevant": [
+        "cmd/kube-scheduler/"
+      ]
+    },
+    {
+      "query": "DeploymentController",
+      "relevant": [
+        "pkg/controller/deployment/"
+      ]
+    }
+  ]
+}

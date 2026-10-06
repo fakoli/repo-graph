@@ -1,0 +1,4 @@
+interface:
+  display_name: "Repo Graph"
+  short_description: "Map a repo into a graph and architecture diagram"
+  default_prompt: "Use $repo-graph to map this repository."

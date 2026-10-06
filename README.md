@@ -1,0 +1,143 @@
+# Repo Graph
+
+Local system diagrams and semantic search for large repositories, packaged for
+Codex and Pi coding agents. Map a repository without sending it to a model;
+search its generated index by meaning or exact identifiers and jump from a
+result to its file in the diagram.
+
+## Install and use
+
+```bash
+uv tool install 'repo-graph-agent[semantic] @ git+https://github.com/fakoli/repo-graph@v0.4.0'
+repo-graph map /path/to/repository
+```
+
+Use the output directory printed by the scan:
+
+```bash
+repo-graph index OUTPUT --semantic
+repo-graph search OUTPUT 'where are access permissions checked?' --limit 5
+repo-graph serve OUTPUT
+```
+
+The viewer prints a loopback URL. Search results open their source file in the
+diagram. The generated HTML also works directly from disk for diagrams.
+`repo-graph map https://github.com/owner/repository` clones a public repository
+into the user cache; `--refresh` updates it. An omitted path maps the caller's
+current directory. `--output DIR` must be outside the source repository.
+
+Mapping and keyword search need Python 3.10+ and no Python dependencies. Git
+is required for HTTPS input. The optional semantic extra uses pinned FastEmbed
+and NumPy for batched ONNX CPU inference and vector scoring. First embedding
+index creation downloads the public BGE-small model; queries and the viewer
+use cached model files only. No GPU or embedding service is required. To install
+without uv, use `python3 -m pip install 'repo-graph-agent[semantic] @ git+https://github.com/fakoli/repo-graph@v0.4.0'`.
+
+## Coding agent plugins
+
+From the existing marketplace:
+
+```bash
+codex plugin marketplace add fakoli/agent-plugins
+codex plugin add repo-graph@fakoli-agent-plugins
+```
+
+Then use `$repo-graph` or `$repo-graph /path/to/repository` in a fresh task.
+This repository is also a standalone Codex marketplace with the same plugin.
+
+For Pi:
+
+```bash
+pi install git:github.com/fakoli/repo-graph@v0.4.0
+```
+
+Start a fresh session and use `/skill:repo-graph`. The native skill resolves
+packaged scripts from its own location while keeping the caller's working
+directory. It uses the ordinary read/bash permissions of the host agent.
+It registers no hooks, new tools or background processes. Skills automatically
+install optional dependencies through `uv run --project … --extra semantic`;
+no copying scripts into the repository is needed. The agent's configured model
+still handles instructions; the scanner/search pipeline makes no generation calls.
+
+## Views and search
+
+System groups up to 12 source areas and their observed imports. Explore offers
+card, tree, radial and file-count treemap layouts. Data includes a table and
+directed dependency matrix; export filtered scope data as CSV or the viewport
+as SVG. The Search tab queries the whole indexed corpus through the opt-in
+loopback viewer. It preserves the query when returning from a diagram.
+
+Search modes are `hybrid` (default), `semantic` and `keyword`:
+
+```bash
+repo-graph search OUTPUT 'cache invalidation' --prefix packages/cache --mode hybrid --limit 5
+```
+
+JSON results include paths, bounded evidence with line references, rank scores,
+similarity and timing. These scores are ranking signals, not proof of correctness.
+The CLI caps results at 50 and queries at 1,000 characters. Semantic search requires
+a complete index; missing/stale vectors cause an actionable error. Re-map after
+editing source, then repeat `index --semantic`: unchanged summaries reuse their
+vectors, changed summaries are re-embedded, and deleted files leave the index.
+Indexing commits batches so interrupted work can resume. Keyword search works
+immediately after mapping.
+
+## Scale and limits
+
+The scanner processes 512-file batches and reads at most 64 KiB per supported
+source file, caching Go/Python/JavaScript/TypeScript imports. Other languages
+appear in the structural map and supported text languages in search. Every
+canvas shows at most 24 nodes and 40 links. Full paths and aggregated observed
+imports remain in `graph.json`; Mermaid covers the first root page.
+
+Search stores one bounded file synopsis of comments/declarations/documentation
+and its 384-dimensional vector in SQLite. It does not index every function or
+entire files. Late declarations can be omitted. Exact vector retrieval fetches
+512 vectors per block, bounding transient vector memory; query I/O remains
+linear in the indexed corpus. Full structural inventory is held in memory.
+Generated and hidden paths are excluded; untracked, nonignored source is included.
+This is source architecture and heuristic imports, not verified runtime services
+or call flow. Prefix filtering supports source-area queries. Million-file support
+is not claimed. See [research and scale decisions](docs/research.md) and
+[measured evaluations](evaluations/README.md).
+
+## Data and network boundaries
+
+Outputs and shallow clones live under `~/.cache/repo-graph/` by default. Generated
+HTML/JSON/SQLite data can reveal private names, source evidence and paths: review
+before sharing. The corpus and vectors remain local. Model setup downloads weights
+only. The viewer loads no remote resources. Its single-request server binds only
+to loopback and rejects foreign Host/Origin and non-JSON search requests; it serves
+only the two generated HTML files. Run it only for locally generated output you
+trust. Ctrl+C stops it. Repeated maps replace generated files in the output
+location; do not store unrelated files there. Sources are never executed.
+
+`map --jev` is an independent opt-in. It makes at most one TypeSafe request with
+up to 16 top-level directory names for advisory labels, which can incur API cost.
+It reads only `TYPESAFE_API_KEY` from the environment or its exact entry in `~/.env`,
+without sourcing/logging the file. Project credential access rules still apply.
+Jev cannot create import edges. It is not needed for semantic search.
+
+Uninstall the plugin through the host's package manager. Generated artifacts and
+caches remain available. Rollback is a prior reviewed release pin; no source state
+is changed. To clear local data, delete only the corresponding generated cache
+entry. A failed clone can leave an incomplete cache entry; remove that entry and
+retry. A failed embedding batch preserves previously committed vectors.
+
+## Development and evaluations
+
+```bash
+uv sync --extra semantic --locked
+uv run python -m unittest discover -s tests -v
+npm ci
+npm test
+REPO_GRAPH_PYTHON=.venv/bin/python npm run test:ux
+```
+
+UX tests need Chrome/Chromium at `REPO_GRAPH_CHROME`, or the documented default
+system Chrome path; this is a test dependency only. Retrieval evaluations and
+commands are in [evaluations/README.md](evaluations/README.md). Offline regression
+checks and real public-repository benchmarks cover different requirements.
+
+MIT. [Provenance](UPSTREAM.md) records the original scanner/skill and this release's
+adaptations. No benchmark repositories or model weights are redistributed.

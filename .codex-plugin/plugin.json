@@ -1,0 +1,20 @@
+{
+  "name": "repo-graph",
+  "version": "0.4.0",
+  "description": "Offline repository diagrams and incremental local semantic search for large codebases.",
+  "author": {
+    "name": "Fakoli"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Repo Graph",
+    "shortDescription": "Local repository graphs and architecture diagrams",
+    "longDescription": "Explore system, card, tree, radial and treemap diagrams, table and matrix data, then find source files with local semantic and keyword search. Bounded agent results, reusable indexes and offline CPU embeddings.",
+    "developerName": "Fakoli",
+    "category": "Productivity",
+    "capabilities": [
+      "Write"
+    ],
+    "defaultPrompt": "Use $repo-graph to map this repository."
+  }
+}

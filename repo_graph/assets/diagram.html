@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Repository architecture</title>
+<style>
+  :root { --ink:#182239; --muted:#68758a; --line:#dce2eb; --paper:#f8f9fc; --accent:#4c63e8; --accent-pale:#e9edff; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; width:100%; height:100%; }
+  body { color:var(--ink); background:var(--paper); font:14px/1.45 "Avenir Next","Segoe UI",sans-serif; }
+  button,input,a { font:inherit; }
+  button { cursor:pointer; }
+  button:focus-visible,a:focus-visible,input:focus-visible { outline:3px solid #7190ff; outline-offset:2px; }
+  .app { height:100vh; min-height:660px; display:grid; grid-template-rows:70px minmax(0,1fr); }
+  .topbar { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:0 26px; background:#fff; border-bottom:1px solid var(--line); z-index:2; }
+  .brand { display:flex; align-items:center; gap:13px; min-width:0; }
+  .brand-mark { width:34px; height:34px; display:grid; place-items:center; flex:none; color:#fff; font:700 18px/1 Georgia,serif; background:#242b55; border-radius:10px; box-shadow:3px 3px 0 #b8c2ff; }
+  .brand-name { font:700 12px/1.15 "Avenir Next","Segoe UI",sans-serif; letter-spacing:.16em; text-transform:uppercase; }
+  .brand-sub { color:var(--muted); font-size:12px; margin-top:3px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; max-width:260px; }
+  .header-actions { display:flex; align-items:center; gap:9px; flex-wrap:wrap; justify-content:flex-end; }
+  .scope { color:#4058bc; background:var(--accent-pale); border:1px solid #d6ddff; border-radius:999px; padding:5px 10px; font:700 10px/1.1 "SFMono-Regular",Consolas,monospace; letter-spacing:.08em; text-transform:uppercase; }
+  .top-link,.top-button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:34px; padding:0 12px; border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--ink); text-decoration:none; font-size:12px; font-weight:700; transition:background .18s,border-color .18s,transform .18s; }
+  .top-link:hover,.top-button:hover { background:#f2f5ff; border-color:#b7c5f6; transform:translateY(-1px); }
+  .top-button.primary { background:#273469; border-color:#273469; color:#fff; box-shadow:3px 3px 0 #b8c2ff; }
+  .top-button.primary:hover { background:#3648a2; }
+  .top-button:disabled { opacity:.4; cursor:default; }
+  .inspector-toggle,.inspector-close { display:none; }
+  .workspace { min-height:0; display:grid; grid-template-columns:268px minmax(0,1fr) 298px; }
+  .sidebar,.inspector { background:#fff; overflow:auto; }
+  .sidebar { border-right:1px solid var(--line); padding:28px 18px 22px; }
+  .inspector { border-left:1px solid var(--line); padding:28px 23px; }
+  .eyebrow { color:#6c77a0; font:700 10px/1.2 "SFMono-Regular",Consolas,monospace; letter-spacing:.16em; text-transform:uppercase; }
+  .side-title { font:600 27px/1.05 Georgia,"Iowan Old Style",serif; letter-spacing:-.035em; margin:9px 0 10px; }
+  .side-copy { color:var(--muted); font-size:12px; line-height:1.65; margin:0 0 24px; }
+  .view-options { display:grid; gap:9px; margin-bottom:20px; }
+  .view-options label { display:grid; grid-template-columns:42px minmax(0,1fr); gap:6px; align-items:center; color:var(--muted); font-size:11px; }
+  .view-options select { width:100%; min-height:33px; border:1px solid var(--line); border-radius:8px; background:#f8f9fc; padding:5px 8px; color:var(--ink); font:inherit; }
+  .view-tabs { display:flex; gap:5px; margin-bottom:15px; }
+  .view-tabs button { flex:1; border:1px solid var(--line); border-radius:8px; padding:8px 4px; background:#fff; color:#53607a; font:700 11px "Segoe UI",sans-serif; }
+  .view-tabs button[aria-selected="true"] { background:#273469; border-color:#273469; color:#fff; }
+  .data-panel { position:absolute; inset:160px 24px 65px; overflow:auto; background:#ffffffee; border:1px solid var(--line); border-radius:12px; }
+  .search-panel { padding:24px; }
+  .search-panel form { display:flex; flex-wrap:wrap; gap:10px; }
+  .search-panel input { flex:1; min-width:160px; min-height:42px; border:1px solid var(--line); border-radius:8px; padding:10px; }
+  .search-panel select { border:1px solid var(--line); border-radius:8px; padding:10px; background:#fff; }
+  .search-status { color:var(--muted); margin:16px 0; }
+  .search-result { border-top:1px solid var(--line); padding:18px 0; }
+  .search-result h2 { font:600 14px monospace; overflow-wrap:anywhere; margin:0 0 8px; }
+  .search-result pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.6 monospace; color:#53607a; max-height:160px; overflow:auto; }
+  .search-result button { border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:var(--accent-pale); }
+  .data-panel[hidden] { display:none; }
+  .data-panel table { border-collapse:collapse; width:100%; font-size:12px; }
+  .data-panel th,.data-panel td { padding:12px; text-align:left; border-bottom:1px solid #e8ecf3; white-space:nowrap; }
+  .data-panel th { position:sticky; top:0; background:#eff2fb; color:#485577; z-index:1; font-size:11px; }
+  .data-panel tbody th { position:static; background:transparent; font-weight:normal; }
+  .data-panel .matrix tbody th { position:sticky; left:0; background:#f5f7fc; }
+  .data-panel button { border:0; background:transparent; color:#354bab; text-align:left; cursor:pointer; font:inherit; }
+  .data-row:hover,.data-row.active { background:#eef1ff; }
+  .data-panel .matrix th,.data-panel .matrix td { padding:5px; min-width:38px; text-align:center; }
+  .data-panel .matrix th:first-child { text-align:left; }
+  .data-panel .matrix td button { width:100%; min-height:29px; text-align:center; color:#243467; border-radius:5px; }
+  .matrix-key { padding:12px 16px; color:var(--muted); font-size:11px; }
+  .stat-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; margin-bottom:26px; }
+  .stat { border:1px solid var(--line); border-radius:10px; padding:9px 7px 8px; background:#fbfcff; text-align:center; }
+  .stat strong { display:block; font:700 19px/1 Georgia,serif; letter-spacing:-.04em; }
+  .stat span { display:block; margin-top:5px; color:var(--muted); font:700 9px/1.2 "SFMono-Regular",Consolas,monospace; text-transform:uppercase; letter-spacing:.05em; }
+  .section-line { display:flex; justify-content:space-between; align-items:center; margin-bottom:11px; }
+  .navigation { display:flex; align-items:center; gap:7px; margin:0 0 14px; }
+  .navigation button { border:1px solid var(--line); border-radius:8px; background:#fff; min-height:29px; padding:0 9px; color:#34415b; font-size:11px; font-weight:700; }
+  .navigation button:disabled { opacity:.4; cursor:default; }
+  .navigation span { color:var(--muted); font:10px "SFMono-Regular",Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pages { display:flex; align-items:center; gap:7px; margin-top:11px; }
+  .pages button { border:1px solid var(--line); border-radius:8px; background:#fff; min-width:34px; min-height:29px; color:#34415b; }
+  .pages button:disabled { opacity:.4; cursor:default; }
+  .pages span { flex:1; text-align:center; color:var(--muted); font:10px "SFMono-Regular",Consolas,monospace; }
+  .legend { display:flex; gap:13px; margin-top:10px; color:#68758a; font:10px "SFMono-Regular",Consolas,monospace; }
+  .legend i { display:inline-block; width:18px; height:0; margin:0 5px 3px 0; border-top:2px solid #aeb9ca; }
+  .legend i.imports { border-color:#5268e5; }
+  .legend i.contains { border-style:dashed; }
+  .section-line h2 { margin:0; font:700 11px/1 "SFMono-Regular",Consolas,monospace; text-transform:uppercase; letter-spacing:.12em; }
+  .section-line span { color:var(--muted); font-size:11px; }
+  .search { width:100%; border:1px solid var(--line); background:#f7f9fc; border-radius:9px; padding:10px 11px; outline:none; font-size:12px; color:var(--ink); }
+  .search:focus { border-color:#8fa1ec; background:#fff; box-shadow:0 0 0 3px #e8ecff; }
+  .component-list { display:grid; gap:3px; margin:11px -6px 0; }
+  .component-item { width:100%; display:flex; align-items:center; gap:10px; padding:9px 8px; border:1px solid transparent; border-radius:9px; background:transparent; text-align:left; color:var(--ink); }
+  .component-item:hover { background:#f5f7fc; }
+  .component-item.active { background:#eef1ff; border-color:#dbe1ff; }
+  .component-item .dot { width:9px; height:9px; border-radius:3px; flex:none; background:var(--color); }
+  .component-item .label { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; font-weight:700; flex:1; }
+  .component-item .count { color:var(--muted); font:600 11px "SFMono-Regular",Consolas,monospace; }
+  .side-foot { border-top:1px solid var(--line); margin-top:24px; padding-top:16px; color:var(--muted); font-size:11px; line-height:1.55; }
+  .stage { position:relative; min-width:0; min-height:0; overflow:hidden; background:radial-gradient(circle at 15% 15%,#f5f3ff 0,transparent 35%),radial-gradient(circle at 87% 85%,#eaf8fa 0,transparent 37%),#f8f9fc; }
+  .stage:before { content:""; position:absolute; inset:0; pointer-events:none; opacity:.48; background-image:radial-gradient(#ccd4e2 .8px,transparent .8px); background-size:22px 22px; }
+  .stage-heading { position:absolute; z-index:1; top:27px; left:32px; pointer-events:none; }
+  .stage-heading h1 { margin:4px 0 0; font:600 31px/1.05 Georgia,"Iowan Old Style",serif; letter-spacing:-.04em; }
+  .stage-heading p { color:var(--muted); margin:8px 0 0; font-size:12px; }
+  #map { display:block; width:100%; height:100%; touch-action:none; cursor:grab; }
+  #map.dragging { cursor:grabbing; }
+  .controls { position:absolute; right:22px; bottom:21px; z-index:1; display:flex; align-items:center; gap:5px; border:1px solid #d9dfeb; border-radius:11px; background:#fff; padding:5px; box-shadow:0 6px 22px #26345b12; }
+  .controls button { border:0; border-radius:7px; min-width:30px; height:30px; background:transparent; color:#43506b; font-weight:700; }
+  .controls button:hover { background:#edf1ff; color:#3048bc; }
+  .controls .fit { padding:0 10px; font-size:11px; }
+  .zoom-value { color:var(--muted); min-width:36px; text-align:center; font:700 10px "SFMono-Regular",Consolas,monospace; }
+  .stage-hint { position:absolute; bottom:27px; left:28px; color:#8893a6; font:10px "SFMono-Regular",Consolas,monospace; pointer-events:none; }
+  .edge { fill:none; stroke:#aeb9ca; stroke-width:1.65; opacity:.8; transition:stroke .2s,opacity .2s,stroke-width .2s; }
+  .edge.contains { stroke-dasharray:4 5; opacity:.4; }
+  .edge.imports { stroke:#6375dc; stroke-width:2; }
+  .edge.dim { opacity:.12; }
+  .edge.focus { stroke:#5268e5; stroke-width:2.6; opacity:1; }
+  .edge-label { fill:#fff; stroke:#d7deea; }
+  .edge-label-text { fill:#66748d; font:700 10px "SFMono-Regular",Consolas,monospace; }
+  .edge-label-wrap.dim { opacity:.13; }
+  .edge-label-wrap.focus .edge-label { stroke:#9babf5; }
+  .node { cursor:pointer; transition:opacity .2s; }
+  .node.dim { opacity:.26; }
+  .node .card { fill:#fff; stroke:#d6deeb; stroke-width:1.25; filter:drop-shadow(0 7px 14px #23325917); }
+  .node.repository .card { fill:#273469; stroke:#273469; }
+  .node.repository .node-title,.node.repository .node-count { fill:#fff; }
+  .node.repository .node-path { fill:#c3cbef; }
+  .node:hover .card { stroke:#91a3e9; filter:drop-shadow(0 10px 17px #23325926); }
+  .node.active .card { stroke:#4c63e8; stroke-width:2.4; filter:drop-shadow(0 10px 18px #4c63e82b); }
+  .node-title { fill:#202b44; font:700 17px "Avenir Next","Segoe UI",sans-serif; }
+  .node-path { fill:#7b879b; font:11px "SFMono-Regular",Consolas,monospace; }
+  .node-count { fill:#6a7892; font:700 10px "SFMono-Regular",Consolas,monospace; }
+  .node-index { fill:#fff; font:700 12px "SFMono-Regular",Consolas,monospace; }
+  .inspector-header { margin-bottom:20px; }
+  .inspector-header h2 { font:600 27px/1.08 Georgia,"Iowan Old Style",serif; letter-spacing:-.04em; margin:11px 0 7px; overflow-wrap:anywhere; }
+  .inspector-path { color:var(--muted); font:11px/1.5 "SFMono-Regular",Consolas,monospace; overflow-wrap:anywhere; }
+  .accent-rule { height:4px; width:44px; border-radius:99px; background:var(--accent); margin:20px 0; }
+  .detail-metrics { display:flex; gap:14px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); padding:15px 0; }
+  .detail-metrics div { flex:1; }
+  .detail-metrics strong { display:block; font:700 21px/1 Georgia,serif; }
+  .detail-metrics span { display:block; color:var(--muted); font:10px/1.5 "SFMono-Regular",Consolas,monospace; margin-top:4px; }
+  .detail-section { margin-top:25px; }
+  .detail-section h3 { font:700 10px "SFMono-Regular",Consolas,monospace; letter-spacing:.14em; text-transform:uppercase; margin:0 0 11px; }
+  .detail-section p { color:var(--muted); font-size:12px; line-height:1.65; margin:0; }
+  .file-list,.link-list { list-style:none; padding:0; margin:0; display:grid; gap:7px; }
+  .file-list li { padding:8px 9px; color:#34415b; background:#f6f8fc; border:1px solid #edf0f5; border-radius:7px; overflow-wrap:anywhere; font:10px/1.4 "SFMono-Regular",Consolas,monospace; }
+  .link-list button { width:100%; display:flex; justify-content:space-between; gap:9px; border:1px solid #e8ecf3; background:#fff; border-radius:7px; padding:8px 9px; color:#3c4964; text-align:left; font-size:11px; }
+  .link-list button:hover { border-color:#b7c5f6; background:#f7f9ff; }
+  .link-list small { color:var(--muted); white-space:nowrap; }
+  .empty { color:var(--muted); font-size:12px; padding:10px 0; }
+  @media (max-width:1100px) { .workspace { grid-template-columns:220px minmax(0,1fr); } .inspector-toggle,.inspector-close { display:inline-flex; } .inspector { display:none; position:fixed; top:0; right:0; bottom:0; width:min(330px,90vw); z-index:5; box-shadow:-18px 0 50px #18223925; } .inspector.open { display:block; } .inspector-close { float:right; border:1px solid var(--line); background:#fff; border-radius:8px; padding:4px 9px; } }
+  @media (max-width:720px) { .app { grid-template-rows:auto minmax(0,1fr); } .topbar { padding:12px 15px; flex-wrap:wrap; } .header-actions { gap:5px; } .scope { display:none; } .workspace { grid-template-columns:1fr; grid-template-rows:auto minmax(400px,1fr); } .sidebar { max-height:176px; padding:13px 16px; border-right:0; border-bottom:1px solid var(--line); } .side-title,.side-copy,.stat-grid,.side-foot { display:none; } .component-list { display:flex; overflow:auto; } .component-item { min-width:130px; } .stage-heading { top:18px; left:18px; } .stage-heading h1 { font-size:24px; } .stage-hint { display:none; } }
+  @media (prefers-reduced-motion:reduce) { *,*:before,*:after { transition:none!important; animation:none!important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand"><div class="brand-mark" aria-hidden="true">R</div><div><div class="brand-name">Repo Graph</div><div class="brand-sub" id="repo-name"></div></div></div>
+    <nav class="header-actions" aria-label="Diagram actions">
+      <span class="scope" id="scope"></span>
+      <a class="top-link" id="view-link" href="graph.html">Dependency graph ↗</a>
+      <a class="top-link" href="graph.json" download>Graph JSON ↓</a>
+      <a class="top-link" href="architecture.mmd" download>Mermaid ↓</a>
+      <button class="top-button" id="export-csv" type="button" title="Export all filtered entries in this directory">Scope CSV ↓</button>
+      <button class="top-button inspector-toggle" id="inspector-toggle" type="button" aria-controls="inspector" aria-expanded="false">Details</button>
+      <button class="top-button primary" id="export-svg" type="button">Export SVG ↓</button>
+    </nav>
+  </header>
+  <div class="workspace">
+    <aside class="sidebar" aria-label="Components">
+      <div class="eyebrow">01 / Overview</div>
+      <h2 class="side-title">The shape<br>of the repo.</h2>
+      <p class="side-copy">A grounded map of files and relationships. Select a component to follow its connections.</p>
+      <div class="view-tabs" role="tablist" aria-label="Repository views"><button type="button" role="tab" id="tab-system" aria-selected="false">System</button><button type="button" role="tab" id="tab-explore" aria-selected="true">Explore</button><button type="button" role="tab" id="tab-data" aria-selected="false">Data</button><button type="button" role="tab" id="tab-search" aria-selected="false">Search</button></div>
+      <div class="view-options">
+        <label>View<select id="view-mode"><option value="system">System overview</option><option value="atlas" selected>Card diagram</option><option value="tree">Top-down tree</option><option value="radial">Radial map</option><option value="treemap">File-count treemap</option><option value="table">Data table</option><option value="matrix">Dependency matrix</option><option value="search">Repository search</option></select></label>
+        <label>Sort<select id="sort-mode"><option value="name">Name</option><option value="files">Most files</option><option value="imports">Most imports</option></select></label>
+        <label>Show<select id="kind-filter"><option value="all">Directories and files</option><option value="directory">Directories</option><option value="file">Files</option></select></label>
+      </div>
+      <div class="stat-grid"><div class="stat"><strong id="stat-components">0</strong><span>Parts</span></div><div class="stat"><strong id="stat-links">0</strong><span>Links</span></div><div class="stat"><strong id="stat-files">0</strong><span>Files</span></div></div>
+      <div class="navigation"><button id="up" type="button" aria-label="Go up one directory">↑ Up</button><span id="breadcrumb"></span></div>
+      <div class="section-line"><h2>Components</h2><span id="list-count"></span></div>
+      <input class="search" id="search" type="search" placeholder="Find a component…" aria-label="Find a component">
+      <div class="component-list" id="component-list"></div>
+      <div class="pages"><button id="previous" type="button" aria-label="Previous page">←</button><span id="page-label"></span><button id="next" type="button" aria-label="Next page">→</button></div>
+      <div class="side-foot">Local scan · no model tokens by default<br>Double click a directory to explore. Each canvas is limited to 24 components; the complete paths and imports are in graph.json.</div>
+    </aside>
+    <main class="stage">
+      <div class="stage-heading"><div class="eyebrow">02 / Architecture map</div><h1 id="map-title">Architecture map</h1><p id="map-subtitle"></p><div class="legend"><span><i class="contains"></i>Contains</span><span><i class="imports"></i>Imports</span></div></div>
+      <svg id="map" role="group" aria-label="Interactive repository architecture diagram"><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="#6375dc"/></marker></defs><g id="world"></g></svg>
+      <div class="data-panel" id="data-panel" hidden></div>
+      <div class="stage-hint">DRAG TO PAN · SCROLL TO ZOOM · DOUBLE CLICK TO EXPLORE</div>
+      <div class="controls" aria-label="Canvas controls"><button id="zoom-out" type="button" aria-label="Zoom out">−</button><span class="zoom-value" id="zoom-value">100%</span><button id="zoom-in" type="button" aria-label="Zoom in">+</button><button id="fit" class="fit" type="button">Fit view</button></div>
+    </main>
+    <aside class="inspector" id="inspector" aria-label="Selected component"><button class="inspector-close" id="close-inspector" type="button" aria-label="Close details">Close ×</button><div class="eyebrow">03 / Inspector</div><div id="inspector-content"></div></aside>
+  </div>
+</div>
+<script type="application/json" id="graph-data">__REPO_GRAPH_DATA__</script>
+<script>
+__VIEW_HELPERS__
+(() => {
+  'use strict';
+  const data = JSON.parse(document.getElementById('graph-data').textContent);
+  const graphMode = location.pathname.endsWith('/graph.html');
+  const viewLink = document.getElementById('view-link');
+  viewLink.href = graphMode ? 'architecture.html' : 'graph.html';
+  viewLink.textContent = graphMode ? 'Architecture diagram ↗' : 'Dependency graph ↗';
+  let parts = [], links = [], scopeEntries = [], counts = new Map(), byId = new Map(), scopePath = '', page = 0;
+  let viewMode = 'atlas', sortMode = 'name', kindFilter = 'all';
+  const colors = ['#5067e9','#13a594','#e8a342','#d46b83','#8a70cc','#3b97ba'];
+  const soft = ['#e9edff','#dff8f2','#fff1d8','#ffe8ed','#f0eaff','#e3f3fa'];
+  const roleColors = {application:'#5067e9',library:'#13a594',infrastructure:'#8a70cc',tests:'#d46b83',documentation:'#3b97ba',examples:'#e8a342',tooling:'#6d7d95'};
+  const svg = document.getElementById('map');
+  const world = document.getElementById('world');
+  const W = 236, H = 108;
+  let positions = new Map(), bounds = {width:900,height:600};
+  let scale = 1, tx = 0, ty = 0, selected = null, query = '';
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const make = (tag, attrs, parent) => { const el = document.createElementNS(svgNS, tag); for (const [key,value] of Object.entries(attrs)) el.setAttribute(key, String(value)); parent.appendChild(el); return el; };
+  const short = (value, max) => value.length > max ? value.slice(0,max - 1) + '…' : value;
+  const title = value => { const piece = value.split('/').pop().replace(/[-_]/g,' '); return piece.charAt(0).toUpperCase() + piece.slice(1); };
+  const color = id => roleColors[byId.get(id)?.role] || colors[(byId.get(id)?.index || 0) % colors.length];
+  document.title = `${data.name} · ${graphMode ? 'Dependency graph' : 'Architecture map'}`;
+  document.getElementById('repo-name').textContent = data.name;
+  document.getElementById('stat-files').textContent = data.file_count.toLocaleString();
+
+  function renderScope() {
+    for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) document.getElementById(id).setAttribute('aria-selected',String(active));
+    document.getElementById('sort-mode').disabled = viewMode === 'system';
+    document.getElementById('kind-filter').disabled = viewMode === 'system';
+    document.getElementById('search').hidden = viewMode === 'search';
+    if (viewMode === 'search') { renderSearch(); return; }
+    if (viewMode === 'system') { renderSystem(); return; }
+    document.getElementById('export-csv').disabled = false;
+    const branch = data.tree[scopePath];
+    const directories = branch.children.map(path => ({id:path,name:path,count:data.tree[path].count,files:data.tree[path].sample,kind:'directory',role:data.roles[path]}));
+    const files = branch.direct.map(path => ({id:'file:' + path,name:path,count:1,files:[path],kind:'file'}));
+    counts = RepoViews.metrics(data.scope_edges[scopePath] || []);
+    const entries = RepoViews.ordered([...directories,...files].filter(node => (kindFilter === 'all' || node.kind === kindFilter) && node.name.split('/').pop().toLowerCase().includes(query)),sortMode,counts);
+    scopeEntries = entries;
+    const pageSize = graphMode ? 24 : 23;
+    const pageCount = Math.max(1,Math.ceil(entries.length / pageSize));
+    page = Math.min(page,pageCount - 1);
+    const children = entries.slice(page * pageSize,(page + 1) * pageSize);
+    const root = {id:'scope:' + scopePath,name:scopePath || data.name,count:branch.count,files:branch.sample,kind:'repository'};
+    parts = graphMode ? children : [root,...children];
+    byId = new Map(parts.map((node,index) => [node.id,{...node,index}]));
+    const visible = new Set(parts.map(node => node.id));
+    const imports = (data.scope_edges[scopePath] || []).filter(edge => visible.has(edge.source) && visible.has(edge.target)).slice(0,graphMode ? 40 : 17);
+    links = graphMode ? imports : [...imports,...children.map(node => ({source:root.id,target:node.id,count:node.count,relation:'contains'}))];
+    selected = null;
+    document.getElementById('inspector').classList.remove('open');
+    document.getElementById('inspector-toggle').setAttribute('aria-expanded','false');
+    document.getElementById('scope').textContent = data.jev === 'used' || data.jev === 'cached' ? 'Local + Jev roles' : 'Local scan';
+    document.getElementById('breadcrumb').textContent = scopePath || data.name;
+    document.getElementById('up').disabled = !scopePath;
+    document.getElementById('previous').disabled = page === 0;
+    document.getElementById('next').disabled = page >= pageCount - 1;
+    document.getElementById('page-label').textContent = `Page ${page + 1} / ${pageCount}`;
+    document.getElementById('map-subtitle').textContent = viewMode === 'treemap' ? 'Area represents file count on this page · double click to explore' : `${entries.length} components · ${imports.length} visible import relationships`;
+    document.getElementById('stat-components').textContent = entries.length.toLocaleString();
+    document.getElementById('stat-links').textContent = links.length;
+    layout();
+    document.getElementById('map-title').textContent = scopePath ? title(scopePath) : graphMode ? 'Dependency graph' : 'Architecture map';
+    const isData = viewMode === 'table' || viewMode === 'matrix';
+    svg.style.display = isData ? 'none' : 'block';
+    document.getElementById('data-panel').hidden = !isData;
+    document.querySelector('.controls').style.display = isData ? 'none' : 'flex';
+    document.querySelector('.stage-hint').style.display = isData ? 'none' : '';
+    document.querySelector('.legend').style.display = isData || viewMode === 'treemap' ? 'none' : 'flex';
+    document.querySelector('.legend span').style.display = '';
+    document.getElementById('export-svg').disabled = isData;
+    if (isData) renderData(); else if (viewMode === 'treemap') drawTreemap(); else draw();
+    renderList(); renderInspector();
+    if (!isData) requestAnimationFrame(() => { fit(); if (scale < .65) { scale = .75; tx = 28; ty = 118; transform(); } });
+  }
+
+  let lastSearch = '', lastResults = null, searchRequest = 0;
+  function renderSearch() {
+    selected = null; parts = []; links = []; scopeEntries = [];
+    document.getElementById('map-title').textContent = 'Search the repository';
+    document.getElementById('map-subtitle').textContent = 'Find source areas by meaning or exact identifiers, then explore their connections.';
+    document.getElementById('breadcrumb').textContent = data.name;
+    document.getElementById('page-label').textContent = 'Whole repository';
+    for (const id of ['up','previous','next','export-svg','export-csv']) document.getElementById(id).disabled = true;
+    svg.style.display = 'none';
+    document.querySelector('.controls').style.display = 'none';
+    document.querySelector('.legend').style.display = 'none';
+    document.querySelector('.stage-hint').style.display = 'none';
+    document.getElementById('component-list').replaceChildren();
+    document.getElementById('list-count').textContent = '0';
+    const host = document.getElementById('data-panel'); host.hidden = false; host.replaceChildren();
+    const panel = document.createElement('section'); panel.className = 'search-panel'; host.appendChild(panel);
+    const form = document.createElement('form'); panel.appendChild(form);
+    const input = document.createElement('input'); input.type = 'search'; input.placeholder = 'How are access permissions checked?'; input.value = lastSearch;
+    input.setAttribute('aria-label','Repository search query'); input.required = true; input.maxLength = 1000;
+    const mode = document.createElement('select'); mode.setAttribute('aria-label','Search method');
+    for (const [value,label] of [['hybrid','Meaning + keywords'],['semantic','Meaning'],['keyword','Keywords']]) { const option = document.createElement('option'); option.value = value; option.textContent = label; mode.appendChild(option); }
+    const submit = document.createElement('button'); submit.type = 'submit'; submit.className = 'top-button primary'; submit.textContent = 'Search';
+    form.append(input,mode,submit);
+    const status = document.createElement('p'); status.className = 'search-status'; status.setAttribute('role','status'); status.setAttribute('aria-live','polite'); panel.appendChild(status);
+    const results = document.createElement('div'); panel.appendChild(results);
+    const show = response => {
+      results.replaceChildren();
+      status.textContent = response.results.length ? `${response.results.length} results · ${response.documents.toLocaleString()} indexed files · ${Math.round(response.seconds*1000)} ms` : 'No matching files. Try another description or use keywords.';
+      for (const hit of response.results) {
+        const article = document.createElement('article'); article.className = 'search-result';
+        const heading = document.createElement('h2'); heading.textContent = hit.path;
+        const evidence = document.createElement('pre'); evidence.textContent = hit.evidence;
+        const open = document.createElement('button'); open.type = 'button'; open.textContent = 'Open in diagram →';
+        open.addEventListener('click',() => { viewMode = 'atlas'; document.getElementById('view-mode').value = 'atlas'; document.getElementById('export-csv').disabled = false; enter(hit.path.split('/').slice(0,-1).join('/')); focusPath('file:'+hit.path); });
+        article.append(heading,evidence,open); results.appendChild(article);
+      }
+    };
+    const online = location.protocol === 'http:' && location.hostname === '127.0.0.1';
+    if (!online) {
+      submit.disabled = true; input.disabled = true; mode.disabled = true;
+      status.textContent = 'To search this map, run repo-graph serve with the output directory shown by the scan, then open its local URL. Build meaning search once with repo-graph index OUTPUT --semantic. Offline diagrams remain available in the other tabs.';
+    } else {
+      status.textContent = 'Search the whole repository. Meaning search needs a locally embedded index.';
+      fetch('/api/status').then(response => response.json()).then(state => {
+        if (!state.semantic) { mode.value = 'keyword'; mode.options[0].disabled = true; mode.options[1].disabled = true; status.textContent = 'Keyword index ready. Enable meaning search with repo-graph index OUTPUT --semantic, then restart this viewer.'; }
+      }).catch(() => { status.textContent = 'Search service is unavailable. Restart repo-graph serve.'; });
+      if (lastResults) show(lastResults);
+      form.addEventListener('submit',async event => {
+        event.preventDefault(); const request = ++searchRequest;
+        lastSearch = input.value.trim(); if (!lastSearch) return;
+        submit.disabled = true; status.textContent = 'Searching…'; results.replaceChildren();
+        try {
+          const response = await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:lastSearch,mode:mode.value})});
+          const body = await response.json(); if (request !== searchRequest || viewMode !== 'search') return;
+          if (!response.ok) throw new Error(body.error || 'Search failed');
+          lastResults = body; show(body);
+        } catch (error) { if (request === searchRequest && viewMode === 'search') status.textContent = error.message; }
+        finally { submit.disabled = false; }
+      });
+    }
+  }
+
+  function enter(path) {
+    if (!data.tree[path]) return;
+    if (viewMode === 'system') { viewMode = 'atlas'; kindFilter = 'all'; document.getElementById('kind-filter').value = 'all'; document.getElementById('view-mode').value = viewMode; }
+    scopePath = path; page = 0; query = '';
+    document.getElementById('search').value = '';
+    renderScope();
+  }
+  function focusPath(id) {
+    if (viewMode === 'system') { if (!byId.has(id)) { query = ''; document.getElementById('search').value = ''; renderScope(); } select(id,true); return; }
+    if (id.startsWith('scope:')) { if (!graphMode) select(id,true); return; }
+    if (!scopeEntries.some(node => node.id === id)) {
+      query = ''; kindFilter = 'all'; document.getElementById('search').value = ''; document.getElementById('kind-filter').value = 'all';
+      renderScope();
+    }
+    const index = scopeEntries.findIndex(node => node.id === id);
+    if (index < 0) return;
+    page = Math.floor(index / (graphMode ? 24 : 23));
+    renderScope();
+    requestAnimationFrame(() => select(id,true));
+  }
+
+  function layout() {
+    const result = RepoViews.layout(parts,viewMode,links);
+    positions = result.boxes; bounds = {width:result.width,height:result.height};
+  }
+
+  function renderSystem() {
+    document.getElementById('export-csv').disabled = false;
+    scopePath = ''; page = 0;
+    parts = (data.system?.nodes || []).filter(node => (node.name + ' ' + node.summary).toLowerCase().includes(query));
+    scopeEntries = parts;
+    byId = new Map(parts.map((node,index) => [node.id,{...node,index}]));
+    const visible = new Set(parts.map(node => node.id));
+    links = (data.system?.edges || []).filter(edge => visible.has(edge.source) && visible.has(edge.target)).slice(0,40);
+    counts = RepoViews.metrics(data.system?.edges || []);
+    selected = null;
+    document.getElementById('breadcrumb').textContent = data.name;
+    for (const id of ['up','previous','next']) document.getElementById(id).disabled = true;
+    document.getElementById('page-label').textContent = 'Whole repository';
+    document.getElementById('scope').textContent = 'System overview';
+    document.getElementById('map-title').textContent = 'System architecture';
+    document.getElementById('map-subtitle').textContent = `${parts.length} source areas · observed imports · roles inferred from directory structure`;
+    document.getElementById('stat-components').textContent = parts.length;
+    document.getElementById('stat-links').textContent = links.length;
+    svg.style.display = 'block'; document.getElementById('data-panel').hidden = true;
+    document.querySelector('.controls').style.display = 'flex';
+    document.querySelector('.stage-hint').style.display = '';
+    document.querySelector('.legend').style.display = 'flex';
+    document.querySelector('.legend span').style.display = 'none';
+    document.getElementById('export-svg').disabled = false;
+    layout(); draw(); renderList(); renderInspector(); requestAnimationFrame(fit);
+  }
+
+  function drawTreemap() {
+    world.replaceChildren();
+    for (const node of parts.filter(node => node.kind !== 'repository')) {
+      const box = positions.get(node.id);
+      const g = make('g',{class:'node',transform:`translate(${box.x} ${box.y})`,tabindex:0,role:'button','data-id':node.id,'aria-label':`${node.name}, ${node.count} files`},world);
+      const titleElement = make('title',{},g); titleElement.textContent = `${node.name}: ${node.count} files`;
+      make('rect',{width:Math.max(0,box.width-3),height:Math.max(0,box.height-3),rx:5,fill:color(node.id),'fill-opacity':.18,stroke:color(node.id)},g);
+      if (box.width > 65 && box.height > 35) {
+        const name = make('text',{x:10,y:23,class:'node-title'},g); name.textContent = short(title(node.name),Math.max(3,Math.floor((box.width-20)/10)));
+        if (box.height > 60) { const count = make('text',{x:10,y:45,class:'node-count'},g); count.textContent = `${node.count.toLocaleString()} FILES`; }
+      }
+      g.addEventListener('click',() => select(node.id));
+      if (node.kind === 'directory') g.addEventListener('dblclick',() => enter(node.id));
+      g.addEventListener('keydown',event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); if (event.key === 'Enter' && node.kind === 'directory') enter(node.id); else select(node.id); } });
+    }
+    refresh();
+  }
+
+  function renderData() {
+    const host = document.getElementById('data-panel'); host.replaceChildren();
+    const nodes = parts.filter(node => node.kind !== 'repository');
+    const table = document.createElement('table');
+    const caption = document.createElement('caption'); caption.className = 'matrix-key';
+    caption.textContent = viewMode === 'matrix' ? 'Rows import columns. Column numbers match row numbers; blank cells have no observed imports.' : 'Import totals include connections to other pages in this directory. CSV exports every filtered entry.';
+    document.getElementById('map-subtitle').textContent = viewMode === 'matrix' ? `${nodes.length} components on this page · directed import counts` : `${scopeEntries.length} filtered entries · CSV includes all pages`;
+    table.appendChild(caption);
+    const head = document.createElement('thead'), header = document.createElement('tr');
+    const columns = viewMode === 'matrix' ? ['Imports →',...nodes.map((node,index) => String(index+1))] : ['Component','Type','Files','Incoming imports','Outgoing imports','Role','Explore'];
+    columns.forEach((label,index) => { const th = document.createElement('th'); th.scope = 'col'; th.textContent = label; if (viewMode === 'matrix' && index) th.title = nodes[index-1].name; header.appendChild(th); });
+    head.appendChild(header); table.appendChild(head);
+    const body = document.createElement('tbody');
+    const weights = new Map((data.scope_edges[scopePath] || []).map(edge => [JSON.stringify([edge.source,edge.target]),edge.count]));
+    let maxWeight = 1; for (const weight of weights.values()) maxWeight = Math.max(maxWeight,weight);
+    if (viewMode === 'matrix') table.className = 'matrix';
+    nodes.forEach((node,index) => {
+      const row = document.createElement('tr'); row.className = 'data-row'; row.dataset.id = node.id;
+      const nameCell = document.createElement('th'); nameCell.scope = 'row';
+      const name = document.createElement('button'); name.type = 'button'; name.textContent = (viewMode === 'matrix' ? `${index+1}. ` : '') + node.name.split('/').pop(); name.title = node.name; name.addEventListener('click',() => select(node.id)); nameCell.appendChild(name); row.appendChild(nameCell);
+      if (viewMode === 'matrix') {
+        for (const target of nodes) {
+          const cell = document.createElement('td'), weight = weights.get(JSON.stringify([node.id,target.id])) || 0;
+          if (weight) {
+            const button = document.createElement('button'); button.type = 'button'; button.textContent = weight; button.title = `${node.name} imports ${target.name}: ${weight}`;
+            button.style.background = `rgba(76,99,232,${.12+.55*Math.log1p(weight)/Math.log1p(maxWeight)})`;
+            button.addEventListener('click',() => select(node.id)); cell.appendChild(button);
+          } else cell.textContent = '·';
+          row.appendChild(cell);
+        }
+      } else {
+        const metric = counts.get(node.id) || {incoming:0,outgoing:0};
+        for (const value of [node.kind,node.count,metric.incoming,metric.outgoing,node.role || '—']) { const td = document.createElement('td'); td.textContent = value; row.appendChild(td); }
+        const td = document.createElement('td');
+        if (node.kind === 'directory') { const open = document.createElement('button'); open.type = 'button'; open.textContent = 'Open →'; open.addEventListener('click',() => enter(node.id)); td.appendChild(open); }
+        row.appendChild(td);
+      }
+      body.appendChild(row);
+    });
+    table.appendChild(body); host.appendChild(table);
+    if (!nodes.length) { const empty = document.createElement('p'); empty.className = 'matrix-key'; empty.textContent = 'No matching components in this directory.'; host.appendChild(empty); }
+  }
+
+  function path(a,b) {
+    if (viewMode === 'tree') return `M ${a.x+W/2} ${a.y+H} C ${a.x+W/2} ${a.y+H+65}, ${b.x+W/2} ${b.y-65}, ${b.x+W/2} ${b.y}`;
+    const sx = a.x + W, sy = a.y + H/2, ex = b.x, ey = b.y + H/2;
+    const bend = Math.max(75,Math.abs(ex - sx) * .42);
+    return `M ${sx} ${sy} C ${sx + bend} ${sy}, ${ex - bend} ${ey}, ${ex} ${ey}`;
+  }
+  function draw() {
+    world.replaceChildren();
+    for (const edge of links) {
+      const a = positions.get(edge.source), b = positions.get(edge.target);
+      if (!a || !b) continue;
+      const attrs = {d:path(a,b),class:'edge ' + edge.relation,'data-source':edge.source,'data-target':edge.target};
+      if (edge.relation === 'imports') attrs['marker-end'] = 'url(#arrow)';
+      const wire = make('path',attrs,world);
+      if (edge.relation === 'imports' && edge.count > 1) {
+        const point = wire.getPointAtLength(wire.getTotalLength() / 2);
+        const label = `${edge.count} links`;
+        const g = make('g',{class:'edge-label-wrap','data-source':edge.source,'data-target':edge.target},world);
+        make('rect',{x:point.x - 27,y:point.y - 10,width:54,height:19,rx:9,class:'edge-label'},g);
+        const text = make('text',{x:point.x,y:point.y + 3,'text-anchor':'middle',class:'edge-label-text'},g);
+        text.textContent = label;
+      }
+    }
+    for (const node of parts) {
+      const pos = positions.get(node.id);
+      const i = byId.get(node.id).index;
+      const aria = node.kind === 'directory' ? `${node.name}, ${node.count} files. Enter to explore, Space to inspect` : `${node.name}, ${node.count} files`;
+      const g = make('g',{class:'node ' + node.kind,transform:`translate(${pos.x} ${pos.y})`,tabindex:'0',role:'button','aria-label':aria,'data-id':node.id},world);
+      make('rect',{x:0,y:0,width:W,height:H,rx:16,class:'card'},g);
+      make('rect',{x:0,y:0,width:W,height:5,rx:2,fill:color(node.id)},g);
+      make('rect',{x:17,y:20,width:31,height:31,rx:9,fill:soft[i % soft.length]},g);
+      const index = make('text',{x:32.5,y:40,'text-anchor':'middle',class:'node-index',fill:color(node.id)},g); index.textContent = String(i + 1).padStart(2,'0');
+      const name = make('text',{x:59,y:39,class:'node-title'},g); name.textContent = short(title(node.name),19);
+      const pathText = make('text',{x:18,y:73,class:'node-path'},g); pathText.textContent = short(node.summary || node.name,31);
+      const count = make('text',{x:18,y:94,class:'node-count'},g); count.textContent = `${node.role ? node.role.toUpperCase() + ' · ' : ''}${node.count} ${node.count === 1 ? 'FILE' : 'FILES'}`;
+      g.addEventListener('click',() => select(node.id));
+      if (node.kind === 'directory') g.addEventListener('dblclick',() => enter(node.id));
+      g.addEventListener('keydown',event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); if (event.key === 'Enter' && node.kind === 'directory') enter(node.id); else select(node.id); } });
+    }
+    refresh();
+  }
+  function transform() { world.setAttribute('transform',`translate(${tx} ${ty}) scale(${scale})`); document.getElementById('zoom-value').textContent = `${Math.round(scale * 100)}%`; }
+  function fit() { if (svg.style.display === 'none') return; const w = svg.clientWidth, h = svg.clientHeight; scale = Math.min(1.3,(w - 100) / bounds.width,(h - 130) / bounds.height); scale = Math.max(.15,scale); tx = (w - bounds.width * scale) / 2; ty = (h - bounds.height * scale) / 2; transform(); }
+  function zoom(factor,x = svg.clientWidth/2,y = svg.clientHeight/2) { const next = Math.min(2.6,Math.max(.18,scale * factor)); tx = x - (x - tx) * next / scale; ty = y - (y - ty) * next / scale; scale = next; transform(); }
+  function select(id, center = false) { selected = id; refresh(); renderInspector(); const p = positions.get(id); if (center && p && svg.style.display !== 'none') { tx = svg.clientWidth/2 - (p.x + p.width/2) * scale; ty = svg.clientHeight/2 - (p.y + p.height/2) * scale; transform(); } if (window.innerWidth <= 1100) { document.getElementById('inspector').classList.add('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded','true'); } }
+  function refresh() {
+    const matches = new Set(parts.filter(n => n.name.toLowerCase().includes(query) || n.files.some(f => f.toLowerCase().includes(query))).map(n => n.id));
+    for (const el of world.querySelectorAll('.node')) { const id = el.dataset.id; el.classList.toggle('active',id === selected); el.classList.toggle('dim',(query && !matches.has(id)) || (selected && id !== selected && !links.some(e => e.source === selected && e.target === id || e.target === selected && e.source === id))); }
+    for (const el of world.querySelectorAll('.edge,.edge-label-wrap')) { const connected = selected && (el.dataset.source === selected || el.dataset.target === selected); el.classList.toggle('focus',!!connected); el.classList.toggle('dim',!!selected && !connected); }
+    for (const el of document.querySelectorAll('.component-item')) el.classList.toggle('active',el.dataset.id === selected);
+    for (const el of document.querySelectorAll('.data-row')) el.classList.toggle('active',el.dataset.id === selected);
+  }
+  function renderList() {
+    const list = document.getElementById('component-list'); list.replaceChildren();
+    for (const node of parts.filter(n => n.kind !== 'repository')) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'component-item'; button.dataset.id = node.id;
+      button.style.setProperty('--color',color(node.id));
+      const dot = document.createElement('span'); dot.className = 'dot'; dot.setAttribute('aria-hidden','true');
+      const label = document.createElement('span'); label.className = 'label'; label.textContent = node.name.split('/').pop();
+      const count = document.createElement('span'); count.className = 'count'; count.textContent = node.count;
+      button.append(dot,label,count);
+      button.setAttribute('aria-label',node.kind === 'directory' ? `Open ${node.name}` : `Select ${node.name}`);
+      button.addEventListener('click',() => node.kind === 'directory' ? enter(node.id) : select(node.id,true));
+      list.appendChild(button);
+    }
+    document.getElementById('list-count').textContent = String(list.childElementCount);
+    refresh();
+  }
+  function renderInspector() {
+    const host = document.getElementById('inspector-content'); host.replaceChildren();
+    const node = byId.get(selected);
+    if (!node) { const p = document.createElement('p'); p.className = 'empty'; p.textContent = 'Select a component to see its files and connections.'; host.appendChild(p); return; }
+    const head = document.createElement('div'); head.className = 'inspector-header';
+    const name = document.createElement('h2'); name.textContent = title(node.name);
+    const path = document.createElement('div'); path.className = 'inspector-path'; path.textContent = node.name;
+    head.append(name,path); host.appendChild(head);
+    const rule = document.createElement('div'); rule.className = 'accent-rule'; rule.style.background = color(node.id); host.appendChild(rule);
+    const related = (viewMode === 'system' ? data.system.edges : data.scope_edges[scopePath] || []).filter(e => e.source === node.id || e.target === node.id);
+    const metrics = document.createElement('div'); metrics.className = 'detail-metrics';
+    for (const [value,label] of [[node.count,'FILES'],[related.length,'CONNECTIONS']]) { const box = document.createElement('div'); const strong = document.createElement('strong'); strong.textContent = value; const span = document.createElement('span'); span.textContent = label; box.append(strong,span); metrics.appendChild(box); }
+    host.appendChild(metrics);
+    if (node.role) { const role = document.createElement('p'); role.className = 'eyebrow'; role.textContent = `${node.kind === 'system' ? 'Component role' : 'Jev role'} · ${node.role}`; host.appendChild(role); }
+    if (node.kind === 'system') {
+      const summary = document.createElement('p'); summary.className = 'side-copy'; summary.textContent = node.summary; host.appendChild(summary);
+      const section = document.createElement('section'); section.className = 'detail-section';
+      const heading = document.createElement('h3'); heading.textContent = 'Explore source areas'; section.appendChild(heading);
+      const members = document.createElement('div'); section.appendChild(members);
+      const showMembers = offset => {
+        members.replaceChildren();
+        for (const path of node.paths.slice(offset,offset+20)) { const button = document.createElement('button'); button.type = 'button'; button.className = 'component-item'; button.textContent = (path || 'Root files') + ' →'; button.addEventListener('click',() => enter(path)); members.appendChild(button); }
+        for (const [label,next] of [['← Previous source areas',offset-20],['More source areas →',offset+20]]) {
+          if (next < 0 || next >= node.paths.length) continue;
+          const button = document.createElement('button'); button.type = 'button'; button.className = 'top-button'; button.textContent = label; button.addEventListener('click',() => showMembers(next)); members.appendChild(button);
+        }
+      };
+      showMembers(0);
+      host.appendChild(section);
+    }
+    if (node.kind === 'directory') {
+      const open = document.createElement('button'); open.type = 'button'; open.className = 'top-button primary';
+      open.textContent = 'Explore directory →'; open.addEventListener('click',() => enter(node.id)); host.appendChild(open);
+    }
+    const addSection = (heading,items,asLinks = false) => {
+      const section = document.createElement('section'); section.className = 'detail-section'; const h = document.createElement('h3'); h.textContent = heading; section.appendChild(h);
+      if (!items.length) { const empty = document.createElement('p'); empty.textContent = 'No items in the bounded overview.'; section.appendChild(empty); }
+      else { const list = document.createElement('ul'); list.className = asLinks ? 'link-list' : 'file-list'; for (const item of items) { const li = document.createElement('li'); if (asLinks) { const button = document.createElement('button'); button.type = 'button'; const label = document.createElement('span'); label.textContent = item.direction + ' ' + (item.id.startsWith('scope:') ? 'Current scope' : title(byId.get(item.id)?.name || item.id)); const count = document.createElement('small'); count.textContent = `${item.count} imports ↗`; button.append(label,count); button.addEventListener('click',() => focusPath(item.id)); li.appendChild(button); } else li.textContent = item; list.appendChild(li); } section.appendChild(list); }
+      host.appendChild(section);
+    };
+    addSection('Sample source paths',node.files);
+    addSection('Import connections',related.slice(0,20).map(e => ({id:e.source === node.id ? e.target : e.source,count:e.count,direction:e.source === node.id ? '→' : '←'})),true);
+  }
+  let drag = null;
+  svg.addEventListener('pointerdown',event => { if (event.target.closest('.node')) return; drag = {x:event.clientX,y:event.clientY,tx,ty}; svg.setPointerCapture(event.pointerId); svg.classList.add('dragging'); });
+  svg.addEventListener('pointermove',event => { if (!drag) return; tx = drag.tx + event.clientX - drag.x; ty = drag.ty + event.clientY - drag.y; transform(); });
+  svg.addEventListener('pointerup',() => { drag = null; svg.classList.remove('dragging'); });
+  svg.addEventListener('wheel',event => { event.preventDefault(); const rect = svg.getBoundingClientRect(); zoom(event.deltaY < 0 ? 1.12 : 1/1.12,event.clientX - rect.left,event.clientY - rect.top); },{passive:false});
+  document.getElementById('zoom-in').addEventListener('click',() => zoom(1.2));
+  document.getElementById('zoom-out').addEventListener('click',() => zoom(1/1.2));
+  document.getElementById('fit').addEventListener('click',fit);
+  function changeView(mode) {
+    if (mode === 'system' || viewMode === 'system') { query = ''; page = 0; document.getElementById('search').value = ''; }
+    viewMode = mode; document.getElementById('view-mode').value = mode; renderScope();
+  }
+  document.getElementById('view-mode').addEventListener('change',event => changeView(event.target.value));
+  document.getElementById('sort-mode').addEventListener('change',event => { sortMode = event.target.value; page = 0; renderScope(); });
+  document.getElementById('kind-filter').addEventListener('change',event => { kindFilter = event.target.value; page = 0; renderScope(); });
+  for (const [id,mode] of [['tab-system','system'],['tab-explore','atlas'],['tab-data','table'],['tab-search','search']]) document.getElementById(id).addEventListener('click',() => changeView(mode));
+  document.querySelector('.view-tabs').addEventListener('keydown',event => {
+    if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+    event.preventDefault(); const tabs = [...document.querySelectorAll('.view-tabs button')], index = tabs.indexOf(document.activeElement);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length-1 : (index+(event.key === 'ArrowRight' ? 1 : -1)+tabs.length)%tabs.length;
+    tabs[next].focus(); tabs[next].click();
+  });
+  document.getElementById('export-csv').addEventListener('click',() => {
+    const blob = new Blob([RepoViews.csv(scopeEntries,counts)],{type:'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob), link = document.createElement('a');
+    link.href = url; link.download = data.name + '-scope.csv'; link.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
+  });
+  document.getElementById('search').addEventListener('input',event => { query = event.target.value.trim().toLowerCase(); page = 0; renderScope(); });
+  document.getElementById('search').addEventListener('keydown',event => { if (event.key === 'Enter') { const first = parts.find(n => n.kind !== 'repository'); if (first) select(first.id,true); } });
+  document.getElementById('up').addEventListener('click',() => enter(scopePath.split('/').slice(0,-1).join('/')));
+  document.getElementById('inspector-toggle').addEventListener('click',() => { const open = document.getElementById('inspector').classList.toggle('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded',String(open)); });
+  document.getElementById('close-inspector').addEventListener('click',() => { document.getElementById('inspector').classList.remove('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded','false'); });
+  document.addEventListener('keydown',event => { if (event.key === 'Escape') { document.getElementById('inspector').classList.remove('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded','false'); } });
+  document.getElementById('previous').addEventListener('click',() => { page--; renderScope(); });
+  document.getElementById('next').addEventListener('click',() => { page++; renderScope(); });
+  document.getElementById('export-svg').addEventListener('click',() => { const clone = svg.cloneNode(true); clone.setAttribute('xmlns',svgNS); clone.setAttribute('width',String(svg.clientWidth)); clone.setAttribute('height',String(svg.clientHeight)); const styles = document.createElementNS(svgNS,'style'); styles.textContent = [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules].map(rule => rule.cssText); } catch { return []; } }).join('\n'); clone.insertBefore(styles,clone.firstChild); const blob = new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${data.name}-${graphMode ? 'dependencies' : 'architecture'}.svg`; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000); });
+  window.addEventListener('resize',fit);
+  renderScope();
+})();
+</script>
+</body>
+</html>
