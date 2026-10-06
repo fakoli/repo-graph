@@ -4,6 +4,8 @@ import argparse
 from contextlib import closing
 import hashlib
 import json
+import importlib.metadata
+import platform
 from pathlib import Path
 import statistics
 import subprocess
@@ -21,13 +23,26 @@ a = p.parse_args()
 queries_path = Path(__file__).with_name('queries.json')
 queries = json.loads(queries_path.read_text())[a.name]
 graph = json.loads((a.output/'graph.json').read_text())
+cold_start = time.monotonic()
+cold = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / 'scripts/repo_graph.py'), 'search', str(a.output), queries[0]['query'], '--limit', '5'], capture_output=True, text=True, check=True)
+cold_seconds = time.monotonic() - cold_start
 embedder = Embeddings(offline=True)
 engine = Search(a.output.resolve(), embedder)
 report = {'repository':a.name,'commit':subprocess.check_output(['git','rev-parse','HEAD'],cwd=a.source,text=True).strip(),
           'judgments_sha256':hashlib.sha256(queries_path.read_bytes()).hexdigest(), 'files':graph['file_count'],
           'directories':len(graph['tree'])-1,'import_links':len(graph['dependencies']),
           'scan':graph['scan'],'search_corpus':graph['search'],'index_bytes':(a.output/'search.db').stat().st_size,
-          'html_bytes':(a.output/'architecture.html').stat().st_size,'modes':{}}
+          'html_bytes':(a.output/'architecture.html').stat().st_size,'cold_cli_seconds':round(cold_seconds,3),'modes':{}}
+report['embedding_runtime'] = {'model':embedder.name,'threads':4,'provider':'CPUExecutionProvider',
+    'python':platform.python_version(),'platform':platform.system()+' '+platform.machine(),
+    'fastembed':importlib.metadata.version('fastembed'),'onnxruntime':importlib.metadata.version('onnxruntime'),
+    'numpy':importlib.metadata.version('numpy'),'model_files_sha256':{}}
+model_dir = Path(embedder.model.model._model_dir)
+for file in model_dir.rglob('*.onnx'):
+    digest=hashlib.sha256()
+    with file.open('rb') as stream:
+        while chunk:=stream.read(1024*1024): digest.update(chunk)
+    report['embedding_runtime']['model_files_sha256'][file.name]=digest.hexdigest()
 with closing(connect(a.output,readonly=True)) as db:
     report['embedded_documents'] = db.execute('SELECT count(*) FROM docs WHERE vector IS NOT NULL').fetchone()[0]
 for mode in ['keyword','semantic','hybrid']:

@@ -1,0 +1,14 @@
+{
+  "synthetic_documents": 100000,
+  "dimensions": 384,
+  "index_bytes": 210759680,
+  "query_seconds": [
+    0.1989,
+    0.1696,
+    0.1672,
+    0.1665,
+    0.1623
+  ],
+  "median_seconds": 0.1672,
+  "purpose": "Exact vector database scan scaling only; repeated synthetic vectors do not evaluate relevance or embedding throughput."
+}

@@ -28,6 +28,8 @@ try {
   const graph=JSON.parse(readFileSync(resolve(output,'graph.json'),'utf8'));
   assert.equal(await page.locator('#stat-files').innerText(),graph.file_count.toLocaleString('en-US'));
   checks.push('inventory count');
+  for (const file of ['graph.json','architecture.mmd']) { const response=await page.request.get(new URL(file,url).toString()); assert.equal(response.status(),200); }
+  checks.push('JSON and Mermaid downloads');
   for(const mode of ['system','atlas','tree','radial','treemap','table','matrix']) {
     await page.selectOption('#view-mode',mode);
     if(['table','matrix'].includes(mode)) assert.ok(await page.locator('#data-panel').isVisible());
@@ -35,7 +37,7 @@ try {
     assert.ok(await page.locator('.node').count()<=24); checks.push('view '+mode);
   }
   await page.click('#tab-search');
-  await page.getByLabel('Search method').selectOption('keyword');
+  await page.getByLabel('Search method').selectOption(process.env.REPO_GRAPH_UX_MODE || 'keyword');
   await page.getByLabel('Repository search query').fill(process.env.REPO_GRAPH_UX_QUERY || 'access control permissions');
   await page.getByRole('button',{name:'Search',exact:true}).click();
   await page.locator('.search-result').first().waitFor({timeout:30000});
@@ -50,9 +52,9 @@ try {
   if(process.env.REPO_GRAPH_UX_REPORT) {
     await page.setViewportSize({width:1440,height:1000}); await page.click('#tab-system');
     await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'.png'});
-    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,loadMs,checks,browserErrors:errors},null,2)+'\n');
+    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,checks,browserErrors:errors},null,2)+'\n');
   }
-  console.log(JSON.stringify({files:graph.file_count,loadMs,checks,browserErrors:errors}));
+  console.log(JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,checks,browserErrors:errors}));
 } finally {
   await browser.close(); server.kill('SIGTERM'); await closed; rmSync(scratch,{recursive:true,force:true});
 }

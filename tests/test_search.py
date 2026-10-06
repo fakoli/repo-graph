@@ -18,21 +18,32 @@ class SearchTests(unittest.TestCase):
             out = Path(scratch) / 'output'; out.mkdir()
             (root / 'cache.py').write_text('def invalidateCache():\n    """Evict outdated entries."""\n')
             (root / 'queue.py').write_text('def pushMessage():\n    """Enqueue background work."""\n')
-            first = search.catalog(root, ['cache.py', 'queue.py', '../missing.py'], out)
-            self.assertEqual(first['documents'], 2)
-            self.assertEqual(search.catalog(root, ['cache.py', 'queue.py'], out)['reused'], 2)
+            (root / 'guide.markdown').write_text('# Object storage\nRetain historical versions of objects.\n')
+            first = search.catalog(root, ['cache.py', 'queue.py', 'guide.markdown', '../missing.py'], out)
+            self.assertEqual(first['documents'], 3)
+            self.assertEqual(search.Search(out).run('historical version', mode='keyword')['results'][0]['path'], 'guide.markdown')
+            self.assertEqual(search.catalog(root, ['cache.py', 'queue.py', 'guide.markdown'], out)['reused'], 3)
             self.assertEqual(search.Search(out).run('invalidate Cache', mode='keyword')['results'][0]['path'], 'cache.py')
             with closing(search.connect(out)) as db, db:
                 db.execute("UPDATE docs SET vector=x'00' WHERE path='cache.py'")
             (root / 'cache.py').write_text('def refreshCache():\n    """Reload the inventory."""\n')
             changed = search.catalog(root, ['cache.py'], out)
-            self.assertEqual(changed['deleted'], 1)
+            self.assertEqual(changed['deleted'], 2)
             with closing(search.connect(out)) as db:
                 self.assertIsNone(db.execute('SELECT vector FROM docs').fetchone()[0])
             self.assertEqual(search.Search(out).run('Enqueue', mode='keyword')['results'], [])
             self.assertEqual(search.Search(out).run('" OR 1=1; DROP TABLE docs; --', mode='keyword')['documents'], 1)
             self.assertNotIn('sk-'+'x'*30, search.synopsis('keys.py', '# sk-'+'x'*30))
             self.assertEqual(search.synopsis('key.txt', '-----BEGIN PRIVATE KEY-----'), '')
+
+    def test_unrecognized_files_are_searchable_by_metadata_without_reading_binary_content(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root=Path(scratch)/'source';root.mkdir();out=Path(scratch)/'out';out.mkdir()
+            (root/'logo.png').write_bytes(b'private-binary-content')
+            self.assertEqual(search.catalog(root,['logo.png'],out)['documents'],1)
+            hit=search.Search(out).run('logo',mode='keyword')['results'][0]
+            self.assertEqual(hit['path'],'logo.png')
+            self.assertNotIn('private-binary-content',hit['evidence'])
 
     def test_real_vector_ranking_fusion_and_partial_index_refusal(self):
         try:
@@ -74,6 +85,7 @@ class SearchTests(unittest.TestCase):
                     for headers, code in [({'Origin':'https://example.test','Content-Type':'application/json'},403), ({},415)]:
                         with self.assertRaises(HTTPError) as caught: urlopen(Request(url, payload, headers=headers))
                         self.assertEqual(caught.exception.code, code)
+                        caught.exception.close()
                 finally: server.shutdown(); thread.join()
 
 

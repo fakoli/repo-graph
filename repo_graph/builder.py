@@ -403,7 +403,8 @@ def main(argv=None) -> int:
     from repo_graph.search import catalog
     search = catalog(root, files, output)
     edges = scope_edges(dependencies)
-    graph = {"schema": 1, "name": root.name, "file_count": len(files), "files": files,
+    display_name = Path(urlsplit(args.repo).path.rstrip("/")).name.removesuffix(".git") if args.repo.startswith("https://") else root.name
+    graph = {"schema": 1, "name": display_name, "file_count": len(files), "files": files,
              "tree": tree, "dependencies": dependencies, "scope_edges": edges,
              "scan": scan, "jev": jev_status, "roles": roles,
              "system": system_view(tree, dependencies, roles), "search": search}
