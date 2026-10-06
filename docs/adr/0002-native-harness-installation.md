@@ -22,6 +22,15 @@ and preserve successful installations. Native managers own configuration,
 idempotence and removal. Do not rewrite credentials, model selection or unrelated
 settings. Verify installation and skill discovery using isolated homes.
 
+Existing Claude installations use native `plugin update` so version changes
+take effect. Codex/Claude verify the registered source/ref and cached product
+version/content before success. The dry-run plan leaves this conditional update
+and read-only verification to the applied run. Failed verification reports an
+error instead of claiming the requested product is active.
+Codex requires native marketplace removal/re-addition for a different source/ref.
+Check the requested product before that transition and reject unrelated sources
+using the same marketplace name. Preserve other marketplace registrations.
+
 ## Consequences
 
 No daemon, model call, hook or custom tool is required for harness support.

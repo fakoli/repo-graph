@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,12 @@ def main():
     args = parser.parse_args()
     source = args.source.resolve()
     with tempfile.TemporaryDirectory(prefix='repo-graph-harness-') as scratch:
+        product = Path(scratch) / 'product source'
+        product.mkdir()
+        for directory in ('repo_graph', 'scripts', 'skills', '.agents', '.codex-plugin', '.claude-plugin'):
+            shutil.copytree(source / directory, product / directory,
+                            ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+        shutil.copyfile(source / 'package.json', product / 'package.json')
         home = Path(scratch) / 'home'
         codex = home / '.codex'
         claude = home / '.claude'
@@ -36,32 +43,38 @@ def main():
             assert result.returncode == 0, result.stderr + result.stdout
             return result.stdout
 
-        run([sys.executable, str(source / 'scripts/repo_graph.py'), 'init',
-             '--harness', args.harness, '--source', str(source)])
-        # Repeat the public command: native managers must keep one enabled product.
-        run([sys.executable, str(source / 'scripts/repo_graph.py'), 'init',
-             '--harness', args.harness, '--source', str(source)])
-        plugins = json.loads(run([args.harness, 'plugin', 'list', '--json']))
-        if args.harness == 'codex':
-            installed = [p for p in plugins['installed']
-                         if p['pluginId'] == 'repo-graph@repo-graph']
-            roots = list((codex / 'plugins/cache/repo-graph/repo-graph').glob('*'))
-        else:
-            installed = [p for p in plugins if p['id'] == 'repo-graph@repo-graph']
-            roots = [Path(p['installPath']) for p in installed]
+        # Version changes carry a marker so a stale native cache cannot pass.
+        for version in ('0.6.0', '0.6.0', '0.6.1', '0.6.0'):
+            for manifest in ('package.json', '.codex-plugin/plugin.json', '.claude-plugin/plugin.json'):
+                path = product / manifest
+                data = json.loads(path.read_text()); data['version'] = version
+                path.write_text(json.dumps(data))
+            (product / 'selected-version.txt').write_text(version)
+            run([sys.executable, str(source / 'scripts/repo_graph.py'), 'init',
+                 '--harness', args.harness, '--source', str(product)])
+            plugins = json.loads(run([args.harness, 'plugin', 'list', '--json']))
+            if args.harness == 'codex':
+                installed = [p for p in plugins['installed']
+                             if p['pluginId'] == 'repo-graph@repo-graph']
+                packaged = codex / 'plugins/cache/repo-graph/repo-graph' / version
+            else:
+                installed = [p for p in plugins if p['id'] == 'repo-graph@repo-graph']
+                packaged = Path(installed[0]['installPath'])
+            assert len(installed) == 1 and installed[0]['enabled'], installed
+            assert installed[0]['version'] == version, installed
+            assert (packaged / 'selected-version.txt').read_text() == version
+            assert (packaged / 'skills/repo-graph/SKILL.md').read_bytes() == (
+                source / 'skills/repo-graph/SKILL.md').read_bytes()
+        if args.harness == 'claude':
             details = run(['claude', 'plugin', 'details', 'repo-graph'])
             assert 'Skills (1)' in details and 'repo-graph' in details, details
-        assert len(installed) == 1 and installed[0]['enabled'], installed
-        packaged = next(p for p in roots if (p / 'skills/repo-graph/SKILL.md').is_file())
-        assert (packaged / 'skills/repo-graph/SKILL.md').read_bytes() == (
-            source / 'skills/repo-graph/SKILL.md').read_bytes()
         script = packaged / 'scripts/repo_graph.py'
         run([sys.executable, str(script), 'map', '--output', str(output)])
         assert json.loads((output / 'graph.json').read_text())['files'] == ['queue.py']
         found = json.loads(run([sys.executable, str(script), 'search', str(output),
                                'enqueue', '--mode', 'keyword', '--limit', '1']))
         assert [p['path'] for p in found['results']] == ['queue.py'], found
-        print(f'{args.harness}: native install/repeat, shared skill, caller map and search passed')
+        print(f'{args.harness}: native install/repeat/upgrade/rollback, shared skill, caller map and search passed')
 
 
 if __name__ == '__main__':

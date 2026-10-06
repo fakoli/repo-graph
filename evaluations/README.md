@@ -7,7 +7,8 @@ The default pin follows the product version. Focused unit checks cover missing
 CLIs, invalid inputs, scope rejection before mutation and partial failures.
 `tests/pi_smoke.py` and `tests/harness_smoke.py` exercise actual native discovery
 and packaged script execution in temporary homes without provider requests.
-The Codex/Claude checks also repeat initialization and verify the shared skill.
+The Codex/Claude checks also repeat initialization, verify version-changing
+upgrade/rollback and check the shared skill.
 A built wheel is installed in a temporary environment and its CLI/asset presence
 checked before release. These are packaging checks, not model task or human UX
 evaluations. Existing Node/browser checks continue to cover the viewer.

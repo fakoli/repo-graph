@@ -42,7 +42,8 @@ repo-graph init --harness pi
 ```
 
 Use `--harness codex`, `--harness claude` or `--harness all` to select other
-installed harnesses. `--dry-run` previews the native commands. Installation uses
+installed harnesses. `--dry-run` previews the base native command plan. Existing
+Claude installations use its native update command when applied. Installation uses
 the reviewed canonical release through the harness's own package manager.
 All selected CLIs must be present before installation starts. User scope is the
 default; `--scope project` works for Pi and Claude. Codex supports user scope.
@@ -50,6 +51,11 @@ The command reports completed harnesses if a later install fails; native changes
 may remain, and retrying the same command is supported. Start a fresh session
 after installation. Development uses `--source LOCAL_PRODUCT`; `--ref TAG`
 overrides the remote release pin.
+Codex/Claude success receipts verify the registered source, selected version
+and cached runtime/skill. A mismatch is an error.
+Changing a Codex source/ref can replace its Repo Graph marketplace registration;
+the requested replacement is checked first. Unrelated sources using that
+marketplace name are rejected.
 
 | Harness | Invocation |
 | --- | --- |
@@ -77,7 +83,10 @@ claude plugin install repo-graph@repo-graph
 The existing `fakoli/agent-plugins` marketplace also lists this pinned canonical
 product. Anvil Extensions includes a compatibility package that depends on the
 same release; it carries no copied scanner, index, skill or viewer. Update those
-consumers through their reviewed releases. Uninstall with the native manager.
+consumers through their reviewed releases. If already using the original Codex
+marketplace entry, update/reinstall that entry instead of adding a second copy
+through the canonical marketplace. Select one Repo Graph distribution per
+harness. Uninstall with the native manager.
 
 ## Product architecture
 
@@ -199,8 +208,9 @@ retries. Cached ranking responses exclude raw queries/evidence and retain at
 most 512 entries. Credentials are never stored in the index or browser.
 
 Uninstall the plugin through the host's package manager. Generated artifacts and
-caches remain available. Rollback is a prior reviewed release pin; no source state
-is changed. To clear local data, delete only the corresponding generated cache
+caches remain available. [Rollback instructions](docs/releases/v0.6.0.md#upgrade-and-rollback)
+depend on the harness: canonical v0.5.0 has no Codex self-marketplace or Claude
+plugin. No source state is changed. To clear local data, delete only the corresponding generated cache
 entry. A failed clone can leave an incomplete cache entry; remove that entry and
 retry. A failed embedding batch preserves previously committed vectors.
 
@@ -223,8 +233,8 @@ commands are in [evaluations/README.md](evaluations/README.md). Offline regressi
 checks and real public-repository benchmarks cover different requirements.
 Native smoke checks require the corresponding installed harness CLI, use isolated
 homes, and execute mapping/search without provider requests. They do not change
-live harness installations. The Codex/Claude checks also repeat initialization
-and inspect the installed shared skill. `uv build --wheel` checks the CLI package;
+live harness installations. The Codex/Claude checks also repeat initialization,
+verify upgrade/rollback and inspect the installed shared skill. `uv build --wheel` checks the CLI package;
 native plugins fetch their skill and runtime from the pinned product source.
 
 MIT. [Provenance](UPSTREAM.md) records the original scanner/skill and this release's
