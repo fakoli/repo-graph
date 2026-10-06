@@ -1,0 +1,8 @@
+{
+  "name": "repo-graph",
+  "version": "0.6.0",
+  "description": "Local repository diagrams and incremental search for large codebases.",
+  "author": { "name": "Fakoli" },
+  "repository": "https://github.com/fakoli/repo-graph",
+  "license": "MIT"
+}

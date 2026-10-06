@@ -1,0 +1,20 @@
+{
+  "name": "repo-graph",
+  "interface": {
+    "displayName": "Repo Graph"
+  },
+  "plugins": [
+    {
+      "name": "repo-graph",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

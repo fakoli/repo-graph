@@ -5,7 +5,7 @@ description: Map local or public repositories into interactive system diagrams, 
 
 # Repo Graph
 
-Resolve `../../scripts/repo_graph.py` relative to this `SKILL.md` to an absolute path. Keep the caller's repository as the working directory. Use `python3 "<script>" map [repo-path-or-public-https-url]`; omitted input maps the caller's current directory. Quote shell arguments. Pi invocation is `/skill:repo-graph`; Codex invocation is `$repo-graph`.
+Resolve `../../scripts/repo_graph.py` relative to this `SKILL.md` to an absolute path. Keep the caller's repository as the working directory. Use `python3 "<script>" map [repo-path-or-public-https-url]`; omitted input maps the caller's current directory. Quote shell arguments. Pi invocation is `/skill:repo-graph`; Codex invocation is `$repo-graph`; Claude Code invocation is `/repo-graph:repo-graph`. All three use the same scanner, index and viewer.
 
 Mapping needs Python 3.10+ and no Python dependencies. Git is required for HTTPS inputs. It writes diagrams, Mermaid, JSON and a keyword SQLite index outside the source, under the user's cache by default. `--output DIR` overrides that location; `--refresh` updates a cached remote clone. Report measured file/import/index/cache counts and link the HTML. The System, Explore and Data tabs keep visual detail bounded; the Search tab works through the optional local viewer.
 
