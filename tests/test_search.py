@@ -71,6 +71,50 @@ class SearchTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'stale'):
                 engine.run('jobs')
 
+    def test_vector_scan_keeps_ties_prefix_boundaries_and_stale_final_block(self):
+        try:
+            import numpy as np
+        except ImportError:
+            self.skipTest('Install semantic extra for vector checks')
+        class FakeEmbedding:
+            name = 'synthetic'
+            def __init__(self): self.np = np
+            packed = search.Embeddings.packed
+            def query(self, text): return [1, 0]
+        with tempfile.TemporaryDirectory() as scratch:
+            output = Path(scratch)
+            vector = np.asarray([1, 0], dtype='<f4').tobytes()
+            paths = ['code'] + [f'code/file{i:04}.py' for i in range(1025)] + ['code2/outside.py']
+            with closing(search.connect(output)) as db, db:
+                db.executemany('INSERT INTO docs(path,stamp,digest,body,terms,vector) VALUES(?,?,?,?,?,?)',
+                    ((path, '', path, 'queue', 'queue', vector) for path in paths))
+                db.execute("INSERT INTO meta VALUES('model','synthetic')")
+                db.execute("UPDATE docs SET vector=NULL WHERE path='code2/outside.py'")
+            engine = search.Search(output, FakeEmbedding())
+            for mode in ('keyword', 'semantic', 'hybrid'):
+                result = engine.run('queue', mode=mode, prefix='/code/', limit=10)
+                self.assertEqual(result['documents'], 1026)
+                self.assertTrue(all(hit['path'] == 'code' or hit['path'].startswith('code/') for hit in result['results']))
+            result = engine.run('queue', mode='semantic', prefix='code', limit=50)
+            self.assertEqual([hit['path'] for hit in result['results']], list(reversed(paths[:-1]))[:50])
+            with closing(search.connect(output)) as db, db:
+                db.execute("UPDATE docs SET vector=NULL WHERE path='code/file1024.py'")
+            with self.assertRaisesRegex(RuntimeError, 'stale'):
+                engine.run('queue', mode='semantic', prefix='code')
+
+    def test_keyword_prefix_ranges_keep_unicode_metacharacters_and_siblings(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            output = Path(scratch)
+            paths = ['a/b', 'a/b/file.py', 'a/bc/file.py', 'a/b0/file.py',
+                     '文/%_[', '文/%_[/file.py', '文/%_[0/file.py', '文/other/file.py']
+            with closing(search.connect(output)) as db, db:
+                db.executemany('INSERT INTO docs(path,stamp,digest,body,terms) VALUES(?,?,?,?,?)',
+                    ((path, '', path, 'queue', 'queue') for path in paths))
+            for prefix in ('a/b', '文/%_['):
+                result = search.Search(output).run('queue', mode='keyword', prefix=prefix)
+                self.assertEqual(result['documents'], 2)
+                self.assertEqual({hit['path'] for hit in result['results']}, {prefix, prefix + '/file.py'})
+
     def test_loopback_api_rejects_cross_origin_and_non_json_requests(self):
         with tempfile.TemporaryDirectory() as scratch:
             out = Path(scratch)

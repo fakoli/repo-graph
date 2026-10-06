@@ -65,9 +65,14 @@ const RepoViews = (() => {
       }
       const layers = [...new Set(levels.values())].sort((a,b) => a-b);
       const columns = layers.map(layer => nodes.filter(node => levels.get(node.id) === layer));
-      const rows = Math.max(1,...columns.map(column => column.length));
-      columns.forEach((column,ci) => column.forEach((node,ri) => put(node,60+ci*(W+130),90+(rows-column.length)*(H+65)/2+ri*(H+65))));
-      width = 120+Math.max(0,columns.length-1)*(W+130)+W; height = 180+rows*(H+65);
+      const rows = Math.max(1,...columns.map(column => Math.ceil(column.length/(column.length>6 ? 2 : 1))));
+      let x = 60;
+      for (const column of columns) {
+        const columnRows = Math.ceil(column.length/(column.length>6 ? 2 : 1));
+        column.forEach((node,index) => put(node,x+Math.floor(index/columnRows)*(W+56),90+(rows-columnRows)*(H+24)/2+(index%columnRows)*(H+24)));
+        x += (column.length>6 ? 2*W+56 : W)+130;
+      }
+      width = Math.max(W+120,x-70); height = 180+rows*(H+24);
     } else if (mode === 'tree') {
       const columns = Math.min(4,Math.max(1,rest.length));
       width = 160 + columns*(W+60);

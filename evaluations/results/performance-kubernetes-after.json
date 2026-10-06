@@ -1,0 +1,1047 @@
+{
+  "repository": "kubernetes",
+  "commit": "35fc3af13807e70534fb11736bcccc013631efde",
+  "python": "3.12.14",
+  "platform": "Linux x86_64",
+  "judgments_sha256": {
+    "queries.json": "c47857a8b9743193b285e159af301b3f8d3658d92e6b893d149e084b2e27baaa",
+    "jev-queries.json": "e4f66d051a5cd441cd6b2aeaeda99fa4794b2a053a60554c2f8f4a904e9eebe7"
+  },
+  "generation": {
+    "cold": {
+      "samples_seconds": [
+        6.292533169005765,
+        6.227632897003787,
+        6.2718899920000695
+      ],
+      "median_seconds": 6.2718899920000695,
+      "p95_seconds": 6.292533169005765
+    },
+    "warm": {
+      "samples_seconds": [
+        1.8830643529945519,
+        1.8877007989794947,
+        1.8830579339992255
+      ],
+      "median_seconds": 1.8830643529945519,
+      "p95_seconds": 1.8877007989794947
+    },
+    "structure_sha256": "46356b65eeb80e3b4d50a34edc4958a11d7fd0ce55cc617aa6f15e285b4b3988"
+  },
+  "search": {
+    "keyword": {
+      "samples_seconds": [
+        0.004131969006266445,
+        0.0038369609974324703,
+        0.004336315003456548,
+        0.004341427993495017,
+        0.004197292000753805,
+        0.0037991629797033966,
+        0.005821852013468742,
+        0.0058331389736849815,
+        0.005556819000048563,
+        0.007360860996413976,
+        0.008315732004120946,
+        0.007814145006705076,
+        0.011860128986882046,
+        0.012519757001427934,
+        0.012866857025073841,
+        0.010723732004407793,
+        0.011018724006135017,
+        0.010815763991558924,
+        0.004007938987342641,
+        0.0037074899883009493,
+        0.003505439992295578,
+        0.004048966016853228,
+        0.003584134014090523,
+        0.003837399010080844,
+        0.008733347989618778,
+        0.008737820986425504,
+        0.008290735015179962,
+        0.009713314997497946,
+        0.009745110990479589,
+        0.009612911992007867,
+        0.0037368519988376647,
+        0.003398567991098389,
+        0.00337129199760966,
+        0.012546902988106012,
+        0.012271890009287745,
+        0.011959863011725247,
+        0.007688334007980302,
+        0.006812949024606496,
+        0.006847926997579634,
+        0.005176995997317135,
+        0.004616747988620773,
+        0.004749318002723157,
+        0.005531572998734191,
+        0.005440498993266374,
+        0.005320494994521141,
+        0.005403496004873887,
+        0.00507689401274547,
+        0.005058078997535631
+      ],
+      "median_seconds": 0.005544195999391377,
+      "p95_seconds": 0.012519757001427934,
+      "queries": [
+        {
+          "query": "choose which machine will run a pending workload",
+          "results_sha256": "332b9f332cf6d9125dc2430756e1b4379886d0266182f471bf49a4fad99b2620",
+          "first_relevant_rank": 0,
+          "paths": [
+            "test/integration/scheduler_perf/executor.go",
+            "test/e2e_node/perf/workloads/workloads.go",
+            "staging/src/k8s.io/apiserver/pkg/storage/cacher/ready.go",
+            "pkg/proxy/metrics/metrics.go",
+            "test/e2e_node/perf/workloads/pytorch_wide_deep.go",
+            "test/integration/dra/workload_resource_claims.go",
+            "test/integration/scheduler/podgroup/stepsframework/stepsframework.go",
+            "test/integration/scheduler_perf/options.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/nodesysteminfo.go",
+            "staging/src/k8s.io/dynamic-resource-allocation/deviceattribute/machine_linux.go"
+          ]
+        },
+        {
+          "query": "replace unhealthy application replicas to maintain desired count",
+          "results_sha256": "7e5b4afc41f6a14ae407531cf5899e476437bdc4a939f03999723852d8c386aa",
+          "first_relevant_rank": 7,
+          "paths": [
+            "staging/src/k8s.io/client-go/applyconfigurations/autoscaling/v2/horizontalpodautoscalerspec.go",
+            "pkg/controller/deployment/rolling.go",
+            "pkg/controller/podautoscaler/replica_calculator.go",
+            "pkg/controller/deployment/util/deployment_util.go",
+            "staging/src/k8s.io/kubectl/pkg/util/deployment/deployment.go",
+            "pkg/controller/podautoscaler/monitor/monitor.go",
+            "pkg/controller/replicaset/replica_set_test.go",
+            "pkg/controller/deployment/rolling_test.go",
+            "pkg/controller/replication/conversion.go",
+            "staging/src/k8s.io/kubectl/pkg/polymorphichelpers/helpers_test.go"
+          ]
+        },
+        {
+          "query": "serve external HTTP traffic through routing rules",
+          "results_sha256": "892d8db37599f16d745004d6a4442d120d02f0f008c942e8b1840b7e3de7ef74",
+          "first_relevant_rank": 0,
+          "paths": [
+            "staging/src/k8s.io/apiserver/pkg/server/options/serving.go",
+            "test/integration/service/service_test.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/extensions/v1beta1/ingressrule.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/networking/v1/ingressrule.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/networking/v1beta1/ingressrule.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/extensions/v1beta1/ingressrulevalue.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/servicespec.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/extensions/v1beta1/networkpolicyegressrule.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/networking/v1/networkpolicyegressrule.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/networking/v1/networkpolicyspec.go"
+          ]
+        },
+        {
+          "query": "mount persistent storage volumes into containers",
+          "results_sha256": "573a597f834d12d43574161a544a23f13d5ad9e80dda4e4df7ea8dfdd503fb02",
+          "first_relevant_rank": 6,
+          "paths": [
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/azurefilepersistentvolumesource.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/persistentvolumespec.go",
+            "staging/src/k8s.io/component-helpers/storage/volume/helpers.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/storage/v1/storageclass.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/storage/v1beta1/storageclass.go",
+            "pkg/volume/validation/pv_validation_test.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/volumesource.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/persistentvolumeclaimvolumesource.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/awselasticblockstorevolumesource.go",
+            "staging/src/k8s.io/api/storage/v1/types.go"
+          ]
+        },
+        {
+          "query": "enforce permissions before accepting an API request",
+          "results_sha256": "715711f03dbccaafb90b2f0fd5680d93813c6a62af083b7be4e4b0b235143ee1",
+          "first_relevant_rank": 0,
+          "paths": [
+            "plugin/pkg/admission/gc/gc_admission.go",
+            "plugin/pkg/admission/eventratelimit/limitenforcer.go",
+            "staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go",
+            "test/e2e/apimachinery/request_timeout.go",
+            "test/integration/certificates/admission_sign_test.go",
+            "test/integration/certificates/admission_approval_test.go",
+            "staging/src/k8s.io/apiserver/pkg/registry/rest/create_update.go",
+            "staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/doc.go",
+            "staging/src/k8s.io/apiserver/pkg/registry/rest/update.go",
+            "pkg/controller/certificates/authority/policies.go"
+          ]
+        },
+        {
+          "query": "restart failing containers and run health checks",
+          "results_sha256": "e5df69985bc8fe5ed4baeb5131c4531a61cad72264f0903ea9dd3bfe68eecb1b",
+          "first_relevant_rank": 0,
+          "paths": [
+            "test/utils/conditions.go",
+            "staging/src/k8s.io/apiserver/pkg/server/healthz.go",
+            "test/e2e_node/static_pod_test.go",
+            "pkg/kubelet/watchdog/types.go",
+            "test/e2e/common/node/init_container.go",
+            "test/e2e_node/mirror_pod_test.go",
+            "cmd/kubeadm/app/phases/upgrade/health.go",
+            "pkg/kubelet/watchdog/watchdog_linux_test.go",
+            "test/e2e_node/services/server.go",
+            "test/e2e_node_windows/services/server.go"
+          ]
+        },
+        {
+          "query": "kube-scheduler",
+          "results_sha256": "56ae63fde2d06714cbde6fd43bf6e086db126f6c8f805b6717c2dc4986ec869b",
+          "first_relevant_rank": 3,
+          "paths": [
+            "pkg/scheduler/apis/config/v1/conversion.go",
+            "pkg/scheduler/apis/config/testing/config.go",
+            "cmd/kube-scheduler/scheduler.go",
+            "cmd/kube-scheduler/OWNERS",
+            "cmd/kube-scheduler/app/options/configfile.go",
+            "pkg/scheduler/apis/config/types.go",
+            "staging/src/k8s.io/kube-scheduler/config/v1/types.go",
+            "staging/src/k8s.io/kube-scheduler/config/v1/doc.go",
+            "pkg/scheduler/apis/config/v1/doc.go",
+            "cluster/gce/manifests/kube-scheduler.manifest"
+          ]
+        },
+        {
+          "query": "DeploymentController",
+          "results_sha256": "73937eaa173e88e6e09350f8e8889526dd5144c3bef4be7ad6684a80ec304ed5",
+          "first_relevant_rank": 2,
+          "paths": [
+            "cmd/kube-controller-manager/app/options/deploymentcontroller.go",
+            "pkg/controller/deployment/config/v1alpha1/conversion.go",
+            "pkg/controller/deployment/config/types.go",
+            "test/integration/deployment/util.go",
+            "pkg/controller/deployment/config/zz_generated.deepcopy.go",
+            "pkg/controller/deployment/rolling_test.go",
+            "staging/src/k8s.io/client-go/listers/apps/v1/expansion_generated.go",
+            "staging/src/k8s.io/client-go/listers/apps/v1beta1/expansion_generated.go",
+            "staging/src/k8s.io/client-go/listers/apps/v1beta2/expansion_generated.go",
+            "pkg/controller/deployment/deployment_controller.go"
+          ]
+        },
+        {
+          "query": "delete dependent objects after their owner disappears",
+          "results_sha256": "cfb7ceca75a6d0d4e396125822392a1789f89681820f08ab8edcbd04133e9a56",
+          "first_relevant_rank": 4,
+          "paths": [
+            "test/integration/utils.go",
+            "pkg/controller/garbagecollector/graph.go",
+            "staging/src/k8s.io/kubectl/pkg/cmd/wait/delete.go",
+            "pkg/controller/garbagecollector/garbagecollector.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/meta/v1/ownerreference.go",
+            "staging/src/k8s.io/apiserver/pkg/registry/generic/registry/corrupt_obj_deleter.go",
+            "pkg/controller/garbagecollector/operations.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/meta/v1/deleteoptions.go",
+            "test/e2e/framework/resource/resources.go",
+            "test/declarative_validation/meta/objectmeta.go"
+          ]
+        },
+        {
+          "query": "remove all resources when a namespace is terminated",
+          "results_sha256": "345fa2a27712622047f0ae3ea1a99dd7fb63256005a43acdda61622be55dd989",
+          "first_relevant_rank": 1,
+          "paths": [
+            "pkg/controller/namespace/deletion/namespaced_resources_deleter.go",
+            "pkg/apis/abac/v0/conversion_test.go",
+            "pkg/apis/core/types.go",
+            "test/integration/endpointslice/endpointsliceterminating_test.go",
+            "pkg/proxy/ipvs/graceful_termination.go",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/change_test.go",
+            "pkg/controller/namespace/deletion/namespaced_resources_deleter_test.go",
+            "pkg/controller/namespace/namespace_controller.go",
+            "test/integration/metrics/metrics_test.go",
+            "staging/src/k8s.io/client-go/dynamic/dynamiclister/interface.go"
+          ]
+        },
+        {
+          "query": "program IPVS rules for service traffic forwarding",
+          "results_sha256": "75313a32c5ee69208fa6e464018d9975502725ad3f73ffb0a0fdeb1263f2f55f",
+          "first_relevant_rank": 2,
+          "paths": [
+            "pkg/proxy/ipvs/README.md",
+            "pkg/proxy/ipvs/proxier.go",
+            "pkg/proxy/iptables/number_generated_rules_test.go",
+            "staging/src/k8s.io/cloud-provider/service/helpers/helper.go",
+            "pkg/proxy/ipvs/testing/util.go",
+            "pkg/proxy/metrics/metrics.go",
+            "staging/src/k8s.io/kube-proxy/config/v1alpha1/types.go",
+            "pkg/proxy/ipvs/util/testing/fake.go",
+            "test/integration/service/service_test.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/extensions/v1beta1/networkpolicyegressrule.go"
+          ]
+        },
+        {
+          "query": "assign a default service account when admitting a pod",
+          "results_sha256": "3b8c60c3add0daf129f59f02df81e0d92e350102a1e6d15e8b469bb77fd29c7f",
+          "first_relevant_rank": 2,
+          "paths": [
+            "plugin/pkg/admission/serviceaccount/admission_test.go",
+            "plugin/pkg/admission/serviceaccount/admission.go",
+            "plugin/pkg/admission/noderestriction/admission_test.go",
+            "pkg/controller/serviceaccount/serviceaccounts_controller.go",
+            "staging/src/k8s.io/kubectl/pkg/cmd/create/create_serviceaccount.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/certificates/v1/podcertificaterequestspec.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/certificates/v1beta1/podcertificaterequestspec.go",
+            "cmd/kubeadm/app/apis/kubeadm/v1/defaults.go",
+            "cmd/kubeadm/app/apis/kubeadm/v1beta4/defaults.go",
+            "staging/src/k8s.io/client-go/listers/core/v1/serviceaccount.go"
+          ]
+        },
+        {
+          "query": "reconcile namespace resource quota usage",
+          "results_sha256": "eaf6326cf715d847cc39cc82b0a6264a4568b3affc4648f9eba1c4d8fd36cec9",
+          "first_relevant_rank": 1,
+          "paths": [
+            "pkg/controller/resourcequota/resource_quota_controller.go",
+            "staging/src/k8s.io/apiserver/pkg/quota/v1/interfaces.go",
+            "pkg/controller/resourcequota/resource_quota_controller_test.go",
+            "pkg/controller/resourcequota/config/types.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/resourcequota.go",
+            "staging/src/k8s.io/client-go/listers/core/v1/resourcequota.go",
+            "pkg/controller/resourcequota/doc.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/resourcequotastatus.go",
+            "pkg/quota/v1/evaluator/core/resource_claims_test.go",
+            "staging/src/k8s.io/client-go/kubernetes/typed/core/v1/fake/fake_resourcequota.go"
+          ]
+        },
+        {
+          "query": "garbage collect unused container images to free disk space",
+          "results_sha256": "424ebe812df64af2f5e32cc3a4a1cbbfca1c1751e4f1508e59f6a33d64e268ed",
+          "first_relevant_rank": 1,
+          "paths": [
+            "pkg/kubelet/images/image_gc_manager.go",
+            "pkg/kubelet/eviction/eviction_manager_test.go",
+            "test/e2e_node/eviction_test.go",
+            "pkg/kubelet/container/container_gc.go",
+            "pkg/volume/metrics_du.go",
+            "pkg/kubelet/eviction/api/types.go",
+            "test/e2e_node/garbage_collector_test.go",
+            "pkg/controller/garbagecollector/config/types.go",
+            "staging/src/k8s.io/apiserver/pkg/registry/rest/delete.go",
+            "test/integration/controlplane/apiserver_identity_test.go"
+          ]
+        },
+        {
+          "query": "run a batch job until the required completions succeed",
+          "results_sha256": "72244d4aa755812b3a34235c8157712bdeddef26fb30c788cae0151182a72bf4",
+          "first_relevant_rank": 0,
+          "paths": [
+            "test/e2e/framework/job/fixtures.go",
+            "pkg/controller/job/job_controller_test.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/batch/v1/jobstatus.go",
+            "pkg/controller/job/util/utils.go",
+            "pkg/registry/batch/cronjob/strategy_test.go",
+            "test/declarative_validation/batch/job/declarative_validation_test.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/batch/v1/jobspec.go",
+            "pkg/apis/batch/validation/validation.go",
+            "test/e2e/upgrades/apps/job.go",
+            "staging/src/k8s.io/kubectl/pkg/cmd/create/create_cronjob.go"
+          ]
+        },
+        {
+          "query": "allocate exclusive CPUs to containers",
+          "results_sha256": "fc0ae99aa4f2243cb4d1845b7cb350d7a47da75890925d0523cc94101d683b99",
+          "first_relevant_rank": 2,
+          "paths": [
+            "pkg/kubelet/cm/testing/mocks.go",
+            "pkg/kubelet/cm/cpumanager/policy_static.go",
+            "pkg/kubelet/cm/internal_container_lifecycle_windows.go",
+            "pkg/kubelet/cm/qos/helpers.go",
+            "pkg/kubelet/cm/container_manager_linux_test.go",
+            "pkg/kubelet/cm/cpumanager/policy_none.go",
+            "test/e2e_node_windows/topology_manager_test.go",
+            "pkg/kubelet/cm/cpu_following_store_windows_test.go",
+            "test/e2e_node/podresources_test.go",
+            "pkg/kubelet/cm/cpumanager/fake_cpu_manager.go"
+          ]
+        }
+      ],
+      "hit_rate_at_5": 0.5625
+    },
+    "semantic": {
+      "samples_seconds": [
+        0.042151125002419576,
+        0.04147183598252013,
+        0.041283560974989086,
+        0.04120234400033951,
+        0.042115727002965286,
+        0.04231215300387703,
+        0.04191514101694338,
+        0.043617064016871154,
+        0.04185906701604836,
+        0.04045209099422209,
+        0.041101028007688,
+        0.040880045999074355,
+        0.04026755300583318,
+        0.04128703000606038,
+        0.04129455398651771,
+        0.04107181800645776,
+        0.0416451949859038,
+        0.04196053300984204,
+        0.060102015995653346,
+        0.04230259999167174,
+        0.043025365011999384,
+        0.04006010800367221,
+        0.040406863001408055,
+        0.04067142299027182,
+        0.041473635006695986,
+        0.04132617299910635,
+        0.04068870499031618,
+        0.04256166098639369,
+        0.041421529022045434,
+        0.0418024740065448,
+        0.04052121000131592,
+        0.03980957900057547,
+        0.04034649598179385,
+        0.041943224001443014,
+        0.040697463002288714,
+        0.040959624981042,
+        0.041172106022713706,
+        0.040612356999190524,
+        0.04142711000167765,
+        0.04169749599532224,
+        0.042511579988058656,
+        0.04135876797954552,
+        0.04231731899199076,
+        0.04203876497922465,
+        0.044852109014755115,
+        0.04175935799139552,
+        0.042309199983719736,
+        0.04139306899742223
+      ],
+      "median_seconds": 0.04142431951186154,
+      "p95_seconds": 0.043617064016871154,
+      "queries": [
+        {
+          "query": "choose which machine will run a pending workload",
+          "results_sha256": "5925bab99e8112c172682353fa9345f56edda5caadb9a7a9e4241e44a344a2e5",
+          "first_relevant_rank": 0,
+          "paths": [
+            "test/e2e/scheduling/OWNERS",
+            "test/integration/scheduler_perf/workload_preemption/performance-config.yaml",
+            "pkg/registry/scheduling/workload/doc.go",
+            "test/e2e/scheduling/workload.go",
+            "test/integration/scheduler_perf/workload_preemption/templates/pod-low-priority.yaml",
+            "test/integration/scheduler_perf/OWNERS",
+            "test/integration/scheduler_perf/dra/workloadresourceclaims/performance-config.yaml",
+            "test/integration/scheduler_perf/workload_preemption/templates/pod-anchor-high-priority.yaml",
+            "test/integration/volumescheduling/OWNERS",
+            "test/integration/scheduler_perf/templates/pod-high-priority-large-cpu.yaml"
+          ]
+        },
+        {
+          "query": "replace unhealthy application replicas to maintain desired count",
+          "results_sha256": "35f2caf9d63f95fb25c5279b33677f4b4729b356c91fe98f0e065d6dfaac3f8b",
+          "first_relevant_rank": 0,
+          "paths": [
+            "test/utils/replicaset.go",
+            "test/integration/replicaset/OWNERS",
+            "staging/src/k8s.io/api/testdata/v1.35.0/apps.v1beta2.ReplicaSet.pb",
+            "staging/src/k8s.io/api/testdata/v1.35.0/apps.v1.ReplicaSet.pb",
+            "staging/src/k8s.io/api/testdata/v1.37.0/apps.v1beta2.ReplicaSet.pb",
+            "staging/src/k8s.io/api/testdata/v1.37.0/apps.v1.ReplicaSet.pb",
+            "staging/src/k8s.io/api/testdata/v1.34.0/apps.v1beta2.ReplicaSet.pb",
+            "staging/src/k8s.io/api/testdata/v1.36.0/apps.v1beta2.ReplicaSet.pb",
+            "staging/src/k8s.io/api/testdata/v1.34.0/apps.v1.ReplicaSet.pb",
+            "staging/src/k8s.io/api/testdata/v1.36.0/apps.v1.ReplicaSet.pb"
+          ]
+        },
+        {
+          "query": "serve external HTTP traffic through routing rules",
+          "results_sha256": "07739fe1d163c45d7cc2c9e215ba9a3aeeeb3b5d2fc952e789d10b815b821e25",
+          "first_relevant_rank": 0,
+          "paths": [
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/http-routing/foo-httproute.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/http-routing/gateway.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/simple-http-https/foo-route.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/http-routing/bar-httproute.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/cross-namespace-routing/gateway.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/cross-namespace-routing/site-route.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/cross-namespace-routing/store-route.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/traffic-splitting/traffic-split-1.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/traffic-splitting/traffic-split-2.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/traffic-splitting/simple-split.yaml"
+          ]
+        },
+        {
+          "query": "mount persistent storage volumes into containers",
+          "results_sha256": "8b2f0d2965138d250ce1b799b38f54cf0f6d89b0b428075895b4de87af176fce",
+          "first_relevant_rank": 0,
+          "paths": [
+            "cluster/addons/volumesnapshots/OWNERS",
+            "cluster/addons/volumesnapshots/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshots.yaml",
+            "cluster/addons/volumesnapshots/crd/snapshot.storage.k8s.io_volumesnapshots.yaml",
+            "pkg/apis/storage/OWNERS",
+            "cluster/addons/volumesnapshots/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshotcontents.yaml",
+            "cluster/addons/volumesnapshots/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml",
+            "cluster/addons/volumesnapshots/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshotclasses.yaml",
+            "cluster/addons/volumesnapshots/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml",
+            "staging/src/k8s.io/component-helpers/storage/OWNERS",
+            "staging/src/k8s.io/api/testdata/v1.35.0/core.v1.PersistentVolume.pb"
+          ]
+        },
+        {
+          "query": "enforce permissions before accepting an API request",
+          "results_sha256": "4613205430265547ed3da13b6670ecd191f7404fc014cb5f60dfbbf468c3bef0",
+          "first_relevant_rank": 9,
+          "paths": [
+            "api/OWNERS",
+            "pkg/apis/authorization/OWNERS",
+            "staging/src/k8s.io/api/authorization/OWNERS",
+            "api/discovery/apis__policy.json",
+            "pkg/apis/policy/OWNERS",
+            "api/discovery/apis__authorization.k8s.io.json",
+            "staging/src/k8s.io/api/policy/OWNERS",
+            "api/discovery/apis__authorization.k8s.io__v1.json",
+            "staging/src/k8s.io/apiserver/pkg/authorization/OWNERS",
+            "api/discovery/apis__policy__v1.json"
+          ]
+        },
+        {
+          "query": "restart failing containers and run health checks",
+          "results_sha256": "ce8f790eb54cd475871ae3909ebe92a046d5dee6cb399c610cd75621e98e39fd",
+          "first_relevant_rank": 0,
+          "paths": [
+            "test/e2e/common/node/container_restart_policy.go",
+            "staging/src/k8s.io/component-helpers/nodedeclaredfeatures/features/restartallcontainers/restart_all_containers_test.go",
+            "test/utils/conditions.go",
+            "test/e2e_node/restart_all_containers_test.go",
+            "test/e2e_node/container_restart_test.go",
+            "staging/src/k8s.io/component-helpers/nodedeclaredfeatures/features/restartallcontainers/restart_all_containers.go",
+            "test/e2e/common/node/runtime.go",
+            "test/e2e_node/container_lifecycle_test.go",
+            "staging/src/k8s.io/component-helpers/resource/helpers_test.go",
+            "test/e2e_node/container_manager_test.go"
+          ]
+        },
+        {
+          "query": "kube-scheduler",
+          "results_sha256": "9159ebc0a16452aad6e438487b1ebb660ba152660889562f391a76e907c620a2",
+          "first_relevant_rank": 1,
+          "paths": [
+            "cmd/kube-scheduler/OWNERS",
+            "staging/src/k8s.io/kube-scheduler/OWNERS",
+            "staging/src/k8s.io/kube-scheduler/doc.go",
+            "cmd/kube-scheduler/scheduler.go",
+            "staging/src/k8s.io/kube-scheduler/go.sum",
+            "cluster/gce/manifests/kube-scheduler.manifest",
+            "staging/src/k8s.io/kube-scheduler/LICENSE",
+            "staging/src/k8s.io/kube-scheduler/config/OWNERS",
+            "staging/src/k8s.io/kube-scheduler/extender/OWNERS",
+            "staging/src/k8s.io/kube-scheduler/go.mod"
+          ]
+        },
+        {
+          "query": "DeploymentController",
+          "results_sha256": "52c10f3647565c8f93b531ad4cc8c9844742dc6e9a7159a522e89d07f631cf01",
+          "first_relevant_rank": 2,
+          "paths": [
+            "cmd/kube-controller-manager/app/options/deploymentcontroller.go",
+            "pkg/controller/deployment/config/OWNERS",
+            "pkg/controller/deployment/OWNERS",
+            "pkg/controller/deployment/config/types.go",
+            "pkg/controller/deployment/config/v1alpha1/defaults.go",
+            "pkg/controller/deployment/sync.go",
+            "pkg/controller/deployment/deployment_controller_test.go",
+            "pkg/controller/deployment/config/doc.go",
+            "pkg/controller/deployment/deployment_controller.go",
+            "pkg/controller/deployment/progress_test.go"
+          ]
+        },
+        {
+          "query": "delete dependent objects after their owner disappears",
+          "results_sha256": "b4f6b8ddcae56ad52fbf335f7a94625063f6954bc29c1ef2c042533c405912a5",
+          "first_relevant_rank": 0,
+          "paths": [
+            "pkg/util/removeall/OWNERS",
+            "cmd/dependencyverifier/OWNERS",
+            "hack/OWNERS",
+            "hack/unwanted-dependencies.json",
+            "cmd/dependencycheck/OWNERS",
+            "pkg/controller/controller_ref_manager.go",
+            "pkg/controller/statefulset/OWNERS",
+            "OWNERS_ALIASES",
+            "staging/src/k8s.io/client-go/applyconfigurations/meta/v1/ownerreference.go",
+            "cmd/prune-junit-xml/OWNERS"
+          ]
+        },
+        {
+          "query": "remove all resources when a namespace is terminated",
+          "results_sha256": "2f6c0c78ec39140761e55887212846b7c03999a0195be77a3e1bfad0ab6b023a",
+          "first_relevant_rank": 1,
+          "paths": [
+            "pkg/controller/namespace/deletion/namespaced_resources_deleter.go",
+            "test/e2e/apimachinery/namespace.go",
+            "test/integration/scheduler/util.go",
+            "pkg/controller/garbagecollector/operations.go",
+            "test/utils/delete_resources.go",
+            "pkg/controller/namespace/deletion/namespaced_resources_deleter_test.go",
+            "pkg/registry/core/namespace/storage/storage.go",
+            "staging/src/k8s.io/kubectl/pkg/cmd/delete/delete.go",
+            "pkg/controller/namespace/namespace_controller.go",
+            "staging/src/k8s.io/kubectl/pkg/cmd/apply/prune.go"
+          ]
+        },
+        {
+          "query": "program IPVS rules for service traffic forwarding",
+          "results_sha256": "bd1c41e5da039dd663cdf3a5aae58688cae8b7262c3a5a8dad39089f36a0432f",
+          "first_relevant_rank": 0,
+          "paths": [
+            "pkg/proxy/ipvs/OWNERS",
+            "pkg/api/servicecidr/servicecidr.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/networking/v1beta1/servicecidrspec.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/networking/v1/servicecidrspec.go",
+            "staging/src/k8s.io/dynamic-resource-allocation/structured/schedulerapi/OWNERS",
+            "staging/src/k8s.io/client-go/applyconfigurations/networking/v1/networkpolicyspec.go",
+            "cluster/addons/ip-masq-agent/OWNERS",
+            "test/integration/scheduler_perf/workload_preemption/templates/gang-pod-with-topology-spreading.yaml",
+            "staging/src/k8s.io/client-go/applyconfigurations/networking/v1/networkpolicyegressrule.go",
+            "test/e2e/network/service_cidrs.go"
+          ]
+        },
+        {
+          "query": "assign a default service account when admitting a pod",
+          "results_sha256": "d020be2e979f97779ab671281fc50c38a2604816cd0edd51c82b2a46ed065b46",
+          "first_relevant_rank": 1,
+          "paths": [
+            "plugin/pkg/admission/serviceaccount/admission.go",
+            "pkg/registry/core/pod/OWNERS",
+            "staging/src/k8s.io/pod-security-admission/admission/api/v1beta1/defaults.go",
+            "plugin/pkg/admission/serviceaccount/doc.go",
+            "staging/src/k8s.io/pod-security-admission/admission/api/v1alpha1/defaults.go",
+            "plugin/pkg/admission/serviceaccount/admission_test.go",
+            "staging/src/k8s.io/pod-security-admission/webhook/manifests/20-serviceaccount.yaml",
+            "staging/src/k8s.io/pod-security-admission/admission/api/v1/defaults.go",
+            "pkg/registry/core/serviceaccount/OWNERS",
+            "pkg/controller/devicetainteviction/config/v1alpha1/defaults.go"
+          ]
+        },
+        {
+          "query": "reconcile namespace resource quota usage",
+          "results_sha256": "452dc58814d3ecfc9988b51ca70948a3ae6ee4d94122bf9b684d70e3a6f41944",
+          "first_relevant_rank": 5,
+          "paths": [
+            "pkg/quota/v1/evaluator/core/pods.go",
+            "pkg/quota/v1/evaluator/core/persistent_volume_claims.go",
+            "staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/doc.go",
+            "pkg/controller/namespace/deletion/namespaced_resources_deleter.go",
+            "pkg/controller/resourcequota/resource_quota_controller.go",
+            "pkg/controller/resourcequota/doc.go",
+            "staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/resource_access.go",
+            "pkg/volume/util/fsquota/quota_unsupported.go",
+            "staging/src/k8s.io/apiserver/pkg/quota/v1/interfaces.go",
+            "staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/apis/resourcequota/v1/types.go"
+          ]
+        },
+        {
+          "query": "garbage collect unused container images to free disk space",
+          "results_sha256": "c9f65580934a884f3aafd1891597c073aa95bad5fe4800a905078ad7bbab5cde",
+          "first_relevant_rank": 0,
+          "paths": [
+            "test/images/windows-servercore-cache/Dockerfile",
+            "test/images/volume/nfs/Dockerfile",
+            "test/images/nonroot/Dockerfile_windows",
+            "test/images/volume/nfs/BASEIMAGE",
+            "test/images/nonroot/Dockerfile",
+            "test/integration/garbagecollector/OWNERS",
+            "test/images/pets/peer-finder/Dockerfile",
+            "test/images/volume/nfs/VERSION",
+            "test/images/sample-apiserver/Dockerfile_windows",
+            "test/images/agnhost/Dockerfile_windows"
+          ]
+        },
+        {
+          "query": "run a batch job until the required completions succeed",
+          "results_sha256": "daec2ebca7fb2597604e54a631e7ad127545a5b9b046a28c1c15f9e15b12a937",
+          "first_relevant_rank": 0,
+          "paths": [
+            "test/integration/scheduler_perf/batching/performance-config.yaml",
+            "pkg/registry/batch/cronjob/strategy_test.go",
+            "pkg/controller/job/success_policy.go",
+            "staging/src/k8s.io/api/testdata/v1.35.0/batch.v1.Job.after_roundtrip.pb",
+            "staging/src/k8s.io/api/testdata/HEAD/batch.v1.Job.pb",
+            "pkg/apis/batch/v1/defaults.go",
+            "staging/src/k8s.io/api/testdata/v1.35.0/batch.v1.Job.pb",
+            "staging/src/k8s.io/api/testdata/HEAD/batch.v1.CronJob.pb",
+            "staging/src/k8s.io/api/testdata/v1.35.0/batch.v1.Job.after_roundtrip.yaml",
+            "staging/src/k8s.io/api/testdata/v1.36.0/batch.v1.Job.pb"
+          ]
+        },
+        {
+          "query": "allocate exclusive CPUs to containers",
+          "results_sha256": "ebac6a039a20586f2800dcf22cfaf0ef1643e9a8bb8c9bd0e0f4ebc3994e1573",
+          "first_relevant_rank": 0,
+          "paths": [
+            "pkg/kubelet/cm/internal_container_lifecycle_windows.go",
+            "test/e2e_node/podresources_test.go",
+            "test/e2e/dra/dra_node_allocatable_resources.go",
+            "pkg/kubelet/cm/cpumanager/cpu_manager_others.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/nodeallocatableoverheadresources.go",
+            "cluster/gce/addons/admission-resource-quota-critical-pods/resource-quota.yaml",
+            "test/integration/scheduler_perf/templates/pod-high-priority-large-cpu.yaml",
+            "staging/src/k8s.io/dynamic-resource-allocation/OWNERS",
+            "test/e2e_node_windows/util_affinity_windows.go",
+            "cluster/addons/cluster-loadbalancing/OWNERS"
+          ]
+        }
+      ],
+      "hit_rate_at_5": 0.3125
+    },
+    "hybrid": {
+      "samples_seconds": [
+        0.04622075302177109,
+        0.045401354000205174,
+        0.04495052099809982,
+        0.04422173599596135,
+        0.044285179988946766,
+        0.044522790994960815,
+        0.04625301802298054,
+        0.04705529598868452,
+        0.046648946998175234,
+        0.049084691010648385,
+        0.04791226499946788,
+        0.048026223987108096,
+        0.05441659298958257,
+        0.05349558801390231,
+        0.051928129978477955,
+        0.052947083982871845,
+        0.05143863899866119,
+        0.05109736500889994,
+        0.043990033998852596,
+        0.043383851007092744,
+        0.043234491982730106,
+        0.04314940399490297,
+        0.04353118300787173,
+        0.0432994409929961,
+        0.04830550600308925,
+        0.04883978798170574,
+        0.04935287497937679,
+        0.05164376998436637,
+        0.05060772999422625,
+        0.04985478601884097,
+        0.043690082005923614,
+        0.044596683990675956,
+        0.0431738960032817,
+        0.05154620800749399,
+        0.05140908600878902,
+        0.05155700698378496,
+        0.048263799981214106,
+        0.04726032301550731,
+        0.04771665300359018,
+        0.045165077986894175,
+        0.04567680199397728,
+        0.04601979901781306,
+        0.0463839250151068,
+        0.04607926501194015,
+        0.046152997005265206,
+        0.04501359097776003,
+        0.04536713700508699,
+        0.045373169996310025
+      ],
+      "median_seconds": 0.04631847151904367,
+      "p95_seconds": 0.052947083982871845,
+      "queries": [
+        {
+          "query": "choose which machine will run a pending workload",
+          "results_sha256": "704b19094ba3c3ede296baabe3e3d141ef0be8bb249d99cc038d5028d5b1a14d",
+          "first_relevant_rank": 0,
+          "paths": [
+            "test/integration/scheduler_perf/executor.go",
+            "staging/src/k8s.io/component-helpers/scheduling/schedulingv1/workloadbuilder/podgroup_test.go",
+            "test/e2e/scheduling/OWNERS",
+            "test/e2e_node/perf/workloads/workloads.go",
+            "test/integration/scheduler_perf/workload_preemption/performance-config.yaml",
+            "pkg/registry/scheduling/workload/doc.go",
+            "staging/src/k8s.io/apiserver/pkg/storage/cacher/ready.go",
+            "pkg/proxy/metrics/metrics.go",
+            "test/e2e/scheduling/workload.go",
+            "test/e2e_node/perf/workloads/pytorch_wide_deep.go"
+          ]
+        },
+        {
+          "query": "replace unhealthy application replicas to maintain desired count",
+          "results_sha256": "1dd225226330e066360674a5cae732cf7d07d996015c124d2aaf818276c7003a",
+          "first_relevant_rank": 3,
+          "paths": [
+            "pkg/controller/deployment/rolling.go",
+            "pkg/controller/deployment/util/deployment_util.go",
+            "pkg/controller/replicaset/replica_set_utils.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/autoscaling/v2/horizontalpodautoscalerspec.go",
+            "test/utils/replicaset.go",
+            "test/integration/replicaset/OWNERS",
+            "pkg/controller/podautoscaler/replica_calculator.go",
+            "staging/src/k8s.io/api/testdata/v1.35.0/apps.v1beta2.ReplicaSet.pb",
+            "staging/src/k8s.io/api/testdata/v1.35.0/apps.v1.ReplicaSet.pb",
+            "staging/src/k8s.io/kubectl/pkg/util/deployment/deployment.go"
+          ]
+        },
+        {
+          "query": "serve external HTTP traffic through routing rules",
+          "results_sha256": "397118b47ad76708186911ee1cd9e5dd49cdbba6b70ce8887ebd74d9ba518756",
+          "first_relevant_rank": 0,
+          "paths": [
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/simple-http-https/foo-route.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/http-routing/gateway.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/http-routing/foo-httproute.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/http-routing/bar-httproute.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/simple-http-https/bar-route.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/simple-http-https/tls-redirect-route.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/http-route-attachment/gateway-strict.yaml",
+            "staging/src/k8s.io/apiextensions-apiserver/test/integration/ratcheting_test_cases/valid/http-route-attachment/httproute.yaml",
+            "staging/src/k8s.io/apiserver/pkg/server/options/serving.go",
+            "test/integration/service/service_test.go"
+          ]
+        },
+        {
+          "query": "mount persistent storage volumes into containers",
+          "results_sha256": "f2acf10930f95c655de0a02c7eaa58e98668b5ce9c9c643505e562e03de49fb4",
+          "first_relevant_rank": 0,
+          "paths": [
+            "pkg/controller/volume/persistentvolume/volume_host.go",
+            "test/e2e/storage/flexvolume_mounted_volume_resize.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/azurefilepersistentvolumesource.go",
+            "cluster/addons/volumesnapshots/OWNERS",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/persistentvolumespec.go",
+            "cluster/addons/volumesnapshots/crd/groupsnapshot.storage.k8s.io_volumegroupsnapshots.yaml",
+            "staging/src/k8s.io/component-helpers/storage/volume/helpers.go",
+            "cluster/addons/volumesnapshots/crd/snapshot.storage.k8s.io_volumesnapshots.yaml",
+            "staging/src/k8s.io/client-go/applyconfigurations/storage/v1/storageclass.go",
+            "pkg/apis/storage/OWNERS"
+          ]
+        },
+        {
+          "query": "enforce permissions before accepting an API request",
+          "results_sha256": "f42c599d635fae26253eaafc612e9b27f8c65753e80289470241365636618648",
+          "first_relevant_rank": 0,
+          "paths": [
+            "plugin/pkg/admission/gc/gc_admission.go",
+            "api/OWNERS",
+            "plugin/pkg/admission/eventratelimit/limitenforcer.go",
+            "pkg/apis/authorization/OWNERS",
+            "staging/src/k8s.io/apiserver/pkg/endpoints/handlers/rest.go",
+            "staging/src/k8s.io/api/authorization/OWNERS",
+            "test/e2e/apimachinery/request_timeout.go",
+            "api/discovery/apis__policy.json",
+            "test/integration/certificates/admission_sign_test.go",
+            "pkg/apis/policy/OWNERS"
+          ]
+        },
+        {
+          "query": "restart failing containers and run health checks",
+          "results_sha256": "00c99c3f5057370cc27aa26e5f7de447c2fd93ab583655fa28ec0bf9a571e1e6",
+          "first_relevant_rank": 0,
+          "paths": [
+            "test/utils/conditions.go",
+            "test/e2e/common/node/container_restart_policy.go",
+            "staging/src/k8s.io/component-helpers/resource/helpers_test.go",
+            "staging/src/k8s.io/component-helpers/nodedeclaredfeatures/features/restartallcontainers/restart_all_containers.go",
+            "test/e2e_node/restart_all_containers_test.go",
+            "test/e2e_node/container_restart_test.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/containerstatus.go",
+            "test/e2e_node/restart_test.go",
+            "test/e2e_node_windows/services/util.go",
+            "test/e2e/apps/daemon_restart.go"
+          ]
+        },
+        {
+          "query": "kube-scheduler",
+          "results_sha256": "6d5cd12f67b5f101b190949605220e268f886c923910c8e73c9edc00a53943da",
+          "first_relevant_rank": 1,
+          "paths": [
+            "cmd/kube-scheduler/OWNERS",
+            "cmd/kube-scheduler/scheduler.go",
+            "staging/src/k8s.io/kube-scheduler/OWNERS",
+            "cluster/gce/manifests/kube-scheduler.manifest",
+            "staging/src/k8s.io/kube-scheduler/LICENSE",
+            "staging/src/k8s.io/kube-scheduler/go.sum",
+            "pkg/scheduler/apis/config/v1/doc.go",
+            "staging/src/k8s.io/kube-scheduler/config/OWNERS",
+            "pkg/scheduler/apis/config/types.go",
+            "staging/src/k8s.io/kube-scheduler/doc.go"
+          ]
+        },
+        {
+          "query": "DeploymentController",
+          "results_sha256": "2fea521e74ef052e3344da5940567af70ec4d2bd171aabd927ba74d6f1ef45eb",
+          "first_relevant_rank": 2,
+          "paths": [
+            "cmd/kube-controller-manager/app/options/deploymentcontroller.go",
+            "pkg/controller/deployment/config/types.go",
+            "pkg/controller/deployment/config/v1alpha1/conversion.go",
+            "pkg/controller/deployment/config/OWNERS",
+            "pkg/controller/deployment/deployment_controller.go",
+            "pkg/controller/deployment/OWNERS",
+            "pkg/controller/deployment/sync.go",
+            "pkg/controller/deployment/deployment_controller_test.go",
+            "pkg/controller/deployment/config/v1alpha1/defaults.go",
+            "pkg/controller/deployment/rolling_test.go"
+          ]
+        },
+        {
+          "query": "delete dependent objects after their owner disappears",
+          "results_sha256": "f107d36c9d93d3672a0cfa456f509eb244b8930fdb0203adf63349bc65836d44",
+          "first_relevant_rank": 4,
+          "paths": [
+            "staging/src/k8s.io/client-go/applyconfigurations/meta/v1/ownerreference.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/meta/v1/deleteoptions.go",
+            "test/e2e/kubectl/delete.go",
+            "pkg/controller/garbagecollector/operations.go",
+            "staging/src/k8s.io/apiserver/pkg/registry/rest/delete.go",
+            "test/integration/utils.go",
+            "pkg/util/removeall/OWNERS",
+            "pkg/controller/garbagecollector/graph.go",
+            "cmd/dependencyverifier/OWNERS",
+            "staging/src/k8s.io/kubectl/pkg/cmd/wait/delete.go"
+          ]
+        },
+        {
+          "query": "remove all resources when a namespace is terminated",
+          "results_sha256": "fed0935616cf3e7f4586d82192ea6b980e57189c9feaefcc2e69f489627dad73",
+          "first_relevant_rank": 1,
+          "paths": [
+            "pkg/controller/namespace/deletion/namespaced_resources_deleter.go",
+            "pkg/controller/namespace/deletion/namespaced_resources_deleter_test.go",
+            "pkg/controller/namespace/namespace_controller.go",
+            "pkg/apis/core/types.go",
+            "test/e2e/apimachinery/namespace.go",
+            "pkg/apis/abac/v0/conversion_test.go",
+            "test/integration/scheduler/util.go",
+            "pkg/controller/garbagecollector/operations.go",
+            "test/integration/endpointslice/endpointsliceterminating_test.go",
+            "pkg/proxy/ipvs/graceful_termination.go"
+          ]
+        },
+        {
+          "query": "program IPVS rules for service traffic forwarding",
+          "results_sha256": "d241e535d03b8b27079805f89fbaeaac49e9402882ed0098d72d3b1d5ee3e95d",
+          "first_relevant_rank": 0,
+          "paths": [
+            "pkg/proxy/ipvs/README.md",
+            "staging/src/k8s.io/client-go/applyconfigurations/networking/v1/networkpolicyegressrule.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/networking/v1/networkpolicyspec.go",
+            "pkg/api/service/util.go",
+            "pkg/proxy/ipvs/OWNERS",
+            "staging/src/k8s.io/client-go/applyconfigurations/extensions/v1beta1/networkpolicyspec.go",
+            "pkg/proxy/ipvs/util/ipvs_linux.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/extensions/v1beta1/networkpolicyegressrule.go",
+            "pkg/proxy/util/localdetector.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/networking/v1/networkpolicyingressrule.go"
+          ]
+        },
+        {
+          "query": "assign a default service account when admitting a pod",
+          "results_sha256": "8f5d19bbd8e5c020914194d0fa4f23f653ab23dccfff8a44af9e0ff694a67f09",
+          "first_relevant_rank": 1,
+          "paths": [
+            "plugin/pkg/admission/serviceaccount/admission.go",
+            "plugin/pkg/admission/serviceaccount/admission_test.go",
+            "test/e2e/upgrades/auth/serviceaccount_admission_controller_migration.go",
+            "cmd/kubeadm/app/apis/kubeadm/v1beta4/defaults.go",
+            "cmd/kubeadm/app/apis/kubeadm/v1/defaults.go",
+            "pkg/registry/core/pod/OWNERS",
+            "plugin/pkg/admission/noderestriction/admission_test.go",
+            "staging/src/k8s.io/pod-security-admission/admission/api/v1beta1/defaults.go",
+            "pkg/controller/serviceaccount/serviceaccounts_controller.go",
+            "plugin/pkg/admission/serviceaccount/doc.go"
+          ]
+        },
+        {
+          "query": "reconcile namespace resource quota usage",
+          "results_sha256": "5173f9d67b5a31b483fea38e175fea64dbebfdf8078edf4a54715177643837d1",
+          "first_relevant_rank": 1,
+          "paths": [
+            "pkg/controller/resourcequota/resource_quota_controller.go",
+            "staging/src/k8s.io/apiserver/pkg/quota/v1/interfaces.go",
+            "pkg/quota/v1/evaluator/core/persistent_volume_claims.go",
+            "pkg/controller/resourcequota/doc.go",
+            "staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/apis/resourcequota/v1/types.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/resourcequota.go",
+            "staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/apis/resourcequota/v1alpha1/types.go",
+            "pkg/quota/v1/evaluator/core/resource_claims_test.go",
+            "pkg/quota/v1/evaluator/core/pods.go",
+            "staging/src/k8s.io/apiserver/pkg/admission/plugin/resourcequota/resource_access.go"
+          ]
+        },
+        {
+          "query": "garbage collect unused container images to free disk space",
+          "results_sha256": "c6e668290935cbf2270ce15a61837380a7f193e14d30c10a770bace5b78777b5",
+          "first_relevant_rank": 1,
+          "paths": [
+            "pkg/kubelet/images/image_gc_manager.go",
+            "pkg/kubelet/container/container_gc.go",
+            "test/images/windows-servercore-cache/Dockerfile",
+            "pkg/kubelet/eviction/eviction_manager_test.go",
+            "test/images/volume/nfs/Dockerfile",
+            "test/e2e_node/eviction_test.go",
+            "test/images/nonroot/Dockerfile_windows",
+            "test/images/volume/nfs/BASEIMAGE",
+            "pkg/volume/metrics_du.go",
+            "test/images/nonroot/Dockerfile"
+          ]
+        },
+        {
+          "query": "run a batch job until the required completions succeed",
+          "results_sha256": "79115afe162ed4aed0ac5b1e09cad7730c0445a864560e2cd63cff9eda994840",
+          "first_relevant_rank": 0,
+          "paths": [
+            "pkg/registry/batch/cronjob/strategy_test.go",
+            "pkg/controller/job/success_policy.go",
+            "pkg/apis/batch/v1/defaults.go",
+            "staging/src/k8s.io/api/testdata/HEAD/batch.v1.Job.pb",
+            "pkg/controller/job/util/utils.go",
+            "staging/src/k8s.io/api/testdata/HEAD/batch.v1.CronJob.pb",
+            "staging/src/k8s.io/api/testdata/HEAD/batch.v1.Job.yaml",
+            "staging/src/k8s.io/api/testdata/HEAD/batch.v1.Job.json",
+            "staging/src/k8s.io/api/testdata/v1.34.0/batch.v1.Job.pb",
+            "staging/src/k8s.io/api/testdata/HEAD/batch.v1beta1.CronJob.pb"
+          ]
+        },
+        {
+          "query": "allocate exclusive CPUs to containers",
+          "results_sha256": "f29fa5fceb7e64b768f4c3a06f8fb056cfe1b524948dcb84f64c9f0dd1dc7b07",
+          "first_relevant_rank": 0,
+          "paths": [
+            "pkg/kubelet/cm/internal_container_lifecycle_windows.go",
+            "test/e2e_node/podresources_test.go",
+            "test/e2e/dra/dra_node_allocatable_resources.go",
+            "pkg/kubelet/cm/cpumanager/policy.go",
+            "test/e2e_node_windows/util_affinity_windows.go",
+            "pkg/kubelet/cm/cpumanager/cpu_manager_others.go",
+            "test/e2e_node_windows/topology_manager_test.go",
+            "staging/src/k8s.io/client-go/applyconfigurations/core/v1/nodeallocatableoverheadresources.go",
+            "pkg/kubelet/cm/cpumanager/policy_static_restore_test.go",
+            "pkg/kubelet/cm/cpumanager/cpu_manager_windows.go"
+          ]
+        }
+      ],
+      "hit_rate_at_5": 0.5
+    }
+  },
+  "checks": {
+    "deterministic_generation": true,
+    "complete_vectors": true,
+    "unchanged_generation": true,
+    "unchanged_ranking": true
+  },
+  "files": 25788,
+  "embedding_runtime": {
+    "model": "BAAI/bge-small-en-v1.5",
+    "provider": "CPUExecutionProvider",
+    "threads": 4,
+    "fastembed": "0.7.4",
+    "onnxruntime": "1.30.0",
+    "numpy": "2.5.3",
+    "model_files_sha256": {
+      "model_optimized.onnx": "51f1bd0addd6e859e42c2c8021a5e5461385bb676a649f4b269aa445449f2431"
+    }
+  },
+  "code_sha256": {
+    "repo_graph/builder.py": "a0cb865f9efbf2374d40d597492cadb7afaf0b4ade47d3f10c9f515f275ec9b8",
+    "repo_graph/search.py": "640ac2db2d9f9c57ad8f765e5a4c557a126fbc3bcd1de09793a5429b2182e896"
+  },
+  "mapping_runs": 3,
+  "search_samples_per_mode": 48,
+  "cold_definition": "Fresh output with empty scanner and keyword index caches; OS source caches may be warm.",
+  "warm_definition": "Repeat mapping into the initialized output with scanner and keyword index caches reused.",
+  "embedding_rebuilt": false
+}

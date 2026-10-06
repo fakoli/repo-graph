@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+import stat as stat_mode
 import time
 
 MODEL = "BAAI/bge-small-en-v1.5"
@@ -28,15 +29,19 @@ def synopsis(path: str, source: str) -> str:
         return ""
     title = words(path)
     lines = []
+    prose = Path(path).suffix in {".md", ".markdown", ".mdx", ".rst", ".txt"}
+    boilerplate = re.compile(r"copyright|spdx|licensed under|permission is hereby", re.I)
+    declaration = re.compile(r"(?://|#|/\*|\*|\"\"\"|'''|func |def |class |pub |fn |export |interface |type |resource |data )")
+    length = 0
     for number, line in enumerate(source.splitlines(), 1):
         line = line.strip()
-        if not line or re.search(r"copyright|spdx|licensed under|permission is hereby", line, re.I):
+        if not line or boilerplate.search(line):
             continue
-        if (Path(path).suffix in {".md", ".markdown", ".mdx", ".rst", ".txt"} or
-            re.match(r"(?://|#|/\*|\*|\"\"\"|'''|func |def |class |pub |fn |export |interface |type |resource |data )", line)):
+        if prose or declaration.match(line):
             # Evidence retains original line references; identifier terms aid exact retrieval.
             lines.append(f"L{number}: {SECRET.sub('[redacted]', line[:180])}")
-        if sum(map(len, lines)) >= 1400:
+            length += len(lines[-1])
+        if length >= 1400:
             break
     return title + "\n" + "\n".join(lines)
 
@@ -76,9 +81,14 @@ def catalog(root: Path, files: list[str], output: Path) -> dict:
         for path in files:
             is_text = Path(path).suffix.lower() in TEXT_EXTENSIONS
             resolved = (root / path).resolve()
-            if root not in resolved.parents or not resolved.is_file():
+            if root not in resolved.parents:
                 continue
-            stat = resolved.stat()
+            try:
+                stat = resolved.stat()
+            except OSError:
+                continue
+            if not stat_mode.S_ISREG(stat.st_mode):
+                continue
             stamp = f"{stat.st_mtime_ns}:{stat.st_size}"
             db.execute("INSERT INTO seen VALUES(?)", (path,))
             old = db.execute("SELECT stamp,digest FROM docs WHERE path=?", (path,)).fetchone()
@@ -158,7 +168,7 @@ class Search:
     def __init__(self, output: Path, embedder=None):
         self.output, self.embedder = output, embedder
 
-    def run(self, query: str, *, mode='hybrid', limit=10, prefix='') -> dict:
+    def run(self, query: str, *, mode='hybrid', limit=10, prefix='', reranker=None) -> dict:
         if mode not in {'keyword', 'semantic', 'hybrid'}:
             raise ValueError('Unknown search mode')
         if not query.strip() or len(query) > 1000 or not 1 <= limit <= 50:
@@ -167,8 +177,8 @@ class Search:
         ranks, cosine = [], {}
         with closing(connect(self.output, readonly=True)) as db:
             prefix = prefix.strip('/')
-            where = "(?='' OR path=? OR substr(path,1,length(?)+1)=?||'/')"
-            params = (prefix, prefix, prefix, prefix)
+            where = "(path=? OR (path>=? AND path<?))" if prefix else "1"
+            params = (prefix, prefix + '/', prefix + '0') if prefix else ()
             count = db.execute(f"SELECT count(*) FROM docs WHERE {where}", params).fetchone()[0]
             candidate_count = max(50, limit * 5)
             if mode != 'semantic':
@@ -182,8 +192,7 @@ class Search:
                 if self.embedder is None:
                     raise RuntimeError('Build a semantic index with repo-graph index OUTPUT --semantic first, or select keyword mode.')
                 model = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()
-                ready = db.execute(f"SELECT count(*) FROM docs WHERE vector IS NOT NULL AND {where}", params).fetchone()[0]
-                if not model or model[0] != self.embedder.name or ready != count:
+                if not model or model[0] != self.embedder.name:
                     raise RuntimeError('Semantic index is missing, stale, or uses a different model. Run repo-graph index OUTPUT --semantic.')
                 np = self.embedder.np
                 q = np.frombuffer(self.embedder.packed(self.embedder.query(query)), dtype='<f4')
@@ -191,10 +200,13 @@ class Search:
                 cursor = db.execute(f"SELECT id,vector FROM docs WHERE {where} ORDER BY id", params)
                 # ponytail: exact search uses bounded 512-vector blocks; add an ANN shard when measured latency exceeds the budget.
                 while rows := cursor.fetchmany(512):
+                    if any(row['vector'] is None for row in rows):
+                        raise RuntimeError('Semantic index is missing, stale, or uses a different model. Run repo-graph index OUTPUT --semantic.')
                     matrix = np.frombuffer(b''.join(row['vector'] for row in rows), dtype='<f4').reshape(len(rows), -1)
                     scores = matrix @ q
-                    for row, score in zip(rows, scores):
-                        item = (float(score), row['id'])
+                    indices = np.flatnonzero(scores >= best[0][0]) if len(best) == candidate_count else range(len(rows))
+                    for index in indices:
+                        item = (float(scores[index]), rows[index]['id'])
                         if len(best) < candidate_count: heapq.heappush(best, item)
                         elif item > best[0]: heapq.heapreplace(best, item)
                 best.sort(reverse=True)
@@ -203,11 +215,22 @@ class Search:
             for rank in ranks:
                 for pos, id in enumerate(rank, 1):
                     fused[id] = fused.get(id, 0) + 1 / (60 + pos)
-            selected = sorted(fused, key=lambda id: (-fused[id], id))[:limit]
+            # Retrieval depth stays the same across comparisons; only the returned shortlist grows.
+            selected = sorted(fused, key=lambda id: (-fused[id], id))[:max(limit,32) if reranker else limit]
             results = []
             for id in selected:
                 row = db.execute('SELECT path,body FROM docs WHERE id=?', (id,)).fetchone()
                 results.append(dict(path=row['path'], evidence=row['body'][:1400], score=round(fused[id], 6),
                                     similarity=round(cosine[id], 4) if id in cosine else None))
-        return dict(query=query, mode=mode, documents=count, results=results,
-                    seconds=round(time.monotonic() - started, 4))
+        receipt = {}
+        if reranker:
+            try:
+                results, receipt = reranker.rank(query, results)
+            except (OSError, RuntimeError, ValueError, sqlite3.Error):
+                # A failed or malformed remote judgment must preserve the local ranking.
+                receipt = dict(getattr(reranker,'last_receipt',{}), status='fallback', model=reranker.name,
+                    reason='Reranker unavailable or invalid response; local order retained')
+        response = dict(query=query, mode=mode, documents=count, results=results[:limit],
+                        seconds=round(time.monotonic() - started, 4))
+        if reranker: response['rerank'] = receipt
+        return response

@@ -1,5 +1,60 @@
 # Repository retrieval and UX evaluations
 
+## Jev and local reranker comparison (0.5.0)
+
+[Research, decisions and limitations](../docs/jev-research.md),
+[AWS results](results/jev-aws.json), [Kubernetes results](results/jev-kubernetes.json).
+The original development queries and [fresh frozen queries](jev-queries.json)
+share the same 32-candidate pool across methods. Eight cases per corpus/set is
+a small developer-authored evaluation, not a blinded independent holdout. Reranker
+judgments are not the grades. Hit@5, MRR, candidate coverage, latency, cache repeats
+and actual API token usage are retained, including misses and regressions.
+
+```bash
+uv run --extra semantic python evaluations/rerank.py terraform-provider-aws OUTPUT --source SOURCE --report REPORT.json --jev
+uv run --extra semantic python evaluations/rerank.py kubernetes OUTPUT --source SOURCE --report REPORT.json --jev
+uv run python evaluations/jev_probes.py --report PROBES.json
+```
+
+The first two commands require an existing complete semantic index and cached
+local reranker (`repo-graph index OUTPUT --reranker`). `--jev` explicitly exports
+bounded excerpts from the public corpus and incurs cost; omit it for local-only
+comparison. The probe command sends synthetic examples to Jev. Existing request
+caches make reruns cheaper; a report from a cached run is not a fresh API latency
+measurement. Successful calls, attempts, failures and unknown token usage must
+be distinguished. Pricing estimates exclude developer time and model setup.
+
+Across 32 queries, hybrid hit@5 was 18/32, MiniLM 20/32 and Jev 23/32. On fresh
+queries Jev was 14/16 versus hybrid 10/16; the old Kubernetes hit@5 was unchanged
+and AWS fresh MRR worsened. The 32 live requests used 350,445 input tokens,
+estimated $0.01472 at the 2026-10-06 published rate, with no fallback. Every
+repeat used zero API calls. Small synthetic order/batching/injection probes are
+in [jev-probes.json](results/jev-probes.json); they do not establish security.
+
+The browser harness supports `REPO_GRAPH_UX_RERANK=local|jev|none`. Jev mode
+requires an approved public corpus for live runs. [AWS Jev](jev-aws-ux.json) and
+[Kubernetes local](jev-kubernetes-ux.json) passed all views, result navigation,
+query/method restoration and a narrow viewport, with zero browser errors.
+Default synthetic CI uses no Jev calls or credentials.
+
+## Generation and search speed comparison
+
+[Experience/performance research](../docs/graph-experience.md) links four
+before/after reports. Run against a pinned public source and an existing complete
+semantic output, with optional `--compare BASELINE.json` to require identical
+structure/results:
+
+```bash
+uv run --extra semantic python evaluations/performance.py kubernetes OUTPUT --source SOURCE --report REPORT.json --runs 3
+```
+
+The harness creates temporary fresh mapping outputs, checks unchanged repeat-map
+reuse, times 48 repeats per mode across the 16 frozen queries, and records exact
+implementation/model hashes. Fresh output means empty scanner/search caches;
+OS source caches may be warm. Existing vectors are reused, not re-embedded.
+
+## Original retrieval benchmark
+
 Judgments: [queries.json](queries.json). Method and gates:
 [research.md](../docs/research.md#evaluations). Reports are committed only after
 all benchmark stages complete. Keep misses and mode comparisons; do not silently
