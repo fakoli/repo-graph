@@ -1,0 +1,2353 @@
+{
+  "repository": "terraform-provider-aws",
+  "commit": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+  "embedding": "BAAI/bge-small-en-v1.5",
+  "local_reranker": "Xenova/ms-marco-MiniLM-L-6-v2",
+  "jev": "jev-1.13.0",
+  "candidate_limit": 32,
+  "evidence_bytes": 900,
+  "python": "3.12.14",
+  "platform": "Linux x86_64",
+  "cpu_threads": 4,
+  "fastembed": "0.7.4",
+  "model_load_seconds": 0.5734,
+  "sets": {
+    "development": {
+      "judgments_sha256": "c47857a8b9743193b285e159af301b3f8d3658d92e6b893d149e084b2e27baaa",
+      "candidate_hit_rate": 1,
+      "summary": {
+        "hybrid": {
+          "hit_rate_at_5": 0.625,
+          "mrr_at_10": 0.575,
+          "p50_seconds": 0.058550000000000005,
+          "p95_seconds": 0.0715,
+          "api_calls": 0,
+          "input_tokens": 0,
+          "estimated_api_usd": 0.0,
+          "fallback_count": 0,
+          "api_attempts": 0,
+          "unknown_usage_attempts": 0
+        },
+        "local": {
+          "hit_rate_at_5": 0.625,
+          "mrr_at_10": 0.6458333333333334,
+          "p50_seconds": 0.6515,
+          "p95_seconds": 0.7376,
+          "api_calls": 0,
+          "input_tokens": 0,
+          "estimated_api_usd": 0.0,
+          "fallback_count": 0,
+          "api_attempts": 0,
+          "unknown_usage_attempts": 0
+        },
+        "jev": {
+          "hit_rate_at_5": 0.75,
+          "mrr_at_10": 0.6701388888888888,
+          "p50_seconds": 0.24685,
+          "p95_seconds": 0.2654,
+          "api_calls": 8,
+          "input_tokens": 89322,
+          "estimated_api_usd": 0.0037515240000000004,
+          "fallback_count": 0,
+          "api_attempts": 8,
+          "unknown_usage_attempts": 0
+        }
+      },
+      "queries": [
+        {
+          "query": "manage encrypted key material and rotate encryption keys",
+          "relevant": [
+            "internal/service/kms/",
+            "website/docs/r/kms_"
+          ],
+          "candidate_paths": [
+            "website/docs/r/kms_external_key.html.markdown",
+            "website/docs/r/xray_encryption_config.html.markdown",
+            "website/docs/r/kms_key.html.markdown",
+            "website/docs/r/kms_replica_external_key.html.markdown",
+            "website/docs/r/paymentcryptography_key.html.markdown",
+            "website/docs/ephemeral-resources/kms_secrets.html.markdown",
+            "website/docs/r/glue_data_catalog_encryption_settings.html.markdown",
+            "website/docs/r/secretsmanager_secret_rotation.html.markdown",
+            "website/docs/d/kms_secrets.html.markdown",
+            "website/docs/r/kms_ciphertext.html.markdown",
+            "internal/vault/helper/pgpkeys/encrypt_decrypt.go",
+            "website/docs/r/paymentcryptography_key_alias.html.markdown",
+            "website/docs/r/secretsmanager_secret.html.markdown",
+            "website/docs/d/kms_ciphertext.html.markdown",
+            "website/docs/r/ebs_encryption_by_default.html.markdown",
+            "internal/service/agentregistry/testdata/Registry/encryption_configuration/main.tf",
+            "internal/service/secretsmanager/secret_rotation_data_source.go",
+            "internal/service/paymentcryptography/testdata/Key/region_override/main_gen.tf",
+            "website/docs/r/ebs_default_kms_key.html.markdown",
+            "internal/service/glue/data_catalog_encryption_settings_data_source.go",
+            "website/docs/r/cloudfront_field_level_encryption_profile.html.markdown",
+            "internal/service/iam/encryption.go",
+            "internal/service/secretsmanager/secret_rotation_migrate.go",
+            "internal/service/paymentcryptography/key_alias.go",
+            "website/docs/r/glue_security_configuration.html.markdown",
+            "internal/service/glue/data_catalog_encryption_settings.go",
+            "website/docs/r/s3_bucket_server_side_encryption_configuration.html.markdown",
+            "internal/service/kms/secrets_data_source_test.go",
+            "internal/service/sfn/flex.go",
+            "website/docs/r/emr_security_configuration.html.markdown",
+            "internal/service/secretsmanager/testdata/tmpl/secret_rotation_basic.gtpl",
+            "internal/service/secretsmanager/secret_rotation_data_source_test.go"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.0721,
+              "paths": [
+                "website/docs/r/kms_external_key.html.markdown",
+                "website/docs/r/xray_encryption_config.html.markdown",
+                "website/docs/r/kms_key.html.markdown",
+                "website/docs/r/kms_replica_external_key.html.markdown",
+                "website/docs/r/paymentcryptography_key.html.markdown",
+                "website/docs/ephemeral-resources/kms_secrets.html.markdown",
+                "website/docs/r/glue_data_catalog_encryption_settings.html.markdown",
+                "website/docs/r/secretsmanager_secret_rotation.html.markdown",
+                "website/docs/d/kms_secrets.html.markdown",
+                "website/docs/r/kms_ciphertext.html.markdown"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.7376,
+              "paths": [
+                "website/docs/r/kms_external_key.html.markdown",
+                "website/docs/r/ebs_default_kms_key.html.markdown",
+                "internal/vault/helper/pgpkeys/encrypt_decrypt.go",
+                "website/docs/r/kms_key.html.markdown",
+                "website/docs/r/paymentcryptography_key_alias.html.markdown",
+                "website/docs/r/kms_ciphertext.html.markdown",
+                "website/docs/r/ebs_encryption_by_default.html.markdown",
+                "internal/service/iam/encryption.go",
+                "website/docs/d/kms_ciphertext.html.markdown",
+                "website/docs/r/paymentcryptography_key.html.markdown"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.6803,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.2654,
+              "paths": [
+                "website/docs/r/kms_key.html.markdown",
+                "website/docs/r/secretsmanager_secret_rotation.html.markdown",
+                "website/docs/r/kms_external_key.html.markdown",
+                "internal/service/secretsmanager/secret_rotation_migrate.go",
+                "internal/service/secretsmanager/secret_rotation_data_source_test.go",
+                "internal/service/secretsmanager/secret_rotation_data_source.go",
+                "website/docs/r/kms_replica_external_key.html.markdown",
+                "website/docs/r/paymentcryptography_key.html.markdown",
+                "internal/vault/helper/pgpkeys/encrypt_decrypt.go",
+                "internal/service/iam/encryption.go"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 44216,
+                "request_sha256": "f8b2ffd07d9cf7ec80a997b277fdd4df469f4c83722d3cc6f07e688636f87530",
+                "seconds": 0.2054,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 12286,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0622,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 44216,
+                  "request_sha256": "f8b2ffd07d9cf7ec80a997b277fdd4df469f4c83722d3cc6f07e688636f87530",
+                  "seconds": 0.0007,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "configure a private virtual network address range",
+          "relevant": [
+            "internal/service/ec2/vpc",
+            "website/docs/r/vpc."
+          ],
+          "candidate_paths": [
+            "website/docs/r/dx_private_virtual_interface.html.markdown",
+            "website/docs/r/dx_hosted_private_virtual_interface.html.markdown",
+            "website/docs/r/network_interface.html.markdown",
+            "internal/service/directconnect/public_virtual_interface_test.go",
+            "website/docs/r/dx_public_virtual_interface.html.markdown",
+            "website/docs/r/nat_gateway.html.markdown",
+            "website/docs/r/dx_bgp_peer.html.markdown",
+            "website/docs/r/dx_hosted_private_virtual_interface_accepter.html.markdown",
+            "website/docs/r/vpc_ipv6_cidr_block_association.html.markdown",
+            "internal/service/ec2/vpc_network_interface_list_test.go",
+            "website/docs/r/vpc_endpoint_private_dns.html.markdown",
+            "website/docs/d/prefix_list.html.markdown",
+            "examples/networking/subnet/variables.tf",
+            "examples/two-tier/main.tf",
+            "website/docs/d/ec2_public_ipv4_pool.html.markdown",
+            "internal/service/networkmanager/testdata/VPCAttachment/tags_defaults/main_gen.tf",
+            "internal/service/networkmanager/testdata/VPCAttachment/tags_ignore/main_gen.tf",
+            "internal/service/ec2/vpc_network_interface.go",
+            "internal/service/networkmanager/testdata/VPCAttachment/tags/main_gen.tf",
+            "examples/networking/region/variables.tf",
+            "internal/service/directconnect/private_virtual_interface_test.go",
+            "internal/service/directconnect/private_virtual_interface.go",
+            "internal/service/route53/testdata/Zone/list_private_zone/main.tf",
+            "internal/service/directconnect/hosted_private_virtual_interface.go",
+            "internal/service/networkmanager/testdata/ConnectPeer/tags_ignore/main_gen.tf",
+            "internal/service/networkmanager/testdata/ConnectPeer/tags_defaults/main_gen.tf",
+            "website/docs/r/dx_hosted_transit_virtual_interface.html.markdown",
+            "internal/service/directconnect/hosted_private_virtual_interface_test.go",
+            "internal/service/networkmanager/testdata/SiteToSiteVPNAttachment/tags_ignore/main_gen.tf",
+            "internal/service/directconnect/hosted_private_virtual_interface_accepter.go",
+            "website/docs/d/network_interface.html.markdown",
+            "website/docs/r/egress_only_internet_gateway.html.markdown"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 10,
+              "hit_at_5": false,
+              "reciprocal_rank": 0.1,
+              "seconds": 0.0591,
+              "paths": [
+                "website/docs/r/dx_private_virtual_interface.html.markdown",
+                "website/docs/r/dx_hosted_private_virtual_interface.html.markdown",
+                "website/docs/r/network_interface.html.markdown",
+                "internal/service/directconnect/public_virtual_interface_test.go",
+                "website/docs/r/dx_public_virtual_interface.html.markdown",
+                "website/docs/r/nat_gateway.html.markdown",
+                "website/docs/r/dx_bgp_peer.html.markdown",
+                "website/docs/r/dx_hosted_private_virtual_interface_accepter.html.markdown",
+                "website/docs/r/vpc_ipv6_cidr_block_association.html.markdown",
+                "internal/service/ec2/vpc_network_interface_list_test.go"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 0,
+              "hit_at_5": false,
+              "reciprocal_rank": 0,
+              "seconds": 0.7139,
+              "paths": [
+                "website/docs/r/dx_hosted_private_virtual_interface.html.markdown",
+                "internal/service/directconnect/private_virtual_interface.go",
+                "website/docs/r/dx_private_virtual_interface.html.markdown",
+                "internal/service/directconnect/hosted_private_virtual_interface.go",
+                "internal/service/directconnect/hosted_private_virtual_interface_accepter.go",
+                "website/docs/d/prefix_list.html.markdown",
+                "internal/service/directconnect/public_virtual_interface_test.go",
+                "website/docs/r/dx_hosted_private_virtual_interface_accepter.html.markdown",
+                "website/docs/r/network_interface.html.markdown",
+                "website/docs/r/vpc_endpoint_private_dns.html.markdown"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.6538,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 9,
+              "hit_at_5": false,
+              "reciprocal_rank": 0.1111111111111111,
+              "seconds": 0.2658,
+              "paths": [
+                "website/docs/r/egress_only_internet_gateway.html.markdown",
+                "examples/two-tier/main.tf",
+                "website/docs/r/vpc_ipv6_cidr_block_association.html.markdown",
+                "internal/service/networkmanager/testdata/ConnectPeer/tags_ignore/main_gen.tf",
+                "website/docs/r/network_interface.html.markdown",
+                "internal/service/networkmanager/testdata/ConnectPeer/tags_defaults/main_gen.tf",
+                "internal/service/route53/testdata/Zone/list_private_zone/main.tf",
+                "examples/networking/subnet/variables.tf",
+                "internal/service/ec2/vpc_network_interface.go",
+                "internal/service/networkmanager/testdata/VPCAttachment/tags/main_gen.tf"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 47049,
+                "request_sha256": "4e38f0e2c8fbca90f87c1eaea3a2d7d8d276b61020c5cb6ede2111233be1baa0",
+                "seconds": 0.2059,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 13212,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0635,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 47049,
+                  "request_sha256": "4e38f0e2c8fbca90f87c1eaea3a2d7d8d276b61020c5cb6ede2111233be1baa0",
+                  "seconds": 0.0007,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "store objects in a bucket with version history",
+          "relevant": [
+            "internal/service/s3/bucket_versioning",
+            "website/docs/r/s3_bucket_versioning"
+          ],
+          "candidate_paths": [
+            "internal/service/s3/testdata/BucketObject/basic/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/basic/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/tagsComputed1/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/tagsComputed1/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/basic_v6.0.0/main_gen.tf",
+            "internal/service/s3/testdata/Object/basic/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/tagsComputed2/main_gen.tf",
+            "internal/service/s3/test-fixtures/populate_bucket.py",
+            "internal/service/s3/testdata/BucketObject/region_override/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/basic_v6.3.0/main_gen.tf",
+            "website/docs/d/s3_bucket_object.html.markdown",
+            "internal/service/s3/testdata/Object/tagsComputed1/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/tagsComputed2/main_gen.tf",
+            "internal/service/elbv2/testdata/TrustStore/region_override/main_gen.tf",
+            "internal/service/s3/testdata/Object/basic_v6.0.0/main_gen.tf",
+            "internal/service/s3/testdata/Object/tagsComputed2/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/tags/main_gen.tf",
+            "website/docs/d/s3_bucket_objects.html.markdown",
+            "internal/service/s3/bucket_object_test.go",
+            "internal/service/s3/testdata/BucketObject/data.tags/main_gen.tf",
+            "website/docs/r/s3_bucket_object.html.markdown",
+            "internal/service/s3/testdata/BucketObject/data.tags_defaults/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/tags_defaults/main_gen.tf",
+            "internal/service/cloudfront/trust_store_test.go",
+            "internal/service/s3/bucket_object_data_source.go",
+            "website/docs/r/lb_trust_store_revocation.html.markdown",
+            "version/VERSION",
+            "website/docs/r/lb_trust_store.html.markdown",
+            "website/docs/r/cloudfront_trust_store.html.markdown",
+            "internal/service/s3/testdata/BucketVersioning/list_basic/query.tfquery.hcl",
+            "internal/service/s3/bucket_versioning.go",
+            "internal/service/s3/testdata/BucketVersioning/list_basic/main.tf"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 0,
+              "hit_at_5": false,
+              "reciprocal_rank": 0,
+              "seconds": 0.0563,
+              "paths": [
+                "internal/service/s3/testdata/BucketObject/basic/main_gen.tf",
+                "internal/service/elbv2/testdata/TrustStore/basic/main_gen.tf",
+                "internal/service/elbv2/testdata/TrustStore/tagsComputed1/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/tagsComputed1/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/basic_v6.0.0/main_gen.tf",
+                "internal/service/s3/testdata/Object/basic/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/tagsComputed2/main_gen.tf",
+                "internal/service/s3/test-fixtures/populate_bucket.py",
+                "internal/service/s3/testdata/BucketObject/region_override/main_gen.tf",
+                "internal/service/elbv2/testdata/TrustStore/basic_v6.3.0/main_gen.tf"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 0,
+              "hit_at_5": false,
+              "reciprocal_rank": 0,
+              "seconds": 0.6099,
+              "paths": [
+                "website/docs/d/s3_bucket_objects.html.markdown",
+                "website/docs/d/s3_bucket_object.html.markdown",
+                "website/docs/r/s3_bucket_object.html.markdown",
+                "internal/service/s3/test-fixtures/populate_bucket.py",
+                "internal/service/s3/testdata/BucketObject/tagsComputed2/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/tagsComputed1/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/tags/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/basic/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/basic_v6.0.0/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/data.tags_defaults/main_gen.tf"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.5538,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 0,
+              "hit_at_5": false,
+              "reciprocal_rank": 0,
+              "seconds": 0.2416,
+              "paths": [
+                "internal/service/s3/testdata/BucketObject/basic_v6.0.0/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/basic/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/tagsComputed2/main_gen.tf",
+                "internal/service/s3/testdata/Object/tagsComputed2/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/region_override/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/tags/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/tagsComputed1/main_gen.tf",
+                "internal/service/s3/testdata/Object/basic/main_gen.tf",
+                "internal/service/s3/testdata/Object/basic_v6.0.0/main_gen.tf",
+                "internal/service/s3/testdata/Object/tagsComputed1/main_gen.tf"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 36763,
+                "request_sha256": "27f7b3dd16cad4122af8985fa7693017f782040531ec6f8dfcb710bfaa588fcd",
+                "seconds": 0.1821,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 10339,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0596,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 36763,
+                  "request_sha256": "27f7b3dd16cad4122af8985fa7693017f782040531ec6f8dfcb710bfaa588fcd",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "grant access permissions by attaching a policy to a role",
+          "relevant": [
+            "internal/service/iam/role_policy_attachment",
+            "website/docs/r/iam_role_policy_attachment"
+          ],
+          "candidate_paths": [
+            "examples/alexa/main.tf",
+            "website/docs/r/iam_role_policy_attachment.html.markdown",
+            "website/docs/d/iam_role_policy_attachments.html.markdown",
+            "website/docs/r/ssoadmin_permissions_boundary_attachment.html.markdown",
+            "website/docs/r/iam_policy_attachment.html.markdown",
+            "internal/service/iam/testdata/RolePolicyAttachment/list_basic/main.tf",
+            "website/docs/r/accountaccess_entitlement.html.markdown",
+            "website/docs/r/iam_role_policy_attachments_exclusive.html.markdown",
+            "website/docs/list-resources/iam_role_policy_attachment.html.markdown",
+            "website/docs/r/ssoadmin_customer_managed_policy_attachment.html.markdown",
+            "internal/service/ssoadmin/customer_managed_policy_attachment.go",
+            "website/docs/r/shield_drt_access_role_arn_association.html.markdown",
+            "website/docs/r/ssoadmin_managed_policy_attachment.html.markdown",
+            "website/docs/r/s3control_access_grants_location.html.markdown",
+            "website/docs/d/lakeformation_permissions.html.markdown",
+            "internal/service/quicksight/role_custom_permission.go",
+            "website/docs/r/s3control_access_grant.html.markdown",
+            "website/docs/r/network_interface_permission.html.markdown",
+            "internal/service/iam/testdata/tmpl/role_policy_attachment_basic.gtpl",
+            "website/docs/r/opensearchserverless_access_policy.html.markdown",
+            "internal/service/iam/testdata/RolePolicyAttachment/list_basic/main.tfquery.hcl",
+            "internal/service/s3control/access_grants_location_test.go",
+            "internal/service/iam/testdata/RolePolicyAttachment/list_include_resource/main.tfquery.hcl",
+            "internal/service/iam/role_policy_attachment_test.go",
+            "website/docs/r/s3control_access_grants_instance_resource_policy.html.markdown",
+            "internal/service/s3control/access_grants_instance_resource_policy.go",
+            "website/docs/r/iam_role_policy.html.markdown",
+            "internal/service/s3control/access_grants_instance_resource_policy_test.go",
+            "website/docs/r/iam_role.html.markdown",
+            "internal/service/iam/role_policy_attachments_data_source.go",
+            "website/docs/r/lakeformation_permissions.html.markdown",
+            "internal/service/quicksight/role_custom_permission_test.go"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 2,
+              "hit_at_5": true,
+              "reciprocal_rank": 0.5,
+              "seconds": 0.058,
+              "paths": [
+                "examples/alexa/main.tf",
+                "website/docs/r/iam_role_policy_attachment.html.markdown",
+                "website/docs/d/iam_role_policy_attachments.html.markdown",
+                "website/docs/r/ssoadmin_permissions_boundary_attachment.html.markdown",
+                "website/docs/r/iam_policy_attachment.html.markdown",
+                "internal/service/iam/testdata/RolePolicyAttachment/list_basic/main.tf",
+                "website/docs/r/accountaccess_entitlement.html.markdown",
+                "website/docs/r/iam_role_policy_attachments_exclusive.html.markdown",
+                "website/docs/list-resources/iam_role_policy_attachment.html.markdown",
+                "website/docs/r/ssoadmin_customer_managed_policy_attachment.html.markdown"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.6511,
+              "paths": [
+                "website/docs/r/iam_role_policy_attachment.html.markdown",
+                "website/docs/r/iam_policy_attachment.html.markdown",
+                "website/docs/r/iam_role_policy_attachments_exclusive.html.markdown",
+                "website/docs/d/iam_role_policy_attachments.html.markdown",
+                "examples/alexa/main.tf",
+                "website/docs/list-resources/iam_role_policy_attachment.html.markdown",
+                "internal/service/iam/role_policy_attachments_data_source.go",
+                "website/docs/r/s3control_access_grant.html.markdown",
+                "website/docs/r/s3control_access_grants_instance_resource_policy.html.markdown",
+                "website/docs/r/iam_role.html.markdown"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.5926,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.2408,
+              "paths": [
+                "website/docs/r/iam_role_policy_attachment.html.markdown",
+                "website/docs/r/iam_policy_attachment.html.markdown",
+                "website/docs/r/iam_role_policy.html.markdown",
+                "examples/alexa/main.tf",
+                "internal/service/iam/testdata/RolePolicyAttachment/list_basic/main.tf",
+                "website/docs/r/iam_role_policy_attachments_exclusive.html.markdown",
+                "website/docs/r/iam_role.html.markdown",
+                "internal/service/quicksight/role_custom_permission.go",
+                "internal/service/s3control/access_grants_location_test.go",
+                "website/docs/r/ssoadmin_managed_policy_attachment.html.markdown"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 46203,
+                "request_sha256": "ea5cc75bc9e3c396fb708f0696219c0ea0c31e7b32d45125e4fdb38d6ce73d88",
+                "seconds": 0.1807,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 12319,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0622,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 46203,
+                  "request_sha256": "ea5cc75bc9e3c396fb708f0696219c0ea0c31e7b32d45125e4fdb38d6ce73d88",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "host a serverless function with environment variables",
+          "relevant": [
+            "internal/service/lambda/function",
+            "website/docs/r/lambda_function"
+          ],
+          "candidate_paths": [
+            "website/docs/r/lambda_function.html.markdown",
+            "internal/envvar/envvar.go",
+            "website/docs/r/serverlessapplicationrepository_cloudformation_stack.html.markdown",
+            "examples/opensearchserverless/variables.tf",
+            "website/docs/ephemeral-resources/lambda_invocation.html.markdown",
+            "internal/service/codebuild/exports_test.go",
+            "internal/service/serverlessrepo/exports_test.go",
+            "internal/service/codebuild/start_build_action_test.go",
+            "internal/service/opensearchserverless/const.go",
+            "examples/opensearchserverless/outputs.tf",
+            "internal/service/serverlessrepo/service_endpoint_resolver_gen.go",
+            "internal/tags/key_value_tags.go",
+            "internal/service/emrserverless/exports_test.go",
+            "internal/service/lambda/function_test.go",
+            "docs/acc-test-environment-variables.md",
+            "internal/service/redshift/testdata/tmpl/namespace_registration_serverless.gtpl",
+            "examples/networking/region/variables.tf",
+            "website/docs/r/lambda_invocation.html.markdown",
+            "internal/vcr/envvar.go",
+            "internal/service/opensearchserverless/exports_test.go",
+            "website/docs/r/amplify_app.html.markdown",
+            "website/docs/d/lambda_invocation.html.markdown",
+            "internal/service/codeconnections/testdata/tmpl/host_basic.gtpl",
+            "examples/networking/subnet/variables.tf",
+            "internal/service/pipes/target_parameters.go",
+            "examples/opensearchserverless/README.md",
+            "internal/service/cloudfront/function_test.go",
+            "examples/networking/variables.tf",
+            "internal/service/directconnect/hosted_connection.go",
+            "internal/service/amplify/branch_test.go",
+            "internal/service/serverlessrepo/application_data_source.go",
+            "internal/service/redshiftserverless/exports_test.go"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.0548,
+              "paths": [
+                "website/docs/r/lambda_function.html.markdown",
+                "internal/envvar/envvar.go",
+                "website/docs/r/serverlessapplicationrepository_cloudformation_stack.html.markdown",
+                "examples/opensearchserverless/variables.tf",
+                "website/docs/ephemeral-resources/lambda_invocation.html.markdown",
+                "internal/service/codebuild/exports_test.go",
+                "internal/service/serverlessrepo/exports_test.go",
+                "internal/service/codebuild/start_build_action_test.go",
+                "internal/service/opensearchserverless/const.go",
+                "examples/opensearchserverless/outputs.tf"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.778,
+              "paths": [
+                "website/docs/r/lambda_function.html.markdown",
+                "internal/service/serverlessrepo/service_endpoint_resolver_gen.go",
+                "internal/tags/key_value_tags.go",
+                "website/docs/r/serverlessapplicationrepository_cloudformation_stack.html.markdown",
+                "internal/service/serverlessrepo/application_data_source.go",
+                "docs/acc-test-environment-variables.md",
+                "examples/opensearchserverless/README.md",
+                "internal/envvar/envvar.go",
+                "examples/opensearchserverless/variables.tf",
+                "internal/service/redshift/testdata/tmpl/namespace_registration_serverless.gtpl"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.7226,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.2008,
+              "paths": [
+                "website/docs/r/lambda_function.html.markdown",
+                "internal/service/lambda/function_test.go",
+                "internal/service/amplify/branch_test.go",
+                "internal/service/pipes/target_parameters.go",
+                "website/docs/d/lambda_invocation.html.markdown",
+                "website/docs/r/lambda_invocation.html.markdown",
+                "internal/tags/key_value_tags.go",
+                "internal/service/codebuild/exports_test.go",
+                "website/docs/ephemeral-resources/lambda_invocation.html.markdown",
+                "website/docs/r/amplify_app.html.markdown"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 36657,
+                "request_sha256": "0f7ef839d5c0da6c2c1898cbd14f931118622941c44928775ba80b284a9ce2fd",
+                "seconds": 0.1444,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 9762,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0579,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 36657,
+                  "request_sha256": "0f7ef839d5c0da6c2c1898cbd14f931118622941c44928775ba80b284a9ce2fd",
+                  "seconds": 0.0008,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "provision a managed relational database cluster",
+          "relevant": [
+            "internal/service/rds/cluster",
+            "website/docs/r/rds_cluster"
+          ],
+          "candidate_paths": [
+            "website/docs/d/rds_clusters.html.markdown",
+            "website/docs/d/odb_cloud_autonomous_vm_cluster.html.markdown",
+            "website/docs/r/odb_cloud_autonomous_vm_cluster.html.markdown",
+            "website/docs/d/odb_cloud_autonomous_vm_clusters.html.markdown",
+            "website/docs/d/rds_cluster.html.markdown",
+            "website/docs/d/db_cluster_snapshot.html.markdown",
+            "website/docs/list-resources/rds_cluster_instance.html.markdown",
+            "website/docs/d/odb_cloud_vm_cluster.html.markdown",
+            "website/docs/r/odb_cloud_vm_cluster.html.markdown",
+            "website/docs/d/odb_cloud_vm_clusters.html.markdown",
+            "website/docs/r/rds_cluster_instance.html.markdown",
+            "website/docs/d/odb_db_nodes.html.markdown",
+            "website/docs/d/odb_db_node.html.markdown",
+            "website/docs/r/neptune_cluster_snapshot.html.markdown",
+            "website/docs/d/rds_global_cluster.html.markdown",
+            "website/docs/list-resources/rds_cluster.html.markdown",
+            "website/docs/r/msk_cluster_policy.html.markdown",
+            "examples/transit-gateway-intra-region-peering/variables.tf",
+            "examples/networking/regions.tf",
+            "website/docs/r/rds_global_cluster.html.markdown",
+            "website/docs/r/rds_cluster_snapshot_copy.html.markdown",
+            "website/docs/r/db_cluster_snapshot.html.markdown",
+            "website/docs/r/msk_cluster.html.markdown",
+            "internal/service/dsql/testdata/tmpl/cluster_policy_basic.gtpl",
+            "website/docs/r/rds_cluster_activity_stream.html.markdown",
+            "examples/odb/autonomous_vm_cluster.tf",
+            "website/docs/r/rds_shard_group.html.markdown",
+            "website/docs/r/lightsail_database.html.markdown",
+            "website/docs/r/dax_cluster.html.markdown",
+            "website/docs/r/rds_integration.html.markdown",
+            "internal/service/lightsail/wait.go",
+            "website/docs/r/db_snapshot.html.markdown"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 0,
+              "hit_at_5": false,
+              "reciprocal_rank": 0,
+              "seconds": 0.0564,
+              "paths": [
+                "website/docs/d/rds_clusters.html.markdown",
+                "website/docs/d/odb_cloud_autonomous_vm_cluster.html.markdown",
+                "website/docs/r/odb_cloud_autonomous_vm_cluster.html.markdown",
+                "website/docs/d/odb_cloud_autonomous_vm_clusters.html.markdown",
+                "website/docs/d/rds_cluster.html.markdown",
+                "website/docs/d/db_cluster_snapshot.html.markdown",
+                "website/docs/list-resources/rds_cluster_instance.html.markdown",
+                "website/docs/d/odb_cloud_vm_cluster.html.markdown",
+                "website/docs/r/odb_cloud_vm_cluster.html.markdown",
+                "website/docs/d/odb_cloud_vm_clusters.html.markdown"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 6,
+              "hit_at_5": false,
+              "reciprocal_rank": 0.16666666666666666,
+              "seconds": 0.6519,
+              "paths": [
+                "website/docs/r/db_cluster_snapshot.html.markdown",
+                "website/docs/d/db_cluster_snapshot.html.markdown",
+                "website/docs/d/rds_global_cluster.html.markdown",
+                "website/docs/r/msk_cluster.html.markdown",
+                "website/docs/d/rds_clusters.html.markdown",
+                "website/docs/r/rds_cluster_snapshot_copy.html.markdown",
+                "website/docs/r/db_snapshot.html.markdown",
+                "website/docs/r/rds_global_cluster.html.markdown",
+                "website/docs/r/rds_cluster_activity_stream.html.markdown",
+                "website/docs/d/rds_cluster.html.markdown"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.5946,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 4,
+              "hit_at_5": true,
+              "reciprocal_rank": 0.25,
+              "seconds": 0.2626,
+              "paths": [
+                "website/docs/r/rds_shard_group.html.markdown",
+                "examples/odb/autonomous_vm_cluster.tf",
+                "website/docs/r/rds_global_cluster.html.markdown",
+                "website/docs/r/rds_cluster_instance.html.markdown",
+                "website/docs/r/odb_cloud_vm_cluster.html.markdown",
+                "website/docs/r/odb_cloud_autonomous_vm_cluster.html.markdown",
+                "website/docs/r/rds_cluster_snapshot_copy.html.markdown",
+                "website/docs/r/lightsail_database.html.markdown",
+                "website/docs/d/odb_cloud_autonomous_vm_cluster.html.markdown",
+                "internal/service/lightsail/wait.go"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 45765,
+                "request_sha256": "b14759b3197597d5620d21eef8c1ea71d34a1e11dd4eb0c7b33eee4496fb3f69",
+                "seconds": 0.2032,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 12422,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0579,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 45765,
+                  "request_sha256": "b14759b3197597d5620d21eef8c1ea71d34a1e11dd4eb0c7b33eee4496fb3f69",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "aws_sqs_queue",
+          "relevant": [
+            "internal/service/sqs/queue",
+            "website/docs/r/sqs_queue"
+          ],
+          "candidate_paths": [
+            "website/docs/r/sqs_queue.html.markdown",
+            "website/docs/list-resources/sqs_queue_policy.html.markdown",
+            "website/docs/r/sqs_queue_policy.html.markdown",
+            "website/docs/list-resources/sqs_queue.html.markdown",
+            "website/docs/r/sqs_queue_redrive_policy.html.markdown",
+            "internal/service/sqs/queue_list.go",
+            "website/docs/r/sqs_queue_redrive_allow_policy.html.markdown",
+            "internal/service/sqs/queues_data_source_test.go",
+            "internal/service/sqs/testdata/Queue/basic_v6.18.0/main_gen.tf",
+            "internal/service/sqs/queue_data_source.go",
+            "internal/service/sqs/testdata/Queue/basic_v6.9.0/main_gen.tf",
+            "internal/service/sqs/queues_data_source.go",
+            "internal/service/sqs/testdata/Queue/list_basic/main.tf",
+            "website/docs/d/sqs_queue.html.markdown",
+            "internal/service/sqs/testdata/Queue/basic/main_gen.tf",
+            "internal/service/sqs/testdata/QueuePolicy/basic_v6.18.0/main_gen.tf",
+            "internal/service/sqs/testdata/QueueRedriveAllowPolicy/basic_v6.18.0/main_gen.tf",
+            "internal/service/sqs/testdata/QueueRedrivePolicy/basic/main_gen.tf",
+            "internal/service/sqs/testdata/QueueRedriveAllowPolicy/basic/main_gen.tf",
+            "internal/service/sqs/testdata/QueuePolicy/basic/main_gen.tf",
+            "internal/service/sqs/testdata/Queue/list_include_resource/main.tf",
+            "internal/service/sqs/testdata/QueueRedrivePolicy/basic_v6.18.0/main_gen.tf",
+            "internal/service/sqs/testdata/QueuePolicy/basic_v6.9.0/main_gen.tf",
+            "internal/service/sqs/testdata/QueueRedriveAllowPolicy/basic_v6.9.0/main_gen.tf",
+            "internal/service/sqs/testdata/QueueRedrivePolicy/basic_v6.9.0/main_gen.tf",
+            "internal/service/sqs/testdata/Queue/region_override/main_gen.tf",
+            "internal/service/sqs/queue_policy.go",
+            "internal/service/sqs/testdata/QueuePolicy/list_basic/main.tf",
+            "internal/service/sqs/testdata/QueueRedrivePolicy/region_override/main_gen.tf",
+            "internal/service/sqs/queue_data_source_test.go",
+            "internal/service/sqs/testdata/Queue/list_region_override/main.tf",
+            "internal/service/sqs/testdata/QueueRedriveAllowPolicy/region_override/main_gen.tf"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.068,
+              "paths": [
+                "website/docs/r/sqs_queue.html.markdown",
+                "website/docs/list-resources/sqs_queue_policy.html.markdown",
+                "website/docs/r/sqs_queue_policy.html.markdown",
+                "website/docs/list-resources/sqs_queue.html.markdown",
+                "website/docs/r/sqs_queue_redrive_policy.html.markdown",
+                "internal/service/sqs/queue_list.go",
+                "website/docs/r/sqs_queue_redrive_allow_policy.html.markdown",
+                "internal/service/sqs/queues_data_source_test.go",
+                "internal/service/sqs/testdata/Queue/basic_v6.18.0/main_gen.tf",
+                "internal/service/sqs/queue_data_source.go"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.571,
+              "paths": [
+                "website/docs/r/sqs_queue.html.markdown",
+                "website/docs/list-resources/sqs_queue.html.markdown",
+                "website/docs/list-resources/sqs_queue_policy.html.markdown",
+                "website/docs/d/sqs_queue.html.markdown",
+                "website/docs/r/sqs_queue_policy.html.markdown",
+                "internal/service/sqs/testdata/QueueRedriveAllowPolicy/basic/main_gen.tf",
+                "internal/service/sqs/queue_list.go",
+                "internal/service/sqs/testdata/QueueRedrivePolicy/basic/main_gen.tf",
+                "internal/service/sqs/testdata/QueueRedriveAllowPolicy/basic_v6.18.0/main_gen.tf",
+                "internal/service/sqs/testdata/QueueRedriveAllowPolicy/basic_v6.9.0/main_gen.tf"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.5031,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.2521,
+              "paths": [
+                "website/docs/r/sqs_queue.html.markdown",
+                "website/docs/d/sqs_queue.html.markdown",
+                "website/docs/list-resources/sqs_queue.html.markdown",
+                "internal/service/sqs/queue_data_source.go",
+                "internal/service/sqs/queue_list.go",
+                "internal/service/sqs/testdata/Queue/basic/main_gen.tf",
+                "internal/service/sqs/testdata/Queue/basic_v6.18.0/main_gen.tf",
+                "internal/service/sqs/testdata/Queue/basic_v6.9.0/main_gen.tf",
+                "internal/service/sqs/testdata/Queue/list_basic/main.tf",
+                "internal/service/sqs/testdata/QueueRedriveAllowPolicy/basic/main_gen.tf"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 32447,
+                "request_sha256": "fa3f940b1a33c68e6c550520c1e383af8739cf4bc7c3595ab7ad6b2ccb4407e1",
+                "seconds": 0.1805,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 8997,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0704,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 32447,
+                  "request_sha256": "fa3f940b1a33c68e6c550520c1e383af8739cf4bc7c3595ab7ad6b2ccb4407e1",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "resourceBucketVersioning",
+          "relevant": [
+            "internal/service/s3/bucket_versioning"
+          ],
+          "candidate_paths": [
+            "internal/service/s3/bucket_versioning.go",
+            "internal/service/s3/bucket_versioning_list.go",
+            "website/docs/r/s3_bucket_versioning.html.markdown",
+            "internal/service/s3/bucket_versioning_test.go",
+            "internal/service/s3/testdata/BucketVersioning/basic/main_gen.tf",
+            "internal/service/s3/testdata/BucketVersioning/basic_v6.9.0/main_gen.tf",
+            "internal/service/s3/testdata/BucketVersioning/basic_v6.30.0/main_gen.tf",
+            "internal/service/s3/testdata/BucketVersioning/region_override/main_gen.tf",
+            "internal/service/s3/bucket_versioning_list_test.go",
+            "internal/service/s3/testdata/BucketObject/basic_v6.0.0/main_gen.tf",
+            "website/docs/list-resources/s3_bucket_versioning.html.markdown",
+            "internal/service/s3/testdata/BucketVersioning/list_include_resource/main.tf",
+            "internal/service/s3/testdata/BucketVersioning/list_basic/main.tf",
+            "internal/service/s3/testdata/BucketObject/basic/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/region_override/main_gen.tf",
+            "internal/service/s3/testdata/BucketVersioning/list_region_override/main.tf",
+            "internal/service/s3/testdata/BucketObject/tagsComputed1/main_gen.tf",
+            "internal/service/s3/testdata/BucketObject/tagsComputed2/main_gen.tf",
+            "internal/service/s3/bucket_versioning_identity_gen_test.go",
+            "internal/service/s3/testdata/BucketObject/tags/main_gen.tf",
+            "internal/service/s3/testdata/Object/basic_v6.0.0/main_gen.tf",
+            "website/docs/r/elastic_beanstalk_application_version.html.markdown",
+            "internal/service/s3/bucket_data_source_test.go",
+            "internal/service/sagemaker/image_version_migrate.go",
+            "internal/service/s3/testdata/BucketVersioning/list_include_resource/query.tfquery.hcl",
+            "internal/service/rds/instance_migrate.go",
+            "internal/service/sagemaker/image_version.go",
+            "internal/service/elasticbeanstalk/application_version.go",
+            "internal/service/odb/gi_versions_data_source.go",
+            "internal/service/kinesis/migrate.go",
+            "internal/service/s3/bucket_data_source.go",
+            "internal/service/resourcegroups/resource_migrate.go"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.0715,
+              "paths": [
+                "internal/service/s3/bucket_versioning.go",
+                "internal/service/s3/bucket_versioning_list.go",
+                "website/docs/r/s3_bucket_versioning.html.markdown",
+                "internal/service/s3/bucket_versioning_test.go",
+                "internal/service/s3/testdata/BucketVersioning/basic/main_gen.tf",
+                "internal/service/s3/testdata/BucketVersioning/basic_v6.9.0/main_gen.tf",
+                "internal/service/s3/testdata/BucketVersioning/basic_v6.30.0/main_gen.tf",
+                "internal/service/s3/testdata/BucketVersioning/region_override/main_gen.tf",
+                "internal/service/s3/bucket_versioning_list_test.go",
+                "internal/service/s3/testdata/BucketObject/basic_v6.0.0/main_gen.tf"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.6392,
+              "paths": [
+                "internal/service/s3/bucket_versioning_test.go",
+                "internal/service/s3/bucket_versioning_identity_gen_test.go",
+                "internal/service/s3/bucket_versioning_list.go",
+                "internal/service/s3/bucket_versioning.go",
+                "internal/service/s3/bucket_versioning_list_test.go",
+                "internal/service/s3/bucket_data_source.go",
+                "internal/service/sagemaker/image_version.go",
+                "internal/service/s3/testdata/BucketVersioning/list_include_resource/main.tf",
+                "internal/service/s3/testdata/BucketVersioning/list_include_resource/query.tfquery.hcl",
+                "internal/service/elasticbeanstalk/application_version.go"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.5687,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.2195,
+              "paths": [
+                "internal/service/s3/bucket_versioning.go",
+                "website/docs/r/s3_bucket_versioning.html.markdown",
+                "website/docs/list-resources/s3_bucket_versioning.html.markdown",
+                "internal/service/s3/testdata/BucketObject/basic/main_gen.tf",
+                "internal/service/s3/testdata/BucketVersioning/basic/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/basic_v6.0.0/main_gen.tf",
+                "internal/service/s3/testdata/BucketVersioning/basic_v6.9.0/main_gen.tf",
+                "internal/service/s3/testdata/BucketObject/region_override/main_gen.tf",
+                "internal/service/s3/testdata/Object/basic_v6.0.0/main_gen.tf",
+                "internal/service/s3/bucket_versioning_list.go"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 35894,
+                "request_sha256": "615748d1a0865cac1171322ed1da12b70bd7bdfbe21513a2216daae89e56e2cd",
+                "seconds": 0.149,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 9985,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0717,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 35894,
+                  "request_sha256": "615748d1a0865cac1171322ed1da12b70bd7bdfbe21513a2216daae89e56e2cd",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "fresh": {
+      "judgments_sha256": "e4f66d051a5cd441cd6b2aeaeda99fa4794b2a053a60554c2f8f4a904e9eebe7",
+      "candidate_hit_rate": 0.875,
+      "summary": {
+        "hybrid": {
+          "hit_rate_at_5": 0.625,
+          "mrr_at_10": 0.625,
+          "p50_seconds": 0.0564,
+          "p95_seconds": 0.0663,
+          "api_calls": 0,
+          "input_tokens": 0,
+          "estimated_api_usd": 0.0,
+          "fallback_count": 0,
+          "api_attempts": 0,
+          "unknown_usage_attempts": 0
+        },
+        "local": {
+          "hit_rate_at_5": 0.75,
+          "mrr_at_10": 0.625,
+          "p50_seconds": 0.7312000000000001,
+          "p95_seconds": 0.7633,
+          "api_calls": 0,
+          "input_tokens": 0,
+          "estimated_api_usd": 0.0,
+          "fallback_count": 0,
+          "api_attempts": 0,
+          "unknown_usage_attempts": 0
+        },
+        "jev": {
+          "hit_rate_at_5": 0.875,
+          "mrr_at_10": 0.525,
+          "p50_seconds": 0.22955,
+          "p95_seconds": 0.2555,
+          "api_calls": 8,
+          "input_tokens": 89258,
+          "estimated_api_usd": 0.003748836,
+          "fallback_count": 0,
+          "api_attempts": 8,
+          "unknown_usage_attempts": 0
+        }
+      },
+      "queries": [
+        {
+          "query": "record API activity in an audit trail",
+          "relevant": [
+            "internal/service/cloudtrail/trail",
+            "website/docs/r/cloudtrail.html"
+          ],
+          "candidate_paths": [
+            "internal/conns/apicall/apicall.go",
+            "internal/service/auditmanager/framework_data_source_test.go",
+            "internal/service/route53/record_list_test.go",
+            "internal/service/route53/testdata/Record/list_wildcard/main.tf",
+            "internal/service/auditmanager/framework_share_test.go",
+            "website/docs/r/auditmanager_account_registration.html.markdown",
+            "internal/service/auditmanager/assessment_delegation.go",
+            "internal/service/route53/record_test.go",
+            "internal/service/route53/records_exclusive_test.go",
+            "internal/service/route53domains/delegation_signer_record.go",
+            "internal/service/route53/record.go",
+            "internal/service/route53/testdata/Record/list_wildcard_include_resource/main.tf",
+            "internal/service/auditmanager/assessment.go",
+            "internal/service/cloudtrail/trail.go",
+            "examples/events/sns/README.md",
+            "internal/service/auditmanager/framework_data_source.go",
+            "internal/service/apigateway/consts.go",
+            "internal/service/ec2/ec2_eip_domain_name_test.go",
+            "internal/service/lightsail/lb_certificate.go",
+            "internal/service/route53/records_data_source.go",
+            "internal/service/auditmanager/testdata/AccountRegistration/basic/main_gen.tf",
+            "internal/service/cloudtrail/trail_test.go",
+            "internal/dns/normalize.go",
+            "internal/service/auditmanager/framework_share.go",
+            "internal/service/lightsail/certificate.go",
+            "internal/service/auditmanager/assessment_report.go",
+            "internal/service/route53/record_cache_test.go",
+            "internal/service/logs/testdata/ResourcePolicy/accountscope_basic/main_gen.tf",
+            "website/docs/r/cloudtrail_event_data_store.html.markdown",
+            "internal/conns/apicall/apicall_test.go",
+            "internal/service/cloudtrail/README.md",
+            "internal/service/auditmanager/control_test.go"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 0,
+              "hit_at_5": false,
+              "reciprocal_rank": 0,
+              "seconds": 0.0559,
+              "paths": [
+                "internal/conns/apicall/apicall.go",
+                "internal/service/auditmanager/framework_data_source_test.go",
+                "internal/service/route53/record_list_test.go",
+                "internal/service/route53/testdata/Record/list_wildcard/main.tf",
+                "internal/service/auditmanager/framework_share_test.go",
+                "website/docs/r/auditmanager_account_registration.html.markdown",
+                "internal/service/auditmanager/assessment_delegation.go",
+                "internal/service/route53/record_test.go",
+                "internal/service/route53/records_exclusive_test.go",
+                "internal/service/route53domains/delegation_signer_record.go"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 2,
+              "hit_at_5": true,
+              "reciprocal_rank": 0.5,
+              "seconds": 0.7223,
+              "paths": [
+                "internal/service/route53/record_cache_test.go",
+                "internal/service/cloudtrail/trail.go",
+                "internal/service/auditmanager/control_test.go",
+                "examples/events/sns/README.md",
+                "internal/service/auditmanager/assessment.go",
+                "internal/service/auditmanager/framework_share.go",
+                "internal/service/auditmanager/assessment_report.go",
+                "internal/service/auditmanager/framework_data_source.go",
+                "internal/service/auditmanager/assessment_delegation.go",
+                "internal/service/cloudtrail/trail_test.go"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.667,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 5,
+              "hit_at_5": true,
+              "reciprocal_rank": 0.2,
+              "seconds": 0.232,
+              "paths": [
+                "examples/events/sns/README.md",
+                "website/docs/r/cloudtrail_event_data_store.html.markdown",
+                "internal/conns/apicall/apicall.go",
+                "internal/conns/apicall/apicall_test.go",
+                "internal/service/cloudtrail/trail.go",
+                "internal/service/cloudtrail/trail_test.go",
+                "internal/service/cloudtrail/README.md",
+                "internal/service/logs/testdata/ResourcePolicy/accountscope_basic/main_gen.tf",
+                "internal/service/auditmanager/framework_data_source.go",
+                "internal/service/auditmanager/framework_data_source_test.go"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 44388,
+                "request_sha256": "c685cdbca261d05d0cd31d865345f5f39bfd33ba300db45e6a0657e22349a9cc",
+                "seconds": 0.1748,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 12491,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0601,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 44388,
+                  "request_sha256": "c685cdbca261d05d0cd31d865345f5f39bfd33ba300db45e6a0657e22349a9cc",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "orchestrate a multi step workflow with a state machine",
+          "relevant": [
+            "internal/service/sfn/state_machine",
+            "website/docs/r/sfn_state_machine"
+          ],
+          "candidate_paths": [
+            "website/docs/r/sfn_state_machine.html.markdown",
+            "website/docs/actions/sfn_start_execution.html.markdown",
+            "internal/service/sfn/testdata/StateMachine/list_include_resource/query.tfquery.hcl",
+            "internal/service/sfn/testdata/StateMachine/basic/main_gen.tf",
+            "internal/service/sfn/testdata/StateMachine/list_basic/query.tfquery.hcl",
+            "infrastructure/repository/main.tf",
+            "internal/service/bedrockagent/consts.go",
+            "internal/service/codeartifact/consts.go",
+            "website/docs/list-resources/sfn_state_machine.html.markdown",
+            "internal/service/codepipeline/consts.go",
+            "website/docs/d/sfn_state_machine_versions.html.markdown",
+            "internal/service/datasync/consts.go",
+            "website/docs/d/sfn_state_machine.html.markdown",
+            "internal/service/cloudformation/consts.go",
+            "internal/service/sfn/state_machine_list_test.go",
+            "internal/service/codebuild/consts.go",
+            "website/docs/r/sfn_alias.html.markdown",
+            "internal/service/codecommit/consts.go",
+            "website/docs/d/sfn_alias.html.markdown",
+            "internal/service/resiliencehubv2/consts.go",
+            "internal/service/transfer/workflow.go",
+            "internal/service/lakeformation/consts.go",
+            "internal/service/sfn/state_machine_identity_gen_test.go",
+            "internal/service/sfn/state_machine.go",
+            "internal/service/appautoscaling/consts.go",
+            "website/docs/r/transfer_workflow.html.markdown",
+            "internal/service/batch/compute_environment_migrate_test.go",
+            "internal/service/transfer/workflow_test.go",
+            "internal/service/bedrock/consts.go",
+            "internal/service/sfn/state_machine_list.go",
+            "internal/service/amplify/consts.go",
+            "internal/service/sfn/state_machine_data_source.go"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.0569,
+              "paths": [
+                "website/docs/r/sfn_state_machine.html.markdown",
+                "website/docs/actions/sfn_start_execution.html.markdown",
+                "internal/service/sfn/testdata/StateMachine/list_include_resource/query.tfquery.hcl",
+                "internal/service/sfn/testdata/StateMachine/basic/main_gen.tf",
+                "internal/service/sfn/testdata/StateMachine/list_basic/query.tfquery.hcl",
+                "infrastructure/repository/main.tf",
+                "internal/service/bedrockagent/consts.go",
+                "internal/service/codeartifact/consts.go",
+                "website/docs/list-resources/sfn_state_machine.html.markdown",
+                "internal/service/codepipeline/consts.go"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.7629,
+              "paths": [
+                "website/docs/r/sfn_state_machine.html.markdown",
+                "website/docs/actions/sfn_start_execution.html.markdown",
+                "website/docs/d/sfn_state_machine.html.markdown",
+                "website/docs/list-resources/sfn_state_machine.html.markdown",
+                "internal/service/sfn/state_machine.go",
+                "website/docs/d/sfn_state_machine_versions.html.markdown",
+                "internal/service/sfn/state_machine_list_test.go",
+                "website/docs/r/sfn_alias.html.markdown",
+                "internal/service/sfn/state_machine_identity_gen_test.go",
+                "internal/service/sfn/state_machine_list.go"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.7058,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.2271,
+              "paths": [
+                "website/docs/r/sfn_state_machine.html.markdown",
+                "website/docs/actions/sfn_start_execution.html.markdown",
+                "internal/service/sfn/testdata/StateMachine/basic/main_gen.tf",
+                "internal/service/sfn/state_machine.go",
+                "website/docs/r/transfer_workflow.html.markdown",
+                "internal/service/transfer/workflow.go",
+                "internal/service/sfn/state_machine_data_source.go",
+                "internal/service/batch/compute_environment_migrate_test.go",
+                "website/docs/r/sfn_alias.html.markdown",
+                "internal/service/transfer/workflow_test.go"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 33073,
+                "request_sha256": "171d66d89b1719628581161ebb2a4edb6a11755c8e74dda9136be68a9aad4b55",
+                "seconds": 0.1687,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 9008,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0591,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 33073,
+                  "request_sha256": "171d66d89b1719628581161ebb2a4edb6a11755c8e74dda9136be68a9aad4b55",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "rotate a stored secret automatically on a schedule",
+          "relevant": [
+            "internal/service/secretsmanager/secret_rotation",
+            "website/docs/r/secretsmanager_secret_rotation"
+          ],
+          "candidate_paths": [
+            "internal/service/secretsmanager/secret_rotation_test.go",
+            "internal/service/secretsmanager/secret_rotation_data_source.go",
+            "internal/service/secretsmanager/secret_rotation.go",
+            "internal/service/secretsmanager/secret_rotation_data_source_test.go",
+            "internal/service/secretsmanager/secret_rotation_migrate.go",
+            "website/docs/r/secretsmanager_secret_rotation.html.markdown",
+            "website/docs/d/secretsmanager_secret_rotation.html.markdown",
+            "internal/service/secretsmanager/testdata/tmpl/secret_rotation_basic.gtpl",
+            "internal/service/secretsmanager/testdata/SecretRotation/basic_v6.8.0/main_gen.tf",
+            "internal/service/secretsmanager/testdata/SecretRotation/basic/main_gen.tf",
+            "internal/service/secretsmanager/testdata/SecretRotation/region_override/main_gen.tf",
+            "website/docs/r/secretsmanager_secret.html.markdown",
+            "internal/service/secretsmanager/secret_rotation_identity_gen_test.go",
+            "internal/service/secretsmanager/secret.go",
+            "internal/service/ssmcontacts/rotation_data_source_test.go",
+            "internal/service/ssmcontacts/rotation.go",
+            "internal/service/autoscaling/testdata/tmpl/schedule_basic.gtpl",
+            "website/docs/d/ssmcontacts_rotation.html.markdown",
+            "internal/service/secretsmanager/testdata/SecretPolicy/list_region_override/query.tfquery.hcl",
+            "internal/service/serverlessrepo/application_data_source_test.go",
+            "internal/service/ssmcontacts/testdata/tmpl/rotation_basic.gtpl",
+            "internal/service/secretsmanager/consts.go",
+            "website/docs/r/kms_custom_key_store.html.markdown",
+            "internal/service/secretsmanager/testdata/Secret/list_region_override/main.tf",
+            "internal/service/secretsmanager/testdata/Secret/list_region_override/query.tfquery.hcl",
+            "internal/service/secretsmanager/testdata/SecretPolicy/list_region_override/main.tf",
+            "internal/service/ssmcontacts/rotation_tags_gen_test.go",
+            "internal/service/secretsmanager/testdata/Secret/region_override/main_gen.tf",
+            "website/docs/r/serverlessapplicationrepository_cloudformation_stack.html.markdown",
+            "internal/service/ssmcontacts/rotation_data_source_tags_gen_test.go",
+            "docs/design-decisions/secretsmanager-secret-target-attachment.md",
+            "website/docs/r/msk_scram_secret_association.html.markdown"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.0542,
+              "paths": [
+                "internal/service/secretsmanager/secret_rotation_test.go",
+                "internal/service/secretsmanager/secret_rotation_data_source.go",
+                "internal/service/secretsmanager/secret_rotation.go",
+                "internal/service/secretsmanager/secret_rotation_data_source_test.go",
+                "internal/service/secretsmanager/secret_rotation_migrate.go",
+                "website/docs/r/secretsmanager_secret_rotation.html.markdown",
+                "website/docs/d/secretsmanager_secret_rotation.html.markdown",
+                "internal/service/secretsmanager/testdata/tmpl/secret_rotation_basic.gtpl",
+                "internal/service/secretsmanager/testdata/SecretRotation/basic_v6.8.0/main_gen.tf",
+                "internal/service/secretsmanager/testdata/SecretRotation/basic/main_gen.tf"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.7679,
+              "paths": [
+                "internal/service/secretsmanager/secret_rotation.go",
+                "internal/service/secretsmanager/secret_rotation_data_source_test.go",
+                "website/docs/r/secretsmanager_secret_rotation.html.markdown",
+                "internal/service/secretsmanager/secret_rotation_test.go",
+                "internal/service/secretsmanager/secret_rotation_data_source.go",
+                "website/docs/d/secretsmanager_secret_rotation.html.markdown",
+                "internal/service/secretsmanager/secret_rotation_migrate.go",
+                "internal/service/secretsmanager/secret_rotation_identity_gen_test.go",
+                "internal/service/secretsmanager/testdata/SecretRotation/basic/main_gen.tf",
+                "internal/service/secretsmanager/testdata/SecretRotation/region_override/main_gen.tf"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.714,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.2234,
+              "paths": [
+                "website/docs/r/secretsmanager_secret_rotation.html.markdown",
+                "internal/service/secretsmanager/secret_rotation.go",
+                "internal/service/secretsmanager/testdata/SecretRotation/basic/main_gen.tf",
+                "internal/service/secretsmanager/testdata/SecretRotation/basic_v6.8.0/main_gen.tf",
+                "internal/service/secretsmanager/testdata/SecretRotation/region_override/main_gen.tf",
+                "internal/service/secretsmanager/secret_rotation_test.go",
+                "internal/service/secretsmanager/secret_rotation_data_source_test.go",
+                "internal/service/secretsmanager/secret_rotation_migrate.go",
+                "website/docs/r/secretsmanager_secret.html.markdown",
+                "internal/service/secretsmanager/secret_rotation_data_source.go"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 39558,
+                "request_sha256": "95afe324d5508553329184ecea3464aa26c6b5d6fc6c25c54a0869cd7b791529",
+                "seconds": 0.1685,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 10711,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.056,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 39558,
+                  "request_sha256": "95afe324d5508553329184ecea3464aa26c6b5d6fc6c25c54a0869cd7b791529",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "expire collected log events after a retention period",
+          "relevant": [
+            "internal/service/logs/group",
+            "website/docs/r/cloudwatch_log_group"
+          ],
+          "candidate_paths": [
+            "internal/service/logs/group_test.go",
+            "internal/service/events/archive_test.go",
+            "website/docs/r/mailmanager_archive.html.markdown",
+            "internal/service/mailmanager/archive_test.go",
+            "internal/service/logs/group_data_source_test.go",
+            "website/docs/r/config_retention_configuration.html.markdown",
+            "website/docs/r/cloudwatch_event_archive.html.markdown",
+            "website/docs/r/rbin_rule.html.markdown",
+            "website/docs/r/glue_catalog_table_optimizer.html.markdown",
+            "internal/service/s3/bucket_logging_test.go",
+            "website/docs/r/neptune_event_subscription.html.markdown",
+            "internal/service/logs/service_package.go",
+            "internal/service/redshift/snapshot_copy_test.go",
+            "internal/service/logs/anomaly_detector_test.go",
+            "website/docs/r/pinpoint_event_stream.html.markdown",
+            "internal/service/s3/bucket_acl_test.go",
+            "website/docs/r/redshift_snapshot_copy.html.markdown",
+            "internal/service/logs/storage_tier_policy_test.go",
+            "website/docs/r/backup_vault_lock_configuration.html.markdown",
+            "website/docs/r/backup_logically_air_gapped_vault.html.markdown",
+            "internal/service/opensearchserverless/testdata/LifecyclePolicy/basic/main_gen.tf",
+            "website/docs/r/cloudwatch_event_bus.html.markdown",
+            "internal/service/cloudtrail/event_data_store.go",
+            "website/docs/r/swf_domain.html.markdown",
+            "internal/service/elb/load_balancer_data_source.go",
+            "website/docs/r/cloudwatch_log_metric_filter.html.markdown",
+            "internal/service/opensearchserverless/testdata/LifecyclePolicy/list_basic/main.tf",
+            "website/docs/r/directory_service_log_subscription.html.markdown",
+            "internal/service/events/testdata/Archive/optional_attributes/main.tf",
+            "internal/service/cloudtrail/event_data_store_test.go",
+            "website/docs/r/route53_query_log.html.markdown",
+            "internal/service/elb/service_account_data_source.go"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.0553,
+              "paths": [
+                "internal/service/logs/group_test.go",
+                "internal/service/events/archive_test.go",
+                "website/docs/r/mailmanager_archive.html.markdown",
+                "internal/service/mailmanager/archive_test.go",
+                "internal/service/logs/group_data_source_test.go",
+                "website/docs/r/config_retention_configuration.html.markdown",
+                "website/docs/r/cloudwatch_event_archive.html.markdown",
+                "website/docs/r/rbin_rule.html.markdown",
+                "website/docs/r/glue_catalog_table_optimizer.html.markdown",
+                "internal/service/s3/bucket_logging_test.go"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.6893,
+              "paths": [
+                "internal/service/logs/group_test.go",
+                "website/docs/r/rbin_rule.html.markdown",
+                "website/docs/r/neptune_event_subscription.html.markdown",
+                "internal/service/events/archive_test.go",
+                "website/docs/r/config_retention_configuration.html.markdown",
+                "internal/service/logs/group_data_source_test.go",
+                "website/docs/r/swf_domain.html.markdown",
+                "internal/service/s3/bucket_logging_test.go",
+                "internal/service/mailmanager/archive_test.go",
+                "internal/service/opensearchserverless/testdata/LifecyclePolicy/basic/main_gen.tf"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.6342,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 4,
+              "hit_at_5": true,
+              "reciprocal_rank": 0.25,
+              "seconds": 0.2194,
+              "paths": [
+                "website/docs/r/directory_service_log_subscription.html.markdown",
+                "internal/service/opensearchserverless/testdata/LifecyclePolicy/basic/main_gen.tf",
+                "internal/service/opensearchserverless/testdata/LifecyclePolicy/list_basic/main.tf",
+                "internal/service/logs/group_test.go",
+                "internal/service/logs/group_data_source_test.go",
+                "website/docs/r/config_retention_configuration.html.markdown",
+                "website/docs/r/backup_logically_air_gapped_vault.html.markdown",
+                "website/docs/r/swf_domain.html.markdown",
+                "internal/service/events/archive_test.go",
+                "internal/service/mailmanager/archive_test.go"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 45244,
+                "request_sha256": "4d957995ea21ca1ce153e6795f3ad3ed33f9b134d010f4acc4785cda2696d9c9",
+                "seconds": 0.1623,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 12826,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0582,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 45244,
+                  "request_sha256": "4d957995ea21ca1ce153e6795f3ad3ed33f9b134d010f4acc4785cda2696d9c9",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "trigger an alarm when a metric exceeds a threshold",
+          "relevant": [
+            "internal/service/cloudwatch/metric_alarm",
+            "website/docs/r/cloudwatch_metric_alarm"
+          ],
+          "candidate_paths": [
+            "website/docs/r/cloudwatch_metric_alarm.html.markdown",
+            "internal/service/cloudwatch/metric_alarm_test.go",
+            "internal/service/cloudwatch/testdata/MetricAlarm/basic/main_gen.tf",
+            "internal/service/cloudwatch/testdata/MetricAlarm/list_basic/main.tf",
+            "internal/service/cloudwatch/testdata/MetricAlarm/basic_v6.7.0/main_gen.tf",
+            "website/docs/r/cloudwatch_alarm_mute_rule.html.markdown",
+            "internal/service/cloudwatch/metric_alarm_migrate.go",
+            "internal/service/cloudwatch/testdata/MetricAlarm/region_override/main_gen.tf",
+            "internal/service/cloudwatch/testdata/MetricAlarm/list_region_override/main.tf",
+            "internal/service/cloudwatch/testdata/MetricAlarm/list_include_resource/main.tf",
+            "internal/service/cloudwatch/metric_alarm_migrate_test.go",
+            "internal/service/cloudwatch/metric_alarm_list.go",
+            "internal/service/cloudwatch/testdata/tmpl/metric_alarm_basic.gtpl",
+            "internal/service/cloudwatch/metric_alarm_list_test.go",
+            "internal/service/cloudwatch/testdata/MetricAlarm/tags/main_gen.tf",
+            "internal/service/cloudwatch/testdata/MetricAlarm/list_basic/query.tfquery.hcl",
+            "internal/service/cloudwatch/testdata/MetricAlarm/tagsComputed1/main_gen.tf",
+            "internal/service/cloudwatch/testdata/MetricAlarm/tagsComputed2/main_gen.tf",
+            "internal/service/cloudwatch/metric_alarm.go",
+            "internal/service/cloudwatch/testdata/MetricAlarm/tags_ignore/main_gen.tf",
+            "website/docs/list-resources/cloudwatch_metric_alarm.html.markdown",
+            "internal/service/cloudwatch/testdata/MetricAlarm/tags_defaults/main_gen.tf",
+            "internal/service/cloudwatch/alarm_mute_rule_test.go",
+            "internal/service/cloudwatch/testdata/MetricAlarm/list_include_resource/query.tfquery.hcl",
+            "internal/service/cloudwatch/testdata/MetricAlarm/list_region_override/query.tfquery.hcl",
+            "internal/service/cloudwatch/testdata/CompositeAlarm/basic/main_gen.tf",
+            "internal/service/cloudwatch/testdata/CompositeAlarm/region_override/main_gen.tf",
+            "website/docs/r/cloudwatch_composite_alarm.html.markdown",
+            "internal/service/cloudwatch/testdata/CompositeAlarm/basic_v6.52.0/main_gen.tf",
+            "internal/service/cloudwatch/testdata/CompositeAlarm/tags/main_gen.tf",
+            "internal/service/cloudwatch/testdata/CompositeAlarm/tagsComputed1/main_gen.tf",
+            "internal/service/cloudwatch/testdata/CompositeAlarm/tags_ignore/main_gen.tf"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.0522,
+              "paths": [
+                "website/docs/r/cloudwatch_metric_alarm.html.markdown",
+                "internal/service/cloudwatch/metric_alarm_test.go",
+                "internal/service/cloudwatch/testdata/MetricAlarm/basic/main_gen.tf",
+                "internal/service/cloudwatch/testdata/MetricAlarm/list_basic/main.tf",
+                "internal/service/cloudwatch/testdata/MetricAlarm/basic_v6.7.0/main_gen.tf",
+                "website/docs/r/cloudwatch_alarm_mute_rule.html.markdown",
+                "internal/service/cloudwatch/metric_alarm_migrate.go",
+                "internal/service/cloudwatch/testdata/MetricAlarm/region_override/main_gen.tf",
+                "internal/service/cloudwatch/testdata/MetricAlarm/list_region_override/main.tf",
+                "internal/service/cloudwatch/testdata/MetricAlarm/list_include_resource/main.tf"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 2,
+              "hit_at_5": true,
+              "reciprocal_rank": 0.5,
+              "seconds": 0.6603,
+              "paths": [
+                "internal/service/cloudwatch/testdata/tmpl/metric_alarm_basic.gtpl",
+                "internal/service/cloudwatch/metric_alarm.go",
+                "website/docs/r/cloudwatch_metric_alarm.html.markdown",
+                "internal/service/cloudwatch/metric_alarm_list.go",
+                "internal/service/cloudwatch/testdata/MetricAlarm/region_override/main_gen.tf",
+                "internal/service/cloudwatch/metric_alarm_list_test.go",
+                "internal/service/cloudwatch/metric_alarm_migrate_test.go",
+                "internal/service/cloudwatch/metric_alarm_migrate.go",
+                "internal/service/cloudwatch/metric_alarm_test.go",
+                "internal/service/cloudwatch/testdata/MetricAlarm/list_include_resource/main.tf"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.6079,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.2014,
+              "paths": [
+                "website/docs/r/cloudwatch_metric_alarm.html.markdown",
+                "website/docs/r/cloudwatch_alarm_mute_rule.html.markdown",
+                "internal/service/cloudwatch/metric_alarm.go",
+                "website/docs/r/cloudwatch_composite_alarm.html.markdown",
+                "internal/service/cloudwatch/testdata/CompositeAlarm/basic/main_gen.tf",
+                "internal/service/cloudwatch/testdata/MetricAlarm/basic/main_gen.tf",
+                "internal/service/cloudwatch/testdata/MetricAlarm/list_basic/main.tf",
+                "internal/service/cloudwatch/testdata/MetricAlarm/region_override/main_gen.tf",
+                "internal/service/cloudwatch/testdata/CompositeAlarm/basic_v6.52.0/main_gen.tf",
+                "internal/service/cloudwatch/testdata/CompositeAlarm/region_override/main_gen.tf"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 32297,
+                "request_sha256": "ab1cc5908fbbe85d92152152b6dd682bf391f02d94cc700494f84cf9d5873273",
+                "seconds": 0.1471,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 8888,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0548,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 32297,
+                  "request_sha256": "ab1cc5908fbbe85d92152152b6dd682bf391f02d94cc700494f84cf9d5873273",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "maintain a long running container service with rolling deployments",
+          "relevant": [
+            "internal/service/ecs/service",
+            "website/docs/r/ecs_service"
+          ],
+          "candidate_paths": [
+            "internal/service/lightsail/container_service_deployment_version_test.go",
+            "internal/service/lightsail/container_service_deployment_version.go",
+            "website/docs/r/lightsail_container_service_deployment_version.html.markdown",
+            "internal/service/lightsail/container_service.go",
+            "internal/service/deploy/deployment_group_test.go",
+            "internal/service/apigatewayv2/deployment.go",
+            "internal/service/apigateway/deployment_test.go",
+            "internal/service/cloudfront/continuous_deployment_policy.go",
+            "internal/service/m2/deployment.go",
+            "website/docs/r/lightsail_container_service.html.markdown",
+            "internal/service/cloudfront/continuous_deployment_policy_test.go",
+            "internal/service/appconfig/deployment_test.go",
+            "internal/generate/servicesemgrep/service.tmpl",
+            "internal/service/cloudformation/consts.go",
+            "infrastructure/repository/main.tf",
+            "website/docs/r/ecs_account_setting_default.html.markdown",
+            "website/docs/d/appconfig_environment.html.markdown",
+            "docs/design-decisions/rds-bluegreen-deployments.md",
+            "internal/service/glue/consts.go",
+            "internal/service/ecs/account_setting_default_test.go",
+            "internal/service/lakeformation/consts.go",
+            "website/docs/r/appstream_fleet.html.markdown",
+            "website/docs/r/ecs_daemon.html.markdown",
+            "website/docs/r/ecs_task_set.html.markdown",
+            "internal/service/sagemaker/endpoint_test.go",
+            "internal/generate/servicesemgrep/cae.tmpl",
+            "internal/service/ecs/generate.go",
+            "internal/service/cloudfront/generate.go",
+            "internal/service/resiliencehubv2/consts.go",
+            "internal/service/directconnect/bgp_asn.go",
+            "internal/service/lambda/test-fixtures/capacityprovider.zip",
+            "docs/design-decision-log.md"
+          ],
+          "candidate_hit": false,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 0,
+              "hit_at_5": false,
+              "reciprocal_rank": 0,
+              "seconds": 0.0706,
+              "paths": [
+                "internal/service/lightsail/container_service_deployment_version_test.go",
+                "internal/service/lightsail/container_service_deployment_version.go",
+                "website/docs/r/lightsail_container_service_deployment_version.html.markdown",
+                "internal/service/lightsail/container_service.go",
+                "internal/service/deploy/deployment_group_test.go",
+                "internal/service/apigatewayv2/deployment.go",
+                "internal/service/apigateway/deployment_test.go",
+                "internal/service/cloudfront/continuous_deployment_policy.go",
+                "internal/service/m2/deployment.go",
+                "website/docs/r/lightsail_container_service.html.markdown"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 0,
+              "hit_at_5": false,
+              "reciprocal_rank": 0,
+              "seconds": 0.7633,
+              "paths": [
+                "internal/service/lightsail/container_service_deployment_version.go",
+                "website/docs/r/lightsail_container_service_deployment_version.html.markdown",
+                "website/docs/r/lightsail_container_service.html.markdown",
+                "internal/service/lightsail/container_service_deployment_version_test.go",
+                "internal/service/lightsail/container_service.go",
+                "internal/service/apigatewayv2/deployment.go",
+                "internal/service/cloudfront/continuous_deployment_policy.go",
+                "internal/service/cloudfront/continuous_deployment_policy_test.go",
+                "internal/service/sagemaker/endpoint_test.go",
+                "internal/service/m2/deployment.go"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.6932,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 0,
+              "hit_at_5": false,
+              "reciprocal_rank": 0,
+              "seconds": 0.2555,
+              "paths": [
+                "website/docs/r/ecs_task_set.html.markdown",
+                "website/docs/r/ecs_daemon.html.markdown",
+                "website/docs/r/lightsail_container_service_deployment_version.html.markdown",
+                "internal/service/sagemaker/endpoint_test.go",
+                "internal/service/lightsail/container_service_deployment_version.go",
+                "internal/service/lightsail/container_service.go",
+                "internal/service/deploy/deployment_group_test.go",
+                "internal/service/m2/deployment.go",
+                "internal/service/appconfig/deployment_test.go",
+                "website/docs/r/lightsail_container_service.html.markdown"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 41125,
+                "request_sha256": "03e613664f432488c3efe8e44942972e66c3608af8d7efa4a04e9eb976ab2a6f",
+                "seconds": 0.1844,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 11226,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0713,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 41125,
+                  "request_sha256": "03e613664f432488c3efe8e44942972e66c3608af8d7efa4a04e9eb976ab2a6f",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "create a key value table with on demand read and write capacity",
+          "relevant": [
+            "internal/service/dynamodb/table",
+            "website/docs/r/dynamodb_table"
+          ],
+          "candidate_paths": [
+            "website/docs/r/dynamodb_table_item.html.markdown",
+            "internal/framework/privatestate/write_only.go",
+            "website/docs/actions/dynamodb_create_backup.html.markdown",
+            "internal/service/timestreamwrite/table_test.go",
+            "internal/service/dynamodb/table_replica.go",
+            "internal/service/timestreamwrite/table_data_source_test.go",
+            "internal/service/dynamodb/table_migrate.go",
+            "website/docs/r/keyspaces_table.html.markdown",
+            "internal/service/dynamodb/table_test.go",
+            "website/docs/r/timestreamwrite_table.html.markdown",
+            "internal/framework/privatestate/write_only_test.go",
+            "internal/service/s3tables/table_bucket_replication.go",
+            "website/docs/r/dynamodb_global_secondary_index.html.markdown",
+            "website/docs/r/dynamodb_table.html.markdown",
+            "internal/service/dynamodb/testdata/tmpl/table_replica_basic.gtpl",
+            "internal/service/dynamodb/global_secondary_index_test.go",
+            "internal/service/cloudfront/testdata/KeyValueStore/list_basic/query.tfquery.hcl",
+            "internal/service/s3tables/testdata/tmpl/table_bucket_replication_basic.gtpl",
+            "internal/service/dynamodb/testdata/tmpl/table_item_basic.gtpl",
+            "internal/service/s3tables/table_bucket_test.go",
+            "website/docs/r/dynamodb_global_table.html.markdown",
+            "internal/service/s3tables/testdata/tmpl/table_replication_basic.gtpl",
+            "website/docs/r/redshift_integration.html.markdown",
+            "website/docs/r/appautoscaling_policy.html.markdown",
+            "internal/service/dynamodb/testdata/tmpl/table_basic.gtpl",
+            "internal/service/timestreamwrite/table.go",
+            "website/docs/r/appautoscaling_target.html.markdown",
+            "internal/service/cloudfront/testdata/tmpl/key_value_store_basic.gtpl",
+            "internal/service/dynamodb/forge.go",
+            "internal/service/s3tables/testdata/tmpl/table_bucket_basic.gtpl",
+            "website/docs/r/appsync_datasource.html.markdown",
+            "internal/service/kms/testdata/Key/list_basic/main.tfquery.hcl"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.0635,
+              "paths": [
+                "website/docs/r/dynamodb_table_item.html.markdown",
+                "internal/framework/privatestate/write_only.go",
+                "website/docs/actions/dynamodb_create_backup.html.markdown",
+                "internal/service/timestreamwrite/table_test.go",
+                "internal/service/dynamodb/table_replica.go",
+                "internal/service/timestreamwrite/table_data_source_test.go",
+                "internal/service/dynamodb/table_migrate.go",
+                "website/docs/r/keyspaces_table.html.markdown",
+                "internal/service/dynamodb/table_test.go",
+                "website/docs/r/timestreamwrite_table.html.markdown"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 1,
+              "hit_at_5": true,
+              "reciprocal_rank": 1.0,
+              "seconds": 0.7401,
+              "paths": [
+                "internal/service/dynamodb/table_replica.go",
+                "website/docs/actions/dynamodb_create_backup.html.markdown",
+                "website/docs/r/appsync_datasource.html.markdown",
+                "website/docs/r/dynamodb_global_secondary_index.html.markdown",
+                "internal/service/dynamodb/table_migrate.go",
+                "internal/service/cloudfront/testdata/tmpl/key_value_store_basic.gtpl",
+                "internal/framework/privatestate/write_only.go",
+                "website/docs/r/keyspaces_table.html.markdown",
+                "internal/service/cloudfront/testdata/KeyValueStore/list_basic/query.tfquery.hcl",
+                "website/docs/r/appautoscaling_policy.html.markdown"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.6762,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 2,
+              "hit_at_5": true,
+              "reciprocal_rank": 0.5,
+              "seconds": 0.2549,
+              "paths": [
+                "internal/service/dynamodb/forge.go",
+                "internal/service/dynamodb/table_test.go",
+                "website/docs/r/dynamodb_table.html.markdown",
+                "website/docs/r/keyspaces_table.html.markdown",
+                "website/docs/r/redshift_integration.html.markdown",
+                "internal/service/dynamodb/table_replica.go",
+                "website/docs/r/appsync_datasource.html.markdown",
+                "website/docs/r/dynamodb_global_secondary_index.html.markdown",
+                "internal/service/dynamodb/testdata/tmpl/table_basic.gtpl",
+                "internal/service/dynamodb/testdata/tmpl/table_replica_basic.gtpl"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 39665,
+                "request_sha256": "1c38ff3e00f34b0e5ea2981de864129b77e2c52a417fcee2f90c46badb0dd9ed",
+                "seconds": 0.188,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 11183,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0663,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 39665,
+                  "request_sha256": "1c38ff3e00f34b0e5ea2981de864129b77e2c52a417fcee2f90c46badb0dd9ed",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        },
+        {
+          "query": "route a DNS name to a target using an alias record",
+          "relevant": [
+            "internal/service/route53/record",
+            "website/docs/r/route53_record"
+          ],
+          "candidate_paths": [
+            "website/docs/r/route53domains_delegation_signer_record.html.markdown",
+            "website/docs/r/api_gateway_domain_name.html.markdown",
+            "website/docs/r/eip_domain_name.html.markdown",
+            "website/docs/r/sfn_alias.html.markdown",
+            "website/docs/r/lightsail_domain_entry.html.markdown",
+            "website/docs/d/kms_alias.html.markdown",
+            "website/docs/r/kms_alias.html.markdown",
+            "website/docs/d/sfn_alias.html.markdown",
+            "website/docs/r/route53_hosted_zone_dnssec.html.markdown",
+            "internal/service/route53/equal.go",
+            "website/docs/d/service.html.markdown",
+            "website/docs/r/acm_certificate_validation.html.markdown",
+            "website/docs/r/route53_resolver_dnssec_config.html.markdown",
+            "internal/service/route53/testdata/Record/list_shortname/main.tf",
+            "website/docs/d/apprunner_hosted_zone_id.html.markdown",
+            "website/docs/r/route53_traffic_policy_instance.html.markdown",
+            "examples/networking/subnet/variables.tf",
+            "internal/service/sfn/alias.go",
+            "website/docs/d/dx_gateway.html.markdown",
+            "website/docs/r/gamelift_alias.html.markdown",
+            "internal/service/gamelift/alias.go",
+            "internal/service/route53/testdata/Record/list_fullname/main.tf",
+            "internal/framework/types/dns_name_string_test.go",
+            "website/docs/r/service_discovery_service.html.markdown",
+            "internal/service/directconnect/router_configuration_data_source.go",
+            "website/docs/r/route53_record.html.markdown",
+            "website/docs/d/dx_router_configuration.html.markdown",
+            "internal/service/route53/testdata/Record/list_shortname_include_resource/main.tf",
+            "website/docs/d/elb_hosted_zone_id.html.markdown",
+            "website/docs/d/route53_records.html.markdown",
+            "website/docs/d/s3control_multi_region_access_point.html.markdown",
+            "internal/framework/types/dns_name_string.go"
+          ],
+          "candidate_hit": true,
+          "methods": {
+            "hybrid": {
+              "first_relevant_rank": 0,
+              "hit_at_5": false,
+              "reciprocal_rank": 0,
+              "seconds": 0.0663,
+              "paths": [
+                "website/docs/r/route53domains_delegation_signer_record.html.markdown",
+                "website/docs/r/api_gateway_domain_name.html.markdown",
+                "website/docs/r/eip_domain_name.html.markdown",
+                "website/docs/r/sfn_alias.html.markdown",
+                "website/docs/r/lightsail_domain_entry.html.markdown",
+                "website/docs/d/kms_alias.html.markdown",
+                "website/docs/r/kms_alias.html.markdown",
+                "website/docs/d/sfn_alias.html.markdown",
+                "website/docs/r/route53_hosted_zone_dnssec.html.markdown",
+                "internal/service/route53/equal.go"
+              ],
+              "receipt": {}
+            },
+            "local": {
+              "first_relevant_rank": 0,
+              "hit_at_5": false,
+              "reciprocal_rank": 0,
+              "seconds": 0.6929,
+              "paths": [
+                "website/docs/d/apprunner_hosted_zone_id.html.markdown",
+                "website/docs/r/eip_domain_name.html.markdown",
+                "website/docs/r/route53domains_delegation_signer_record.html.markdown",
+                "website/docs/d/elb_hosted_zone_id.html.markdown",
+                "website/docs/r/lightsail_domain_entry.html.markdown",
+                "internal/service/sfn/alias.go",
+                "website/docs/r/sfn_alias.html.markdown",
+                "internal/service/gamelift/alias.go",
+                "website/docs/d/sfn_alias.html.markdown",
+                "website/docs/r/kms_alias.html.markdown"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "Xenova/ms-marco-MiniLM-L-6-v2",
+                "candidates": 32,
+                "seconds": 0.6281,
+                "api_calls": 0
+              }
+            },
+            "jev": {
+              "first_relevant_rank": 4,
+              "hit_at_5": true,
+              "reciprocal_rank": 0.25,
+              "seconds": 0.2949,
+              "paths": [
+                "website/docs/d/elb_hosted_zone_id.html.markdown",
+                "website/docs/d/apprunner_hosted_zone_id.html.markdown",
+                "website/docs/r/lightsail_domain_entry.html.markdown",
+                "website/docs/r/route53_record.html.markdown",
+                "internal/service/gamelift/alias.go",
+                "internal/framework/types/dns_name_string.go",
+                "internal/service/route53/testdata/Record/list_fullname/main.tf",
+                "website/docs/r/acm_certificate_validation.html.markdown",
+                "website/docs/r/eip_domain_name.html.markdown",
+                "internal/service/route53/testdata/Record/list_shortname/main.tf"
+              ],
+              "receipt": {
+                "status": "used",
+                "model": "jev-1.13.0",
+                "candidates": 32,
+                "evidence_bytes_per_file": 900,
+                "request_bytes": 45725,
+                "request_sha256": "014c0ad76760f8c8265c6b41265d86e02fd8572025b219f13f8c6992aeca0342",
+                "seconds": 0.2241,
+                "api_calls": 1,
+                "usage": {
+                  "input_tokens": 12925,
+                  "output_tokens": 474
+                },
+                "api_attempts": 1
+              },
+              "cache_repeat": {
+                "seconds": 0.0691,
+                "same_paths": true,
+                "receipt": {
+                  "status": "cached",
+                  "model": "jev-1.13.0",
+                  "candidates": 32,
+                  "evidence_bytes_per_file": 900,
+                  "request_bytes": 45725,
+                  "request_sha256": "014c0ad76760f8c8265c6b41265d86e02fd8572025b219f13f8c6992aeca0342",
+                  "seconds": 0.0006,
+                  "api_calls": 0,
+                  "usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0
+                  },
+                  "api_attempts": 0
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "runtime": {
+    "onnxruntime": "1.30.0",
+    "numpy": "2.5.3",
+    "provider": "CPUExecutionProvider",
+    "model_files_sha256": {
+      "embedding/model_optimized.onnx": "51f1bd0addd6e859e42c2c8021a5e5461385bb676a649f4b269aa445449f2431",
+      "reranker/model.onnx": "c623d0bcb99f4622beb413eaef00cfbe5db20df9f1dd982da4b4f26022881870"
+    }
+  },
+  "measured_date": "2026-10-06"
+}

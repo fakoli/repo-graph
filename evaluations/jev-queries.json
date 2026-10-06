@@ -1,0 +1,22 @@
+{
+  "terraform-provider-aws": [
+    {"query":"record API activity in an audit trail", "relevant":["internal/service/cloudtrail/trail", "website/docs/r/cloudtrail.html"]},
+    {"query":"orchestrate a multi step workflow with a state machine", "relevant":["internal/service/sfn/state_machine", "website/docs/r/sfn_state_machine"]},
+    {"query":"rotate a stored secret automatically on a schedule", "relevant":["internal/service/secretsmanager/secret_rotation", "website/docs/r/secretsmanager_secret_rotation"]},
+    {"query":"expire collected log events after a retention period", "relevant":["internal/service/logs/group", "website/docs/r/cloudwatch_log_group"]},
+    {"query":"trigger an alarm when a metric exceeds a threshold", "relevant":["internal/service/cloudwatch/metric_alarm", "website/docs/r/cloudwatch_metric_alarm"]},
+    {"query":"maintain a long running container service with rolling deployments", "relevant":["internal/service/ecs/service", "website/docs/r/ecs_service"]},
+    {"query":"create a key value table with on demand read and write capacity", "relevant":["internal/service/dynamodb/table", "website/docs/r/dynamodb_table"]},
+    {"query":"route a DNS name to a target using an alias record", "relevant":["internal/service/route53/record", "website/docs/r/route53_record"]}
+  ],
+  "kubernetes": [
+    {"query":"delete dependent objects after their owner disappears", "relevant":["pkg/controller/garbagecollector/garbagecollector.go", "pkg/controller/garbagecollector/graph_builder.go", "pkg/controller/garbagecollector/operations.go"]},
+    {"query":"remove all resources when a namespace is terminated", "relevant":["pkg/controller/namespace/namespace_controller.go", "pkg/controller/namespace/deletion/namespaced_resources_deleter.go"]},
+    {"query":"program IPVS rules for service traffic forwarding", "relevant":["pkg/proxy/ipvs/proxier.go", "pkg/proxy/ipvs/ipset.go"]},
+    {"query":"assign a default service account when admitting a pod", "relevant":["plugin/pkg/admission/serviceaccount/admission.go", "plugin/pkg/admission/serviceaccount/doc.go"]},
+    {"query":"reconcile namespace resource quota usage", "relevant":["pkg/controller/resourcequota/resource_quota_controller.go", "pkg/controller/resourcequota/resource_quota_monitor.go"]},
+    {"query":"garbage collect unused container images to free disk space", "relevant":["pkg/kubelet/images/image_gc_manager.go"]},
+    {"query":"run a batch job until the required completions succeed", "relevant":["pkg/controller/job/job_controller.go", "pkg/controller/job/tracking_utils.go"]},
+    {"query":"allocate exclusive CPUs to containers", "relevant":["pkg/kubelet/cm/cpumanager/cpu_manager.go", "pkg/kubelet/cm/cpumanager/policy_static.go"]}
+  ]
+}

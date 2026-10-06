@@ -8,7 +8,7 @@ result to its file in the diagram.
 ## Install and use
 
 ```bash
-uv tool install 'repo-graph-agent[semantic] @ git+https://github.com/fakoli/repo-graph@v0.4.0'
+uv tool install 'repo-graph-agent[semantic] @ git+https://github.com/fakoli/repo-graph@v0.5.0'
 repo-graph map /path/to/repository
 ```
 
@@ -31,7 +31,7 @@ is required for HTTPS input. The optional semantic extra uses pinned FastEmbed
 and NumPy for batched ONNX CPU inference and vector scoring. First embedding
 index creation downloads the public BGE-small model; queries and the viewer
 use cached model files only. No GPU or embedding service is required. To install
-without uv, use `python3 -m pip install 'repo-graph-agent[semantic] @ git+https://github.com/fakoli/repo-graph@v0.4.0'`.
+without uv, use `python3 -m pip install 'repo-graph-agent[semantic] @ git+https://github.com/fakoli/repo-graph@v0.5.0'`.
 
 ## Coding agent plugins
 
@@ -48,7 +48,7 @@ The standalone repository retains the same Codex plugin manifest and skill.
 For Pi:
 
 ```bash
-pi install git:github.com/fakoli/repo-graph@v0.4.0
+pi install git:github.com/fakoli/repo-graph@v0.5.0
 ```
 
 Start a fresh session and use `/skill:repo-graph`. The native skill resolves
@@ -65,7 +65,40 @@ System groups up to 12 source areas and their observed imports. Explore offers
 card, tree, radial and file-count treemap layouts. Data includes a table and
 directed dependency matrix; export filtered scope data as CSV or the viewport
 as SVG. The Search tab queries the whole indexed corpus through the opt-in
-loopback viewer. It preserves the query when returning from a diagram.
+loopback viewer. It preserves the query, method, reranker and path prefix when
+returning from a diagram. Use **Path prefix** to restrict results to a source
+area. Click a breadcrumb or **Root** to move through the map. Selected files are
+centered, focused and named in the inspector; Escape closes details. Focus the
+canvas to pan with arrows, zoom with +/− or fit with F. Tabs also work with arrow
+keys. Narrow layouts stack controls and retain full component navigation.
+
+### Optional reranking
+
+Jev can judge a shortlist in one batched request. It is disabled by default:
+
+```bash
+repo-graph search OUTPUT 'record API activity in an audit trail' --rerank jev
+repo-graph serve OUTPUT --allow-jev
+```
+
+The browser also requires selecting **Jev API reranker** for the search. It
+exports the query and up to 32 paths with 900 bytes of evidence per file, under
+a 48 KiB request cap. Identical requests are cached; failures retain local
+order and show `fallback`. JSON receipts record model, successful API calls,
+attempts, usage and timing. Jev cannot recover files missing from the shortlist.
+
+For the CPU alternative, using the existing semantic extra:
+
+```bash
+repo-graph index OUTPUT --reranker
+repo-graph search OUTPUT 'record API activity in an audit trail' --rerank local
+repo-graph serve OUTPUT --local-reranker
+```
+
+Setup downloads MiniLM once; searches use cached weights. Both rerankers are
+optional. On 16 newly frozen public-repository queries, Jev improved hit@5 from
+10/16 to 14/16. On the old Kubernetes set it did not improve hit@5, and some
+individual rankings worsened. See the [research and measured comparison](docs/jev-research.md).
 
 Semantic search is experimental in 0.4.0. Hybrid retrieval found an expected
 source area in the top five for 5/8 AWS and 3/8 Kubernetes benchmark queries,
@@ -106,24 +139,30 @@ Generated and hidden paths are excluded; untracked, nonignored source is include
 This is source architecture and heuristic imports, not verified runtime services
 or call flow. Prefix filtering supports source-area queries. Million-file support
 is not claimed. See [research and scale decisions](docs/research.md) and
-[measured evaluations](evaluations/README.md).
+[measured evaluations](evaluations/README.md). The [experience and performance review](docs/graph-experience.md) records the 0.5.0 design changes and before/after measurements.
 
 ## Data and network boundaries
 
 Outputs and shallow clones live under `~/.cache/repo-graph/` by default. Generated
 HTML/JSON/SQLite data can reveal private names, source evidence and paths: review
 before sharing. The corpus and vectors remain local. Model setup downloads weights
-only. The viewer loads no remote resources. Its single-request server binds only
+only. The viewer loads no remote resources. Its server binds only
 to loopback and rejects foreign Host/Origin and non-JSON search requests; it serves
 only the generated HTML, JSON and Mermaid artifacts. Run it only for locally generated output you
 trust. Ctrl+C stops it. Repeated maps replace generated files in the output
-location; do not store unrelated files there. Sources are never executed.
+location; do not store unrelated files there. Sources are never executed. One
+model search runs at a time; status, downloads and plain keyword search stay
+responsive during inference. Additional model searches get an explicit busy response.
 
 `map --jev` is an independent opt-in. It makes at most one TypeSafe request with
 up to 16 top-level directory names for advisory labels, which can incur API cost.
 It reads only `TYPESAFE_API_KEY` from the environment or its exact entry in `~/.env`,
 without sourcing/logging the file. Project credential access rules still apply.
-Jev cannot create import edges. It is not needed for semantic search.
+Jev cannot create import edges. It is not needed for semantic search. The separate
+`search --rerank jev` and viewer `--allow-jev` options authorize bounded source
+export. All Jev calls pin `jev-1.13.0`, refuse redirects and make no automatic
+retries. Cached ranking responses exclude raw queries/evidence and retain at
+most 512 entries. Credentials are never stored in the index or browser.
 
 Uninstall the plugin through the host's package manager. Generated artifacts and
 caches remain available. Rollback is a prior reviewed release pin; no source state

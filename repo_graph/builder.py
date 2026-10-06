@@ -17,7 +17,8 @@ import sys
 import threading
 import time
 from urllib.parse import urlsplit
-from urllib.request import Request, urlopen
+from repo_graph import jev
+from repo_graph.jev import typesafe_key
 
 
 PAGE_SIZE = 24
@@ -64,7 +65,7 @@ def tree_index(files: list[str]) -> dict[str, dict]:
 
 
 def imports_from(path: str, source: str) -> list[str]:
-    ext = PurePosixPath(path).suffix
+    ext = posixpath.splitext(path)[1]
     if ext == ".go":
         imports, in_block = [], False
         for line in source.splitlines():
@@ -94,7 +95,7 @@ def imports_from(path: str, source: str) -> list[str]:
 
 def local_target(path: str, imported: str, module: str, tree: dict[str, dict]) -> str | None:
     parent = posixpath.dirname(path)
-    ext = PurePosixPath(path).suffix
+    ext = posixpath.splitext(path)[1]
     if ext == ".go" and module and imported.startswith(module + "/"):
         target = imported[len(module) + 1:]
     elif ext == ".py":
@@ -134,7 +135,7 @@ def extract_dependencies(root: Path, files: list[str], tree: dict[str, dict], ca
     # ponytail: one metadata pass and 512-file batches; use SQLite only if a multi-million-file repo needs it.
     for start in range(0, len(files), 512):
         for file in files[start:start + 512]:
-            if PurePosixPath(file).suffix not in CODE_EXTENSIONS:
+            if posixpath.splitext(file)[1] not in CODE_EXTENSIONS:
                 continue
             try:
                 stat = (root / file).stat()
@@ -205,37 +206,16 @@ def jev_roles(names: list[str], key: str) -> dict[str, str]:
                          "instructions": f"Classify state.directories[{i}] by its likely software role from its name only.",
                          "criteria": {role: role for role in ROLES}}
                  for i in range(len(names))}
-    body = json.dumps({"model": "jev-latest", "state": {"directories": names}, "questions": questions}).encode()
-    request = Request("https://api.typesafe.ai/v1/systemone", data=body,
-                      headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
-    with urlopen(request, timeout=3) as response:
-        payload = json.load(response)
-    answers = payload.get("answers", {}) if isinstance(payload, dict) else {}
+    payload = jev.evaluate(jev.body({"directories": names}, questions), key, timeout=3)
+    answers = payload['answers']
     roles = {}
     for i, name in enumerate(names):
         answer = answers.get(f"c{i}", {})
         choice = answer.get("choice") if isinstance(answer, dict) else None
         confidence = answer.get("confidence", 0) if isinstance(answer, dict) else 0
-        if choice in ROLES and isinstance(confidence, (float, int)) and confidence >= .6:
+        if choice in ROLES and type(confidence) in (float, int) and .6 <= confidence <= 1:
             roles[name] = choice
     return roles
-
-
-def typesafe_key() -> str:
-    if key := os.environ.get("TYPESAFE_API_KEY"):
-        return key
-    try:
-        with (Path.home() / ".env").open(encoding="utf-8") as stream:
-            for line in stream:
-                for prefix in ("TYPESAFE_API_KEY=", "export TYPESAFE_API_KEY="):
-                    if line.startswith(prefix):
-                        value = line[len(prefix):].strip()
-                        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
-                            value = value[1:-1]
-                        return value
-    except OSError:
-        pass
-    return ""
 
 
 def system_view(tree: dict[str, dict], dependencies: list[dict], roles: dict[str, str]) -> dict:
@@ -366,7 +346,7 @@ def main(argv=None) -> int:
     tree = tree_index(files)
     top_names = tree[""]["children"][:16]
     role_cache = output / "jev-roles.json"
-    role_key = hashlib.sha256(json.dumps(top_names).encode()).hexdigest()
+    role_key = hashlib.sha256(json.dumps([jev.MODEL,ROLES,top_names]).encode()).hexdigest()
     roles, jev_status, result = {}, "off", {}
     started, worker = time.monotonic(), None
     if args.jev:
@@ -385,7 +365,7 @@ def main(argv=None) -> int:
                 def classify() -> None:
                     try:
                         result["roles"] = jev_roles(top_names, key)
-                    except (OSError, ValueError, KeyError) as error:
+                    except (OSError, RuntimeError, ValueError, KeyError) as error:
                         result["error"] = type(error).__name__
                         result["roles"] = {}
                 worker = threading.Thread(target=classify, daemon=True)

@@ -1,0 +1,42 @@
+{
+  "files": 20370,
+  "searchMode": "keyword",
+  "reranker": "none",
+  "loadMs": 135,
+  "searchToGraphMs": 58,
+  "systemMetrics": {
+    "minimumTitlePx": 14.950525760650635,
+    "minimumLabelContrast": 6.02241734520646,
+    "canvasWidth": 1172,
+    "cards": 12,
+    "headingBottom": 191.9375,
+    "cardTop": 253.55548095703125,
+    "cardBottom": 891.444580078125,
+    "canvasBottom": 1000,
+    "allCardsVisible": true
+  },
+  "checks": [
+    "inventory count",
+    "JSON and Mermaid downloads",
+    "view system",
+    "view atlas",
+    "view tree",
+    "view radial",
+    "view treemap",
+    "view table",
+    "view matrix",
+    "readable System titles; all cards fit; empty inspector collapsed",
+    "arrow navigation and roving tab focus",
+    "keyboard pan, zoom and fit",
+    "search to focused, visible file in diagram",
+    "source breadcrumb and root navigation",
+    "query preserved",
+    "search method and reranker preserved: none",
+    "visible path scope restricts results",
+    "narrow viewport search",
+    "360px search layout; labelled 44px controls; no horizontal page overflow",
+    "narrow details focus and Escape return",
+    "no browser errors; load under 5 seconds"
+  ],
+  "browserErrors": []
+}

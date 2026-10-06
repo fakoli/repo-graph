@@ -6,13 +6,13 @@
 <meta name="color-scheme" content="light">
 <title>Repository architecture</title>
 <style>
-  :root { --ink:#182239; --muted:#68758a; --line:#dce2eb; --paper:#f8f9fc; --accent:#4c63e8; --accent-pale:#e9edff; }
+  :root { --ink:#182239; --muted:#536078; --line:#dce2eb; --paper:#f8f9fc; --accent:#4c63e8; --accent-pale:#e9edff; }
   * { box-sizing:border-box; }
   html,body { margin:0; width:100%; height:100%; }
   body { color:var(--ink); background:var(--paper); font:14px/1.45 "Avenir Next","Segoe UI",sans-serif; }
-  button,input,a { font:inherit; }
+  button,input,a,select { font:inherit; }
   button { cursor:pointer; }
-  button:focus-visible,a:focus-visible,input:focus-visible { outline:3px solid #7190ff; outline-offset:2px; }
+  button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,[tabindex]:focus-visible { outline:3px solid #4058bc; outline-offset:2px; }
   .app { height:100vh; min-height:660px; display:grid; grid-template-rows:70px minmax(0,1fr); }
   .topbar { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:0 26px; background:#fff; border-bottom:1px solid var(--line); z-index:2; }
   .brand { display:flex; align-items:center; gap:13px; min-width:0; }
@@ -21,30 +21,37 @@
   .brand-sub { color:var(--muted); font-size:12px; margin-top:3px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; max-width:260px; }
   .header-actions { display:flex; align-items:center; gap:9px; flex-wrap:wrap; justify-content:flex-end; }
   .scope { color:#4058bc; background:var(--accent-pale); border:1px solid #d6ddff; border-radius:999px; padding:5px 10px; font:700 10px/1.1 "SFMono-Regular",Consolas,monospace; letter-spacing:.08em; text-transform:uppercase; }
-  .top-link,.top-button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:34px; padding:0 12px; border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--ink); text-decoration:none; font-size:12px; font-weight:700; transition:background .18s,border-color .18s,transform .18s; }
+  .top-link,.top-button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-height:40px; padding:0 12px; border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--ink); text-decoration:none; font-size:12px; font-weight:700; transition:background .18s,border-color .18s,transform .18s; }
   .top-link:hover,.top-button:hover { background:#f2f5ff; border-color:#b7c5f6; transform:translateY(-1px); }
   .top-button.primary { background:#273469; border-color:#273469; color:#fff; box-shadow:3px 3px 0 #b8c2ff; }
   .top-button.primary:hover { background:#3648a2; }
   .top-button:disabled { opacity:.4; cursor:default; }
   .inspector-toggle,.inspector-close { display:none; }
-  .workspace { min-height:0; display:grid; grid-template-columns:268px minmax(0,1fr) 298px; }
+  .workspace { min-height:0; display:grid; grid-template-columns:268px minmax(0,1fr); }
+  .workspace.has-selection { grid-template-columns:268px minmax(0,1fr) 298px; }
   .sidebar,.inspector { background:#fff; overflow:auto; }
   .sidebar { border-right:1px solid var(--line); padding:28px 18px 22px; }
-  .inspector { border-left:1px solid var(--line); padding:28px 23px; }
-  .eyebrow { color:#6c77a0; font:700 10px/1.2 "SFMono-Regular",Consolas,monospace; letter-spacing:.16em; text-transform:uppercase; }
-  .side-title { font:600 27px/1.05 Georgia,"Iowan Old Style",serif; letter-spacing:-.035em; margin:9px 0 10px; }
-  .side-copy { color:var(--muted); font-size:12px; line-height:1.65; margin:0 0 24px; }
+  .inspector { display:none; border-left:1px solid var(--line); padding:28px 23px; }
+  .has-selection .inspector { display:block; }
+  .eyebrow { color:var(--muted); font:700 10px/1.2 "SFMono-Regular",Consolas,monospace; letter-spacing:.16em; text-transform:uppercase; }
+  .side-title { font:600 23px/1.15 Georgia,"Iowan Old Style",serif; letter-spacing:-.035em; margin:9px 0 10px; }
+  .side-copy { color:var(--muted); font-size:12px; line-height:1.65; margin:0 0 18px; }
   .view-options { display:grid; gap:9px; margin-bottom:20px; }
   .view-options label { display:grid; grid-template-columns:42px minmax(0,1fr); gap:6px; align-items:center; color:var(--muted); font-size:11px; }
   .view-options select { width:100%; min-height:33px; border:1px solid var(--line); border-radius:8px; background:#f8f9fc; padding:5px 8px; color:var(--ink); font:inherit; }
   .view-tabs { display:flex; gap:5px; margin-bottom:15px; }
-  .view-tabs button { flex:1; border:1px solid var(--line); border-radius:8px; padding:8px 4px; background:#fff; color:#53607a; font:700 11px "Segoe UI",sans-serif; }
+  .view-tabs button { flex:1; min-height:40px; border:1px solid var(--line); border-radius:8px; padding:8px 4px; background:#fff; color:#53607a; font:700 11px "Segoe UI",sans-serif; }
   .view-tabs button[aria-selected="true"] { background:#273469; border-color:#273469; color:#fff; }
+  .search-view .view-options label:not(:first-child),.search-view .stat-grid,.search-view .navigation,.search-view .section-line,.search-view .pages,.search-view .component-list,.search-view .side-foot { display:none; }
+  .header-actions button:disabled { display:none; }
   .data-panel { position:absolute; inset:160px 24px 65px; overflow:auto; background:#ffffffee; border:1px solid var(--line); border-radius:12px; }
   .search-panel { padding:24px; }
-  .search-panel form { display:flex; flex-wrap:wrap; gap:10px; }
-  .search-panel input { flex:1; min-width:160px; min-height:42px; border:1px solid var(--line); border-radius:8px; padding:10px; }
-  .search-panel select { border:1px solid var(--line); border-radius:8px; padding:10px; background:#fff; }
+  .search-panel form { display:flex; flex-wrap:wrap; gap:12px; align-items:end; }
+  .search-panel label { display:grid; gap:6px; color:var(--muted); font-size:12px; }
+  .search-panel .query-field { flex:1 1 100%; }
+  .search-panel form button { min-height:44px; }
+  .search-panel input { flex:1; min-width:160px; min-height:44px; border:1px solid var(--line); border-radius:8px; padding:10px; }
+  .search-panel select { min-width:0; max-width:100%; min-height:44px; border:1px solid var(--line); border-radius:8px; padding:10px; background:#fff; color:var(--ink); }
   .search-status { color:var(--muted); margin:16px 0; }
   .search-result { border-top:1px solid var(--line); padding:18px 0; }
   .search-result h2 { font:600 14px monospace; overflow-wrap:anywhere; margin:0 0 8px; }
@@ -70,13 +77,17 @@
   .navigation { display:flex; align-items:center; gap:7px; margin:0 0 14px; }
   .navigation button { border:1px solid var(--line); border-radius:8px; background:#fff; min-height:29px; padding:0 9px; color:#34415b; font-size:11px; font-weight:700; }
   .navigation button:disabled { opacity:.4; cursor:default; }
-  .navigation span { color:var(--muted); font:10px "SFMono-Regular",Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .navigation { align-items:flex-start; flex-wrap:wrap; }
+  .navigation button { min-height:36px; }
+  .breadcrumb { flex:1 1 100%; display:flex; flex-wrap:wrap; align-items:center; gap:3px; color:var(--muted); font:11px/1.5 "SFMono-Regular",Consolas,monospace; overflow-wrap:anywhere; }
+  .breadcrumb button { padding:4px 6px; border:0; background:#f3f5fb; color:#354bab; font:inherit; max-width:100%; overflow-wrap:anywhere; }
+  .breadcrumb span[aria-current] { padding:4px 6px; color:var(--ink); }
   .pages { display:flex; align-items:center; gap:7px; margin-top:11px; }
   .pages button { border:1px solid var(--line); border-radius:8px; background:#fff; min-width:34px; min-height:29px; color:#34415b; }
   .pages button:disabled { opacity:.4; cursor:default; }
   .pages span { flex:1; text-align:center; color:var(--muted); font:10px "SFMono-Regular",Consolas,monospace; }
-  .legend { display:flex; gap:13px; margin-top:10px; color:#68758a; font:10px "SFMono-Regular",Consolas,monospace; }
-  .legend i { display:inline-block; width:18px; height:0; margin:0 5px 3px 0; border-top:2px solid #aeb9ca; }
+  .legend { display:flex; gap:13px; margin-top:10px; color:var(--muted); font:10px "SFMono-Regular",Consolas,monospace; }
+  .legend i { display:inline-block; width:18px; height:0; margin:0 5px 3px 0; border-top:2px solid var(--muted); }
   .legend i.imports { border-color:#5268e5; }
   .legend i.contains { border-style:dashed; }
   .section-line h2 { margin:0; font:700 11px/1 "SFMono-Regular",Consolas,monospace; text-transform:uppercase; letter-spacing:.12em; }
@@ -84,7 +95,7 @@
   .search { width:100%; border:1px solid var(--line); background:#f7f9fc; border-radius:9px; padding:10px 11px; outline:none; font-size:12px; color:var(--ink); }
   .search:focus { border-color:#8fa1ec; background:#fff; box-shadow:0 0 0 3px #e8ecff; }
   .component-list { display:grid; gap:3px; margin:11px -6px 0; }
-  .component-item { width:100%; display:flex; align-items:center; gap:10px; padding:9px 8px; border:1px solid transparent; border-radius:9px; background:transparent; text-align:left; color:var(--ink); }
+  .component-item { width:100%; min-height:40px; display:flex; align-items:center; gap:10px; padding:9px 8px; border:1px solid transparent; border-radius:9px; background:transparent; text-align:left; color:var(--ink); }
   .component-item:hover { background:#f5f7fc; }
   .component-item.active { background:#eef1ff; border-color:#dbe1ff; }
   .component-item .dot { width:9px; height:9px; border-radius:3px; flex:none; background:var(--color); }
@@ -93,9 +104,10 @@
   .side-foot { border-top:1px solid var(--line); margin-top:24px; padding-top:16px; color:var(--muted); font-size:11px; line-height:1.55; }
   .stage { position:relative; min-width:0; min-height:0; overflow:hidden; background:radial-gradient(circle at 15% 15%,#f5f3ff 0,transparent 35%),radial-gradient(circle at 87% 85%,#eaf8fa 0,transparent 37%),#f8f9fc; }
   .stage:before { content:""; position:absolute; inset:0; pointer-events:none; opacity:.48; background-image:radial-gradient(#ccd4e2 .8px,transparent .8px); background-size:22px 22px; }
-  .stage-heading { position:absolute; z-index:1; top:27px; left:32px; pointer-events:none; }
+  .stage-heading { position:absolute; z-index:1; top:27px; left:32px; right:24px; pointer-events:none; }
   .stage-heading h1 { margin:4px 0 0; font:600 31px/1.05 Georgia,"Iowan Old Style",serif; letter-spacing:-.04em; }
   .stage-heading p { color:var(--muted); margin:8px 0 0; font-size:12px; }
+  .stage-heading .selection-location { margin-top:7px; color:#354bab; font:12px/1.5 "SFMono-Regular",Consolas,monospace; overflow-wrap:anywhere; }
   #map { display:block; width:100%; height:100%; touch-action:none; cursor:grab; }
   #map.dragging { cursor:grabbing; }
   .controls { position:absolute; right:22px; bottom:21px; z-index:1; display:flex; align-items:center; gap:5px; border:1px solid #d9dfeb; border-radius:11px; background:#fff; padding:5px; box-shadow:0 6px 22px #26345b12; }
@@ -103,15 +115,17 @@
   .controls button:hover { background:#edf1ff; color:#3048bc; }
   .controls .fit { padding:0 10px; font-size:11px; }
   .zoom-value { color:var(--muted); min-width:36px; text-align:center; font:700 10px "SFMono-Regular",Consolas,monospace; }
-  .stage-hint { position:absolute; bottom:27px; left:28px; color:#8893a6; font:10px "SFMono-Regular",Consolas,monospace; pointer-events:none; }
+  .stage-hint { position:absolute; bottom:27px; left:28px; right:215px; color:var(--muted); font:10px/1.5 "SFMono-Regular",Consolas,monospace; pointer-events:none; }
   .edge { fill:none; stroke:#aeb9ca; stroke-width:1.65; opacity:.8; transition:stroke .2s,opacity .2s,stroke-width .2s; }
-  .edge.contains { stroke-dasharray:4 5; opacity:.4; }
+  .edge.contains { stroke:var(--muted); stroke-dasharray:4 5; opacity:.8; }
   .edge.imports { stroke:#6375dc; stroke-width:2; }
   .edge.dim { opacity:.12; }
   .edge.focus { stroke:#5268e5; stroke-width:2.6; opacity:1; }
   .edge-label { fill:#fff; stroke:#d7deea; }
   .edge-label-text { fill:#66748d; font:700 10px "SFMono-Regular",Consolas,monospace; }
-  .edge-label-wrap.dim { opacity:.13; }
+  .edge-label-wrap { opacity:0; }
+  .edge-label-wrap.focus { opacity:1; }
+  .edge-label-wrap.dim { opacity:0; }
   .edge-label-wrap.focus .edge-label { stroke:#9babf5; }
   .node { cursor:pointer; transition:opacity .2s; }
   .node.dim { opacity:.26; }
@@ -121,10 +135,12 @@
   .node.repository .node-path { fill:#c3cbef; }
   .node:hover .card { stroke:#91a3e9; filter:drop-shadow(0 10px 17px #23325926); }
   .node.active .card { stroke:#4c63e8; stroke-width:2.4; filter:drop-shadow(0 10px 18px #4c63e82b); }
-  .node-title { fill:#202b44; font:700 17px "Avenir Next","Segoe UI",sans-serif; }
-  .node-path { fill:#7b879b; font:11px "SFMono-Regular",Consolas,monospace; }
-  .node-count { fill:#6a7892; font:700 10px "SFMono-Regular",Consolas,monospace; }
-  .node-index { fill:#fff; font:700 12px "SFMono-Regular",Consolas,monospace; }
+  .node:focus-visible { outline:none; opacity:1; }
+  .node:focus-visible .card,.node:focus-visible > rect { stroke:#182239; stroke-width:4; }
+  .node-title { fill:#202b44; font:700 18px "Avenir Next","Segoe UI",sans-serif; }
+  .node-path { fill:#536078; font:12px "SFMono-Regular",Consolas,monospace; }
+  .node-count { fill:#536078; font:700 11px "SFMono-Regular",Consolas,monospace; }
+  .node-index { fill:var(--ink); font:700 12px "SFMono-Regular",Consolas,monospace; }
   .inspector-header { margin-bottom:20px; }
   .inspector-header h2 { font:600 27px/1.08 Georgia,"Iowan Old Style",serif; letter-spacing:-.04em; margin:11px 0 7px; overflow-wrap:anywhere; }
   .inspector-path { color:var(--muted); font:11px/1.5 "SFMono-Regular",Consolas,monospace; overflow-wrap:anywhere; }
@@ -142,8 +158,8 @@
   .link-list button:hover { border-color:#b7c5f6; background:#f7f9ff; }
   .link-list small { color:var(--muted); white-space:nowrap; }
   .empty { color:var(--muted); font-size:12px; padding:10px 0; }
-  @media (max-width:1100px) { .workspace { grid-template-columns:220px minmax(0,1fr); } .inspector-toggle,.inspector-close { display:inline-flex; } .inspector { display:none; position:fixed; top:0; right:0; bottom:0; width:min(330px,90vw); z-index:5; box-shadow:-18px 0 50px #18223925; } .inspector.open { display:block; } .inspector-close { float:right; border:1px solid var(--line); background:#fff; border-radius:8px; padding:4px 9px; } }
-  @media (max-width:720px) { .app { grid-template-rows:auto minmax(0,1fr); } .topbar { padding:12px 15px; flex-wrap:wrap; } .header-actions { gap:5px; } .scope { display:none; } .workspace { grid-template-columns:1fr; grid-template-rows:auto minmax(400px,1fr); } .sidebar { max-height:176px; padding:13px 16px; border-right:0; border-bottom:1px solid var(--line); } .side-title,.side-copy,.stat-grid,.side-foot { display:none; } .component-list { display:flex; overflow:auto; } .component-item { min-width:130px; } .stage-heading { top:18px; left:18px; } .stage-heading h1 { font-size:24px; } .stage-hint { display:none; } }
+  @media (max-width:1100px) { .workspace,.workspace.has-selection { grid-template-columns:220px minmax(0,1fr); } .inspector-toggle,.inspector-close { display:inline-flex; } .inspector,.has-selection .inspector { display:none; position:fixed; top:0; right:0; bottom:0; width:min(330px,90vw); z-index:5; box-shadow:-18px 0 50px #18223925; } .inspector.open { display:block; } .inspector-close { float:right; min-height:44px; border:1px solid var(--line); background:#fff; border-radius:8px; padding:4px 9px; } }
+  @media (max-width:720px) { .app { height:auto; min-height:100vh; grid-template-rows:auto auto; } .topbar { padding:12px 15px; flex-wrap:wrap; } .header-actions { gap:5px; justify-content:flex-start; } .top-link,.top-button { min-height:44px; } .scope { display:none; } .workspace,.workspace.has-selection { grid-template-columns:1fr; grid-template-rows:auto minmax(620px,75vh); } .sidebar { padding:13px 16px; border-right:0; border-bottom:1px solid var(--line); } .side-title,.side-copy,.stat-grid,.side-foot,.sidebar > .eyebrow { display:none; } .view-tabs button,.component-item { min-height:44px; } .view-options { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-bottom:12px; } .view-options label:first-child { grid-column:1/-1; } .view-options select { min-height:44px; } .component-list { display:flex; overflow:auto; margin-bottom:4px; } .component-item { min-width:150px; width:auto; } .stage-heading { top:18px; left:18px; right:18px; } .stage-heading h1 { font-size:24px; } .data-panel { inset:150px 12px 20px; } .search-panel { padding:16px; } .search-panel label { flex:1 1 100%; } .stage-hint { display:none; } }
   @media (prefers-reduced-motion:reduce) { *,*:before,*:after { transition:none!important; animation:none!important; } }
 </style>
 </head>
@@ -161,10 +177,10 @@
       <button class="top-button primary" id="export-svg" type="button">Export SVG ↓</button>
     </nav>
   </header>
-  <div class="workspace">
+  <div class="workspace" id="workspace">
     <aside class="sidebar" aria-label="Components">
       <div class="eyebrow">01 / Overview</div>
-      <h2 class="side-title">The shape<br>of the repo.</h2>
+      <h2 class="side-title">Explore the repository.</h2>
       <p class="side-copy">A grounded map of files and relationships. Select a component to follow its connections.</p>
       <div class="view-tabs" role="tablist" aria-label="Repository views"><button type="button" role="tab" id="tab-system" aria-selected="false">System</button><button type="button" role="tab" id="tab-explore" aria-selected="true">Explore</button><button type="button" role="tab" id="tab-data" aria-selected="false">Data</button><button type="button" role="tab" id="tab-search" aria-selected="false">Search</button></div>
       <div class="view-options">
@@ -173,18 +189,18 @@
         <label>Show<select id="kind-filter"><option value="all">Directories and files</option><option value="directory">Directories</option><option value="file">Files</option></select></label>
       </div>
       <div class="stat-grid"><div class="stat"><strong id="stat-components">0</strong><span>Parts</span></div><div class="stat"><strong id="stat-links">0</strong><span>Links</span></div><div class="stat"><strong id="stat-files">0</strong><span>Files</span></div></div>
-      <div class="navigation"><button id="up" type="button" aria-label="Go up one directory">↑ Up</button><span id="breadcrumb"></span></div>
+      <nav class="navigation" aria-label="Directory navigation"><button id="home" type="button" aria-label="Repository root">Root</button><button id="up" type="button" aria-label="Go up one directory">↑ Up</button><div class="breadcrumb" id="breadcrumb" aria-label="Current directory"></div></nav>
       <div class="section-line"><h2>Components</h2><span id="list-count"></span></div>
       <input class="search" id="search" type="search" placeholder="Find a component…" aria-label="Find a component">
       <div class="component-list" id="component-list"></div>
       <div class="pages"><button id="previous" type="button" aria-label="Previous page">←</button><span id="page-label"></span><button id="next" type="button" aria-label="Next page">→</button></div>
       <div class="side-foot">Local scan · no model tokens by default<br>Double click a directory to explore. Each canvas is limited to 24 components; the complete paths and imports are in graph.json.</div>
     </aside>
-    <main class="stage">
-      <div class="stage-heading"><div class="eyebrow">02 / Architecture map</div><h1 id="map-title">Architecture map</h1><p id="map-subtitle"></p><div class="legend"><span><i class="contains"></i>Contains</span><span><i class="imports"></i>Imports</span></div></div>
-      <svg id="map" role="group" aria-label="Interactive repository architecture diagram"><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="#6375dc"/></marker></defs><g id="world"></g></svg>
+    <main class="stage" id="view-panel" role="tabpanel" aria-labelledby="tab-explore">
+      <div class="stage-heading"><div class="eyebrow">02 / Architecture map</div><h1 id="map-title">Architecture map</h1><p id="map-subtitle"></p><p class="selection-location" id="selection-location" role="status" aria-live="polite" hidden></p><div class="legend"><span><i class="contains"></i>Contains</span><span><i class="imports"></i>Imports</span></div></div>
+      <svg id="map" role="group" tabindex="0" aria-label="Interactive repository architecture diagram" aria-describedby="canvas-help"><defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><path d="M 0 0 L 8 4 L 0 8 z" fill="#6375dc"/></marker></defs><g id="world"></g></svg>
       <div class="data-panel" id="data-panel" hidden></div>
-      <div class="stage-hint">DRAG TO PAN · SCROLL TO ZOOM · DOUBLE CLICK TO EXPLORE</div>
+      <div class="stage-hint" id="canvas-help">Drag or arrow keys to pan · + / − to zoom · F to fit · Enter on a directory to explore</div>
       <div class="controls" aria-label="Canvas controls"><button id="zoom-out" type="button" aria-label="Zoom out">−</button><span class="zoom-value" id="zoom-value">100%</span><button id="zoom-in" type="button" aria-label="Zoom in">+</button><button id="fit" class="fit" type="button">Fit view</button></div>
     </main>
     <aside class="inspector" id="inspector" aria-label="Selected component"><button class="inspector-close" id="close-inspector" type="button" aria-label="Close details">Close ×</button><div class="eyebrow">03 / Inspector</div><div id="inspector-content"></div></aside>
@@ -208,7 +224,7 @@ __VIEW_HELPERS__
   const svg = document.getElementById('map');
   const world = document.getElementById('world');
   const W = 236, H = 108;
-  let positions = new Map(), bounds = {width:900,height:600};
+  let positions = new Map();
   let scale = 1, tx = 0, ty = 0, selected = null, query = '';
   const svgNS = 'http://www.w3.org/2000/svg';
   const make = (tag, attrs, parent) => { const el = document.createElementNS(svgNS, tag); for (const [key,value] of Object.entries(attrs)) el.setAttribute(key, String(value)); parent.appendChild(el); return el; };
@@ -220,9 +236,17 @@ __VIEW_HELPERS__
   document.getElementById('stat-files').textContent = data.file_count.toLocaleString();
 
   function renderScope() {
-    for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) document.getElementById(id).setAttribute('aria-selected',String(active));
-    document.getElementById('sort-mode').disabled = viewMode === 'system';
-    document.getElementById('kind-filter').disabled = viewMode === 'system';
+    document.getElementById('workspace').classList.toggle('search-view',viewMode === 'search');
+    for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) {
+      const tab = document.getElementById(id); tab.setAttribute('aria-selected',String(active)); tab.setAttribute('tabindex',active ? '0' : '-1'); tab.setAttribute('aria-controls','view-panel');
+      if (active) document.getElementById('view-panel').setAttribute('aria-labelledby',id);
+    }
+    document.getElementById('workspace').classList.remove('has-selection');
+    document.getElementById('selection-location').hidden = true;
+    document.getElementById('inspector').classList.remove('open');
+    document.getElementById('inspector-toggle').setAttribute('aria-expanded','false');
+    document.getElementById('sort-mode').disabled = ['system','search'].includes(viewMode);
+    document.getElementById('kind-filter').disabled = ['system','search'].includes(viewMode);
     document.getElementById('search').hidden = viewMode === 'search';
     if (viewMode === 'search') { renderSearch(); return; }
     if (viewMode === 'system') { renderSystem(); return; }
@@ -247,7 +271,7 @@ __VIEW_HELPERS__
     document.getElementById('inspector').classList.remove('open');
     document.getElementById('inspector-toggle').setAttribute('aria-expanded','false');
     document.getElementById('scope').textContent = data.jev === 'used' || data.jev === 'cached' ? 'Local + Jev roles' : 'Local scan';
-    document.getElementById('breadcrumb').textContent = scopePath || data.name;
+    renderBreadcrumb();
     document.getElementById('up').disabled = !scopePath;
     document.getElementById('previous').disabled = page === 0;
     document.getElementById('next').disabled = page >= pageCount - 1;
@@ -267,15 +291,16 @@ __VIEW_HELPERS__
     document.getElementById('export-svg').disabled = isData;
     if (isData) renderData(); else if (viewMode === 'treemap') drawTreemap(); else draw();
     renderList(); renderInspector();
-    if (!isData) requestAnimationFrame(() => { fit(); if (scale < .65) { scale = .75; tx = 28; ty = 118; transform(); } });
+    if (!isData) requestAnimationFrame(fit);
   }
 
-  let lastSearch = '', lastResults = null, searchRequest = 0;
+  let lastSearch = '', lastResults = null, searchRequest = 0, lastSearchMode = 'hybrid', lastRerank = 'none', lastPrefix = '';
   function renderSearch() {
     selected = null; parts = []; links = []; scopeEntries = [];
+    renderInspector();
     document.getElementById('map-title').textContent = 'Search the repository';
     document.getElementById('map-subtitle').textContent = 'Find source areas by meaning or exact identifiers, then explore their connections.';
-    document.getElementById('breadcrumb').textContent = data.name;
+    renderBreadcrumb(true);
     document.getElementById('page-label').textContent = 'Whole repository';
     for (const id of ['up','previous','next','export-svg','export-csv']) document.getElementById(id).disabled = true;
     svg.style.display = 'none';
@@ -289,40 +314,57 @@ __VIEW_HELPERS__
     const form = document.createElement('form'); panel.appendChild(form);
     const input = document.createElement('input'); input.type = 'search'; input.placeholder = 'How are access permissions checked?'; input.value = lastSearch;
     input.setAttribute('aria-label','Repository search query'); input.required = true; input.maxLength = 1000;
+    const prefix = document.createElement('input'); prefix.type = 'text'; prefix.placeholder = 'Whole repository'; prefix.value = lastPrefix; prefix.maxLength = 1000; prefix.setAttribute('aria-label','Path prefix');
     const mode = document.createElement('select'); mode.setAttribute('aria-label','Search method');
     for (const [value,label] of [['hybrid','Meaning + keywords'],['semantic','Meaning'],['keyword','Keywords']]) { const option = document.createElement('option'); option.value = value; option.textContent = label; mode.appendChild(option); }
+    mode.value = lastSearchMode;
+    const rerank = document.createElement('select'); rerank.setAttribute('aria-label','Rerank results');
+    for (const [value,label] of [['none','No reranking'],['local','Local CPU reranker'],['jev','Jev API reranker']]) { const option = document.createElement('option'); option.value = value; option.textContent = label; option.disabled = value !== 'none'; rerank.appendChild(option); }
+    rerank.value = 'none';
     const submit = document.createElement('button'); submit.type = 'submit'; submit.className = 'top-button primary'; submit.textContent = 'Search';
-    form.append(input,mode,submit);
+    for (const [label,control] of [['Search query',input],['Path prefix',prefix],['Search method',mode],['Rerank results',rerank]]) {
+      const field = document.createElement('label'); field.textContent = label; if (control === input) field.className = 'query-field'; field.appendChild(control); form.appendChild(field);
+    }
+    form.appendChild(submit);
+    input.addEventListener('input',() => { lastSearch = input.value; }); prefix.addEventListener('input',() => { lastPrefix = prefix.value; });
+    mode.addEventListener('change',() => { lastSearchMode = mode.value; }); rerank.addEventListener('change',() => { lastRerank = rerank.value; });
+    const notice = document.createElement('p'); notice.className = 'search-status'; panel.appendChild(notice);
+    const explain = () => { notice.textContent = rerank.value === 'jev' ? 'Jev sends your query and up to 32 file paths with 900 bytes of evidence each to TypeSafe. Cached identical requests make no API call. Judgments can be wrong.' : rerank.value === 'local' ? 'Rerank up to 32 candidates on this computer. No source leaves this computer.' : 'Optional reranking must be enabled when starting the viewer.'; };
+    rerank.addEventListener('change',explain); explain();
     const status = document.createElement('p'); status.className = 'search-status'; status.setAttribute('role','status'); status.setAttribute('aria-live','polite'); panel.appendChild(status);
     const results = document.createElement('div'); panel.appendChild(results);
     const show = response => {
       results.replaceChildren();
       status.textContent = response.results.length ? `${response.results.length} results · ${response.documents.toLocaleString()} indexed files · ${Math.round(response.seconds*1000)} ms` : 'No matching files. Try another description or use keywords.';
+      if (response.rerank) status.textContent += ` · Reranker: ${response.rerank.status}${response.rerank.status === 'fallback' ? ' (local order retained)' : ''}`;
       for (const hit of response.results) {
         const article = document.createElement('article'); article.className = 'search-result';
         const heading = document.createElement('h2'); heading.textContent = hit.path;
         const evidence = document.createElement('pre'); evidence.textContent = hit.evidence;
         const open = document.createElement('button'); open.type = 'button'; open.textContent = 'Open in diagram →';
-        open.addEventListener('click',() => { viewMode = 'atlas'; document.getElementById('view-mode').value = 'atlas'; document.getElementById('export-csv').disabled = false; enter(hit.path.split('/').slice(0,-1).join('/')); focusPath('file:'+hit.path); });
+        open.addEventListener('click',() => { searchRequest++; viewMode = 'atlas'; document.getElementById('view-mode').value = 'atlas'; document.getElementById('export-csv').disabled = false; enter(hit.path.split('/').slice(0,-1).join('/')); focusPath('file:'+hit.path); });
         article.append(heading,evidence,open); results.appendChild(article);
       }
     };
     const online = location.protocol === 'http:' && location.hostname === '127.0.0.1';
     if (!online) {
-      submit.disabled = true; input.disabled = true; mode.disabled = true;
+      submit.disabled = true; input.disabled = true; prefix.disabled = true; mode.disabled = true; rerank.disabled = true;
       status.textContent = 'To search this map, run repo-graph serve with the output directory shown by the scan, then open its local URL. Build meaning search once with repo-graph index OUTPUT --semantic. Offline diagrams remain available in the other tabs.';
     } else {
       status.textContent = 'Search the whole repository. Meaning search needs a locally embedded index.';
       fetch('/api/status').then(response => response.json()).then(state => {
-        if (!state.semantic) { mode.value = 'keyword'; mode.options[0].disabled = true; mode.options[1].disabled = true; status.textContent = 'Keyword index ready. Enable meaning search with repo-graph index OUTPUT --semantic, then restart this viewer.'; }
+        for (const option of rerank.options) option.disabled = !(state.rerankers || ['none']).includes(option.value);
+        rerank.value = (state.rerankers || ['none']).includes(lastRerank) ? lastRerank : 'none'; explain();
+        if (!state.semantic) { mode.value = 'keyword'; mode.options[0].disabled = true; mode.options[1].disabled = true; if (!lastResults) status.textContent = 'Keyword index ready. Enable meaning search with repo-graph index OUTPUT --semantic, then restart this viewer.'; }
       }).catch(() => { status.textContent = 'Search service is unavailable. Restart repo-graph serve.'; });
       if (lastResults) show(lastResults);
       form.addEventListener('submit',async event => {
         event.preventDefault(); const request = ++searchRequest;
         lastSearch = input.value.trim(); if (!lastSearch) return;
+        lastSearchMode = mode.value; lastRerank = rerank.value;
         submit.disabled = true; status.textContent = 'Searching…'; results.replaceChildren();
         try {
-          const response = await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:lastSearch,mode:mode.value})});
+          const response = await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:lastSearch,mode:mode.value,rerank:rerank.value,prefix:prefix.value.trim()})});
           const body = await response.json(); if (request !== searchRequest || viewMode !== 'search') return;
           if (!response.ok) throw new Error(body.error || 'Search failed');
           lastResults = body; show(body);
@@ -332,12 +374,30 @@ __VIEW_HELPERS__
     }
   }
 
+  function renderBreadcrumb(repositoryOnly = false) {
+    const host = document.getElementById('breadcrumb'); host.replaceChildren();
+    const pieces = repositoryOnly ? [] : scopePath.split('/').filter(Boolean);
+    const root = document.createElement(pieces.length ? 'button' : 'span'); root.textContent = data.name;
+    if (pieces.length) { root.type = 'button'; root.addEventListener('click',() => enter('')); }
+    else root.setAttribute('aria-current','page');
+    host.appendChild(root);
+    pieces.forEach((piece,index) => {
+      const slash = document.createElement('span'); slash.textContent = '/'; slash.setAttribute('aria-hidden','true'); host.appendChild(slash);
+      const item = document.createElement(index === pieces.length-1 ? 'span' : 'button'); item.textContent = piece;
+      if (index === pieces.length-1) item.setAttribute('aria-current','page');
+      else { item.type = 'button'; item.addEventListener('click',() => enter(pieces.slice(0,index+1).join('/'))); }
+      host.appendChild(item);
+    });
+    document.getElementById('home').disabled = !scopePath || repositoryOnly;
+  }
+
   function enter(path) {
     if (!data.tree[path]) return;
     if (viewMode === 'system') { viewMode = 'atlas'; kindFilter = 'all'; document.getElementById('kind-filter').value = 'all'; document.getElementById('view-mode').value = viewMode; }
     scopePath = path; page = 0; query = '';
     document.getElementById('search').value = '';
     renderScope();
+    requestAnimationFrame(() => { if (svg.style.display !== 'none') svg.focus({preventScroll:true}); });
   }
   function focusPath(id) {
     if (viewMode === 'system') { if (!byId.has(id)) { query = ''; document.getElementById('search').value = ''; renderScope(); } select(id,true); return; }
@@ -354,8 +414,7 @@ __VIEW_HELPERS__
   }
 
   function layout() {
-    const result = RepoViews.layout(parts,viewMode,links);
-    positions = result.boxes; bounds = {width:result.width,height:result.height};
+    positions = RepoViews.layout(parts,viewMode,links).boxes;
   }
 
   function renderSystem() {
@@ -368,7 +427,7 @@ __VIEW_HELPERS__
     links = (data.system?.edges || []).filter(edge => visible.has(edge.source) && visible.has(edge.target)).slice(0,40);
     counts = RepoViews.metrics(data.system?.edges || []);
     selected = null;
-    document.getElementById('breadcrumb').textContent = data.name;
+    renderBreadcrumb(true);
     for (const id of ['up','previous','next']) document.getElementById(id).disabled = true;
     document.getElementById('page-label').textContent = 'Whole repository';
     document.getElementById('scope').textContent = 'System overview';
@@ -397,6 +456,7 @@ __VIEW_HELPERS__
         if (box.height > 60) { const count = make('text',{x:10,y:45,class:'node-count'},g); count.textContent = `${node.count.toLocaleString()} FILES`; }
       }
       g.addEventListener('click',() => select(node.id));
+      g.addEventListener('focus',() => centerNode(node.id));
       if (node.kind === 'directory') g.addEventListener('dblclick',() => enter(node.id));
       g.addEventListener('keydown',event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); if (event.key === 'Enter' && node.kind === 'directory') enter(node.id); else select(node.id); } });
     }
@@ -474,6 +534,7 @@ __VIEW_HELPERS__
       const i = byId.get(node.id).index;
       const aria = node.kind === 'directory' ? `${node.name}, ${node.count} files. Enter to explore, Space to inspect` : `${node.name}, ${node.count} files`;
       const g = make('g',{class:'node ' + node.kind,transform:`translate(${pos.x} ${pos.y})`,tabindex:'0',role:'button','aria-label':aria,'data-id':node.id},world);
+      const fullTitle = make('title',{},g); fullTitle.textContent = `${node.name} · ${node.count.toLocaleString()} files`;
       make('rect',{x:0,y:0,width:W,height:H,rx:16,class:'card'},g);
       make('rect',{x:0,y:0,width:W,height:5,rx:2,fill:color(node.id)},g);
       make('rect',{x:17,y:20,width:31,height:31,rx:9,fill:soft[i % soft.length]},g);
@@ -482,15 +543,39 @@ __VIEW_HELPERS__
       const pathText = make('text',{x:18,y:73,class:'node-path'},g); pathText.textContent = short(node.summary || node.name,31);
       const count = make('text',{x:18,y:94,class:'node-count'},g); count.textContent = `${node.role ? node.role.toUpperCase() + ' · ' : ''}${node.count} ${node.count === 1 ? 'FILE' : 'FILES'}`;
       g.addEventListener('click',() => select(node.id));
+      g.addEventListener('focus',() => centerNode(node.id));
       if (node.kind === 'directory') g.addEventListener('dblclick',() => enter(node.id));
       g.addEventListener('keydown',event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); if (event.key === 'Enter' && node.kind === 'directory') enter(node.id); else select(node.id); } });
     }
     refresh();
   }
   function transform() { world.setAttribute('transform',`translate(${tx} ${ty}) scale(${scale})`); document.getElementById('zoom-value').textContent = `${Math.round(scale * 100)}%`; }
-  function fit() { if (svg.style.display === 'none') return; const w = svg.clientWidth, h = svg.clientHeight; scale = Math.min(1.3,(w - 100) / bounds.width,(h - 130) / bounds.height); scale = Math.max(.15,scale); tx = (w - bounds.width * scale) / 2; ty = (h - bounds.height * scale) / 2; transform(); }
+  function fit() {
+    if (svg.style.display === 'none' || !positions.size) return;
+    const boxes = [...positions.values()], x = Math.min(...boxes.map(box => box.x)), y = Math.min(...boxes.map(box => box.y));
+    const width = Math.max(...boxes.map(box => box.x+box.width))-x, height = Math.max(...boxes.map(box => box.y+box.height))-y;
+    const top = selected ? 190 : 145, w = svg.clientWidth-64, h = svg.clientHeight-top-70;
+    scale = Math.max(.15,Math.min(1.1,w/width,h/height));
+    tx = 32+(w-width*scale)/2-x*scale; ty = top+(h-height*scale)/2-y*scale; transform();
+  }
   function zoom(factor,x = svg.clientWidth/2,y = svg.clientHeight/2) { const next = Math.min(2.6,Math.max(.18,scale * factor)); tx = x - (x - tx) * next / scale; ty = y - (y - ty) * next / scale; scale = next; transform(); }
-  function select(id, center = false) { selected = id; refresh(); renderInspector(); const p = positions.get(id); if (center && p && svg.style.display !== 'none') { tx = svg.clientWidth/2 - (p.x + p.width/2) * scale; ty = svg.clientHeight/2 - (p.y + p.height/2) * scale; transform(); } if (window.innerWidth <= 1100) { document.getElementById('inspector').classList.add('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded','true'); } }
+  function centerNode(id) {
+    const p = positions.get(id); if (!p || svg.style.display === 'none') return;
+    scale = Math.max(.9,scale); tx = svg.clientWidth/2-(p.x+p.width/2)*scale; ty = 170+(svg.clientHeight-240)/2-(p.y+p.height/2)*scale; transform();
+  }
+  let inspectorReturnFocus = null;
+  function select(id, moveFocus = false) {
+    selected = id; document.getElementById('workspace').classList.add('has-selection'); refresh(); renderInspector();
+    const location = document.getElementById('selection-location'); location.hidden = false; location.textContent = `Selected: ${byId.get(id)?.name || id}`;
+    if (window.innerWidth <= 1100) { inspectorReturnFocus = document.activeElement; document.getElementById('inspector').classList.add('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded','true'); }
+    requestAnimationFrame(() => {
+      centerNode(id);
+      if (moveFocus) {
+        const target = window.innerWidth <= 1100 ? document.getElementById('close-inspector') : [...world.querySelectorAll('.node')].find(node => node.dataset.id === id);
+        target?.focus({preventScroll:true});
+      }
+    });
+  }
   function refresh() {
     const matches = new Set(parts.filter(n => n.name.toLowerCase().includes(query) || n.files.some(f => f.toLowerCase().includes(query))).map(n => n.id));
     for (const el of world.querySelectorAll('.node')) { const id = el.dataset.id; el.classList.toggle('active',id === selected); el.classList.toggle('dim',(query && !matches.has(id)) || (selected && id !== selected && !links.some(e => e.source === selected && e.target === id || e.target === selected && e.source === id))); }
@@ -562,10 +647,17 @@ __VIEW_HELPERS__
   svg.addEventListener('pointermove',event => { if (!drag) return; tx = drag.tx + event.clientX - drag.x; ty = drag.ty + event.clientY - drag.y; transform(); });
   svg.addEventListener('pointerup',() => { drag = null; svg.classList.remove('dragging'); });
   svg.addEventListener('wheel',event => { event.preventDefault(); const rect = svg.getBoundingClientRect(); zoom(event.deltaY < 0 ? 1.12 : 1/1.12,event.clientX - rect.left,event.clientY - rect.top); },{passive:false});
+  svg.addEventListener('keydown',event => {
+    if (event.target !== svg) return;
+    if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key)) {
+      event.preventDefault(); tx += event.key === 'ArrowLeft' ? 60 : event.key === 'ArrowRight' ? -60 : 0; ty += event.key === 'ArrowUp' ? 60 : event.key === 'ArrowDown' ? -60 : 0; transform();
+    } else if (['+','=','-','f','F'].includes(event.key)) { event.preventDefault(); if (event.key.toLowerCase() === 'f') fit(); else zoom(event.key === '-' ? 1/1.2 : 1.2); }
+  });
   document.getElementById('zoom-in').addEventListener('click',() => zoom(1.2));
   document.getElementById('zoom-out').addEventListener('click',() => zoom(1/1.2));
   document.getElementById('fit').addEventListener('click',fit);
   function changeView(mode) {
+    if (viewMode === 'search' && mode !== 'search') searchRequest++;
     if (mode === 'system' || viewMode === 'system') { query = ''; page = 0; document.getElementById('search').value = ''; }
     viewMode = mode; document.getElementById('view-mode').value = mode; renderScope();
   }
@@ -587,13 +679,15 @@ __VIEW_HELPERS__
   document.getElementById('search').addEventListener('input',event => { query = event.target.value.trim().toLowerCase(); page = 0; renderScope(); });
   document.getElementById('search').addEventListener('keydown',event => { if (event.key === 'Enter') { const first = parts.find(n => n.kind !== 'repository'); if (first) select(first.id,true); } });
   document.getElementById('up').addEventListener('click',() => enter(scopePath.split('/').slice(0,-1).join('/')));
-  document.getElementById('inspector-toggle').addEventListener('click',() => { const open = document.getElementById('inspector').classList.toggle('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded',String(open)); });
-  document.getElementById('close-inspector').addEventListener('click',() => { document.getElementById('inspector').classList.remove('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded','false'); });
-  document.addEventListener('keydown',event => { if (event.key === 'Escape') { document.getElementById('inspector').classList.remove('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded','false'); } });
+  document.getElementById('home').addEventListener('click',() => enter(''));
+  function closeInspector() { document.getElementById('inspector').classList.remove('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded','false'); if (inspectorReturnFocus?.isConnected) inspectorReturnFocus.focus({preventScroll:true}); }
+  document.getElementById('inspector-toggle').addEventListener('click',() => { const open = document.getElementById('inspector').classList.toggle('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded',String(open)); if (open) { inspectorReturnFocus = document.activeElement; document.getElementById('close-inspector').focus(); } else closeInspector(); });
+  document.getElementById('close-inspector').addEventListener('click',closeInspector);
+  document.addEventListener('keydown',event => { if (event.key === 'Escape' && window.innerWidth <= 1100) closeInspector(); });
   document.getElementById('previous').addEventListener('click',() => { page--; renderScope(); });
   document.getElementById('next').addEventListener('click',() => { page++; renderScope(); });
   document.getElementById('export-svg').addEventListener('click',() => { const clone = svg.cloneNode(true); clone.setAttribute('xmlns',svgNS); clone.setAttribute('width',String(svg.clientWidth)); clone.setAttribute('height',String(svg.clientHeight)); const styles = document.createElementNS(svgNS,'style'); styles.textContent = [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules].map(rule => rule.cssText); } catch { return []; } }).join('\n'); clone.insertBefore(styles,clone.firstChild); const blob = new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${data.name}-${graphMode ? 'dependencies' : 'architecture'}.svg`; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000); });
-  window.addEventListener('resize',fit);
+  window.addEventListener('resize',() => selected ? centerNode(selected) : fit());
   renderScope();
 })();
 </script>

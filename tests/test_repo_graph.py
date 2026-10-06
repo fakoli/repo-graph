@@ -95,11 +95,11 @@ class RepoGraphTests(unittest.TestCase):
         def fake_open(request, timeout):
             captured["request"] = json.loads(request.data)
             captured["timeout"] = timeout
-            return Response(json.dumps({"answers": {
+            return Response(json.dumps({"model":repo_graph.jev.MODEL, "usage":{"input_tokens":100,"output_tokens":10}, "answers": {
                 "c0": {"type": "choice", "choice": "documentation", "confidence": .91},
                 "c1": {"type": "choice", "choice": "library", "confidence": .2},
             }}).encode())
-        with patch.object(repo_graph, "urlopen", fake_open):
+        with patch.object(repo_graph.jev, "OPEN", fake_open):
             roles = repo_graph.jev_roles(["docs", "src"], "synthetic-key")
         self.assertEqual(roles, {"docs": "documentation"})
         self.assertEqual(captured["request"]["state"], {"directories": ["docs", "src"]})

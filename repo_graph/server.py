@@ -1,9 +1,10 @@
 """Opt-in loopback UI. No arbitrary file serving, origins or repository writes."""
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from contextlib import closing
 from .search import connect
 from urllib.parse import urlsplit
+from threading import BoundedSemaphore
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -34,7 +35,8 @@ class Handler(BaseHTTPRequestHandler):
         if name == '/api/status':
             with closing(connect(self.server.engine.output, readonly=True)) as db:
                 total, ready = db.execute('SELECT count(*),sum(vector IS NOT NULL) FROM docs').fetchone()
-            self.respond(200, {'semantic':self.server.engine.embedder is not None and total > 0 and total == ready}); return
+            self.respond(200, {'semantic':self.server.engine.embedder is not None and total > 0 and total == ready,
+                'rerankers':['none'] + (['local'] if self.server.local_reranker else []) + (['jev'] if self.server.allow_jev else [])}); return
         if name not in {'/', '/architecture.html', '/graph.html', '/graph.json', '/architecture.mmd', '/architecture.md'}:
             self.respond(404, {'error':'Not found'}); return
         file = self.server.engine.output / ('architecture.html' if name == '/' else name[1:])
@@ -53,21 +55,41 @@ class Handler(BaseHTTPRequestHandler):
             query = payload['query']; mode = payload.get('mode', 'hybrid')
             if not isinstance(query, str) or not isinstance(payload.get('prefix', ''), str):
                 raise ValueError('Query and prefix must be text')
-            result = self.server.engine.run(query, mode=mode, limit=10, prefix=payload.get('prefix', ''))
+            method = payload.get('rerank', 'none')
+            reranker = None
+            if method == 'local':
+                reranker = self.server.local_reranker
+                if not reranker: raise ValueError('Restart with --local-reranker to enable local reranking')
+            elif method == 'jev':
+                if not self.server.allow_jev: raise ValueError('Restart with --allow-jev to permit source export')
+                from .rerank import JevReranker
+                reranker = JevReranker(self.server.engine.output)
+            elif method != 'none': raise ValueError('Unknown reranker')
+            expensive = mode != 'keyword' or reranker is not None
+            acquired = expensive and self.server.search_slot.acquire(blocking=False)
+            if expensive and not acquired:
+                self.respond(429, {'error':'A model search is running. Try again shortly or use keywords without reranking.'}); return
+            try:
+                result = self.server.engine.run(query, mode=mode, limit=10, prefix=payload.get('prefix', ''), reranker=reranker)
+            finally:
+                if acquired: self.server.search_slot.release()
             self.respond(200, result)
         except (ValueError, KeyError, TypeError, RuntimeError) as error:
             self.respond(400, {'error':str(error)})
 
 
-def create_server(engine, port=0):
-    server = HTTPServer(('127.0.0.1', port), Handler)
+def create_server(engine, port=0, *, local_reranker=None, allow_jev=False):
+    server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
     server.engine = engine
+    server.local_reranker, server.allow_jev = local_reranker, allow_jev
+    # ponytail: one expensive search at a time; status, artifacts and plain keywords remain responsive.
+    server.search_slot = BoundedSemaphore(1)
     server.timeout = 1
     return server
 
 
-def serve(engine, port=0):
-    with create_server(engine, port) as server:
+def serve(engine, port=0, **options):
+    with create_server(engine, port, **options) as server:
         print(f'http://127.0.0.1:{server.server_port}/architecture.html', flush=True)
         try: server.serve_forever()
         except KeyboardInterrupt: pass

@@ -29,6 +29,10 @@ const cycle = views.layout(nodes.slice(1,5),'system',[
 assert.ok(cycle.get('n0').x < cycle.get('n1').x);
 assert.equal(cycle.get('n1').x,cycle.get('n2').x);
 assert.ok(cycle.get('n2').x < cycle.get('n3').x);
+const tallLayer=nodes.slice(1,9), ring=tallLayer.map((node,index)=>({source:node.id,target:tallLayer[(index+1)%tallLayer.length].id}));
+const wrapped=views.layout(tallLayer,'system',ring);
+assert.equal(new Set([...wrapped.boxes.values()].map(box=>box.x)).size,2);
+assert.ok(wrapped.height<800);
 const counts = views.metrics([{source:'n1',target:'n2',count:4},{source:'n1',target:'n3',count:2}]);
 assert.deepEqual(counts.get('n1'),{incoming:0,outgoing:6});
 assert.equal(views.ordered(nodes.slice(1),'imports',counts)[0].id,'n1');
@@ -46,6 +50,7 @@ class Element {
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children=children; }
   setAttribute(key,value) { this.attributes[key]=value; if(key==='class')this.className=value; if(key.startsWith('data-'))this.dataset[key.slice(5)]=value; }
+  focus() { document.activeElement=this; this.fire('focus'); }
   addEventListener(type,callback) { (this.events[type] ||= []).push(callback); }
   fire(type,event={}) { for(const callback of this.events[type] || []) callback({target:this,preventDefault(){},...event}); }
   get childElementCount() { return this.children.length; }
@@ -78,7 +83,8 @@ for(const mode of ['tree','radial','treemap','table','matrix','system','atlas'])
 }
 const srcButton=get('component-list').children.find(button=>button.dataset.id==='src');
 srcButton.fire('click');
-assert.equal(get('breadcrumb').textContent,'src');
+assert.equal(get('breadcrumb').children.at(-1).textContent,'src');
+assert.equal(get('breadcrumb').children.at(-1).attributes['aria-current'],'page');
 assert.equal(get('component-list').childElementCount,23);
 get('next').fire('click');
 assert.equal(get('page-label').textContent,'Page 2 / 3');
@@ -90,4 +96,16 @@ switchView('system');
 assert.equal(get('component-list').childElementCount,1);
 get('component-list').children[0].fire('click');
 assert.ok(get('inspector-content').children.length > 0);
-console.log('Viewer switching, navigation, pagination, empty search and system inspection passed');
+assert.ok(get('workspace').className.includes('has-selection'));
+assert.match(get('selection-location').textContent,/Sources/);
+assert.equal(get('tab-system').attributes.tabindex,'0');
+assert.equal(get('tab-explore').attributes.tabindex,'-1');
+switchView('atlas');
+get('home').fire('click');
+assert.equal(get('breadcrumb').children.at(-1).textContent,'Synthetic');
+assert.equal(get('home').disabled,true);
+assert.ok(!get('workspace').className.includes('has-selection'));
+const transformBefore=get('world').attributes.transform;
+get('map').fire('keydown',{key:'ArrowRight'});
+assert.notEqual(get('world').attributes.transform,transformBefore);
+console.log('Viewer switching, breadcrumbs, pagination, empty search, inspection and keyboard pan passed');
