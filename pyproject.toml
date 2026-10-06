@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "repo-graph-agent"
-version = "0.5.0"
+version = "0.6.0"
 description = "Local repository diagrams and incremental semantic search for coding agents"
 requires-python = ">=3.10"
 license = "MIT"

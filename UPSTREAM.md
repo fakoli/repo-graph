@@ -25,3 +25,12 @@ reranking, using the same semantic extra. TypeSafe is an opt-in remote API;
 no SDK is added. The separately downloaded Xenova ONNX conversion of
 MS MARCO MiniLM L6 v2 is Apache-2.0; no weights or benchmark source are vendored.
 Research sources, frozen query comparisons and failure cases accompany the change.
+
+Version 0.6.0 consolidates the native Pi integration previously maintained in
+MIT `fakoli/anvil-extensions`, package `pi-repo-graph` 0.2.0, merged commit
+`d440ba19ac42895c5054bfe80ff32a6c0517146b` (Anvil Extensions 0.16.0).
+Its runtime already matched Repo Graph 0.5.0. The canonical product now owns
+the native integration checks and adds Claude Code metadata and a shared harness
+installation command. The original marketplace and Anvil bundle retain pinned
+distribution adapters, with no maintained runtime fork. ADRs and polyglot
+research are documentation; no external static-analysis engine is vendored.

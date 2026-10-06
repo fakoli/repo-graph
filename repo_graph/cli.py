@@ -20,6 +20,12 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='Local diagrams and incremental repository search')
     subs = parser.add_subparsers(dest='command', required=True)
     subs.add_parser('map', help='Map a local repository or public HTTPS URL (map --help for flags)')
+    init = subs.add_parser('init', help='Install this product through native harness managers')
+    init.add_argument('--harness', choices=['all', 'pi', 'codex', 'claude'], default='all')
+    init.add_argument('--scope', choices=['user', 'project'], default='user')
+    init.add_argument('--source', type=Path, help='Use a local product directory instead of the pinned public release')
+    init.add_argument('--ref', help='Public product Git tag, branch, or commit (default: installed product version)')
+    init.add_argument('--dry-run', action='store_true', help='Print the native install plan after checking prerequisites')
     index = subs.add_parser('index', help='Embed the generated search corpus locally')
     index.add_argument('output', type=Path)
     index.add_argument('--semantic', action='store_true')
@@ -39,6 +45,11 @@ def main(argv=None):
         p.add_argument('--offline', action='store_true', help='Use only cached embedding model files')
     parsed = parser.parse_args(args)
     try:
+        if parsed.command == 'init':
+            from .installer import initialize
+            result = initialize(harness=parsed.harness, scope=parsed.scope, source=parsed.source,
+                                ref=parsed.ref, dry_run=parsed.dry_run)
+            print(json.dumps(result, ensure_ascii=False)); return 0
         output = parsed.output.expanduser().resolve()
         if not (output / 'search.db').is_file():
             raise ValueError('No search index here. Run repo-graph map REPO first and use its output directory.')

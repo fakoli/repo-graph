@@ -1,14 +1,14 @@
 # Repo Graph
 
 Local system diagrams and semantic search for large repositories, packaged for
-Codex and Pi coding agents. Map a repository without sending it to a model;
+Pi, Codex and Claude Code. Map a repository without sending it to a model;
 search its generated index by meaning or exact identifiers and jump from a
 result to its file in the diagram.
 
 ## Install and use
 
 ```bash
-uv tool install 'repo-graph-agent[semantic] @ git+https://github.com/fakoli/repo-graph@v0.5.0'
+uv tool install 'repo-graph-agent[semantic] @ git+https://github.com/fakoli/repo-graph@v0.6.0'
 repo-graph map /path/to/repository
 ```
 
@@ -31,33 +31,76 @@ is required for HTTPS input. The optional semantic extra uses pinned FastEmbed
 and NumPy for batched ONNX CPU inference and vector scoring. First embedding
 index creation downloads the public BGE-small model; queries and the viewer
 use cached model files only. No GPU or embedding service is required. To install
-without uv, use `python3 -m pip install 'repo-graph-agent[semantic] @ git+https://github.com/fakoli/repo-graph@v0.5.0'`.
+without uv, use `python3 -m pip install 'repo-graph-agent[semantic] @ git+https://github.com/fakoli/repo-graph@v0.6.0'`.
 
 ## Coding agent plugins
 
-From the existing marketplace:
+After installing the CLI, enable a harness with one command:
 
 ```bash
-codex plugin marketplace add fakoli/agent-plugins
-codex plugin add repo-graph@fakoli-agent-plugins
+repo-graph init --harness pi
 ```
 
-Then use `$repo-graph` or `$repo-graph /path/to/repository` in a fresh task.
-The standalone repository retains the same Codex plugin manifest and skill.
+Use `--harness codex`, `--harness claude` or `--harness all` to select other
+installed harnesses. `--dry-run` previews the base native command plan. Existing
+Claude installations use its native update command when applied. Installation uses
+the reviewed canonical release through the harness's own package manager.
+All selected CLIs must be present before installation starts. User scope is the
+default; `--scope project` works for Pi and Claude. Codex supports user scope.
+The command reports completed harnesses if a later install fails; native changes
+may remain, and retrying the same command is supported. Start a fresh session
+after installation. Development uses `--source LOCAL_PRODUCT`; `--ref TAG`
+overrides the remote release pin.
+Codex/Claude success receipts verify the registered source, selected version
+and cached runtime/skill. A mismatch is an error.
+Changing a Codex source/ref can replace its Repo Graph marketplace registration;
+the requested replacement is checked first. Unrelated sources using that
+marketplace name are rejected.
 
-For Pi:
+| Harness | Invocation |
+| --- | --- |
+| Pi | `/skill:repo-graph` |
+| Codex | `$repo-graph` |
+| Claude Code | `/repo-graph:repo-graph` |
+
+Every harness loads the same skill, scanner, search engine and viewer. Packaged
+scripts resolve from the skill's location while the caller's repository remains
+the working directory. Mapping uses ordinary read/bash permissions. Optional
+semantic dependencies use `uv run --project … --extra semantic`; the scanner
+and keyword search need no Python dependencies. The agent's selected model still
+handles instructions.
+
+For direct native installation:
 
 ```bash
-pi install git:github.com/fakoli/repo-graph@v0.5.0
+pi install git:github.com/fakoli/repo-graph@v0.6.0
+codex plugin marketplace add fakoli/repo-graph --ref v0.6.0
+codex plugin add repo-graph@repo-graph
+claude plugin marketplace add https://github.com/fakoli/repo-graph.git#v0.6.0
+claude plugin install repo-graph@repo-graph
 ```
 
-Start a fresh session and use `/skill:repo-graph`. The native skill resolves
-packaged scripts from its own location while keeping the caller's working
-directory. It uses the ordinary read/bash permissions of the host agent.
-It registers no hooks, new tools or background processes. Skills automatically
-install optional dependencies through `uv run --project … --extra semantic`;
-no copying scripts into the repository is needed. The agent's configured model
-still handles instructions; the scanner/search pipeline makes no generation calls.
+The existing `fakoli/agent-plugins` marketplace also lists this pinned canonical
+product. Anvil Extensions includes a compatibility package that depends on the
+same release; it carries no copied scanner, index, skill or viewer. Update those
+consumers through their reviewed releases. If already using the original Codex
+marketplace entry, update/reinstall that entry instead of adding a second copy
+through the canonical marketplace. Select one Repo Graph distribution per
+harness. Uninstall with the native manager.
+
+## Product architecture
+
+Repo Graph has one canonical source repository. Human diagrams and agent search
+share its generated data. [Architecture decisions](docs/adr/README.md) record
+repository ownership and harness installation, plus the proposed next step:
+a shared incremental fact index for symbols, references and candidate calls.
+
+[Polyglot feasibility and research](docs/polyglot-feasibility.md) distinguish
+syntax coverage from semantic resolution, compare reusable engines, and define
+Odoo/Django and cross-language evaluation gates. A language-independent fact
+schema is feasible; each language and framework still needs resolution rules.
+Version 0.6.0 does **not** add function call graphs. Existing diagrams show
+source structure and heuristic imports.
 
 ## Views and search
 
@@ -165,8 +208,9 @@ retries. Cached ranking responses exclude raw queries/evidence and retain at
 most 512 entries. Credentials are never stored in the index or browser.
 
 Uninstall the plugin through the host's package manager. Generated artifacts and
-caches remain available. Rollback is a prior reviewed release pin; no source state
-is changed. To clear local data, delete only the corresponding generated cache
+caches remain available. [Rollback instructions](docs/releases/v0.6.0.md#upgrade-and-rollback)
+depend on the harness: canonical v0.5.0 has no Codex self-marketplace or Claude
+plugin. No source state is changed. To clear local data, delete only the corresponding generated cache
 entry. A failed clone can leave an incomplete cache entry; remove that entry and
 retry. A failed embedding batch preserves previously committed vectors.
 
@@ -178,12 +222,20 @@ uv run python -m unittest discover -s tests -v
 npm ci
 npm test
 REPO_GRAPH_PYTHON=.venv/bin/python npm run test:ux
+python3 tests/pi_smoke.py
+python3 tests/harness_smoke.py --harness codex
+python3 tests/harness_smoke.py --harness claude
 ```
 
 UX tests need Chrome/Chromium at `REPO_GRAPH_CHROME`, or the documented default
 system Chrome path; this is a test dependency only. Retrieval evaluations and
 commands are in [evaluations/README.md](evaluations/README.md). Offline regression
 checks and real public-repository benchmarks cover different requirements.
+Native smoke checks require the corresponding installed harness CLI, use isolated
+homes, and execute mapping/search without provider requests. They do not change
+live harness installations. The Codex/Claude checks also repeat initialization,
+verify upgrade/rollback and inspect the installed shared skill. `uv build --wheel` checks the CLI package;
+native plugins fetch their skill and runtime from the pinned product source.
 
 MIT. [Provenance](UPSTREAM.md) records the original scanner/skill and this release's
 adaptations. No benchmark repositories or model weights are redistributed.

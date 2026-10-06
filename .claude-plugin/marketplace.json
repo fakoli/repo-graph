@@ -1,0 +1,12 @@
+{
+  "name": "repo-graph",
+  "description": "The canonical Repo Graph product for codebase diagrams and local search.",
+  "owner": { "name": "Fakoli" },
+  "plugins": [
+    {
+      "name": "repo-graph",
+      "source": "./",
+      "description": "Local repository diagrams and incremental search for coding agents."
+    }
+  ]
+}
