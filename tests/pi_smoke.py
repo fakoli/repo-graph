@@ -14,7 +14,7 @@ with tempfile.TemporaryDirectory(prefix='repo-graph-pi-') as scratch:
     repo = Path(scratch)/'caller source'; repo.mkdir()
     output = Path(scratch)/'map output'
     (repo/'queue.py').write_text('def enqueue():\n    """Schedule work for later."""\n')
-    (agent/'settings.json').write_text(json.dumps({'packages':[{'source':str(root),'extensions':[],'prompts':[],'skills':['skills/**']}]}))
+    (agent/'settings.json').write_text(json.dumps({'packages':[str(root)]}))
     env = {'PATH':os.environ['PATH'],'HOME':str(home),'PI_CODING_AGENT_DIR':str(agent),'PI_OFFLINE':'1'}
     child = subprocess.Popen(['pi','--mode','rpc','--offline','--no-session','--no-extensions','--no-context-files','--no-prompt-templates','--no-themes'],cwd=repo,env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True)
     serial = 0; selector = selectors.DefaultSelector(); selector.register(child.stdout,selectors.EVENT_READ)
