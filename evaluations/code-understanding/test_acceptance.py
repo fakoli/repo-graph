@@ -1,6 +1,7 @@
 """Synthetic validator negatives; these are not independent human judgments."""
 import contextlib
 import copy
+import hashlib
 import io
 import json
 import os
@@ -15,7 +16,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from evaluations import acceptance as gate
-from evaluations import analysis, real_calls
+from evaluations import analysis, real_calls, queued_collector
+from repo_graph.source import SourceRoot
 
 
 class AdapterEvidence(unittest.TestCase):
@@ -363,6 +365,166 @@ class FreezeInputs(unittest.TestCase):
         self.assertIn('real_call_measurements', failed)
         self.assertIn('qualified_adapter_available', failed)
         self.assertEqual(result['status'], 'blocked')
+
+
+def cost_sha(raw):
+    return hashlib.sha256(raw).hexdigest()
+
+def cost_encoded(value):
+    return json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+
+def cost_identity(pid):
+    return dict(pid=pid, starttime_ticks=pid + 1000, pgid=pid, sid=pid)
+
+def cost_telemetry(mode='serial', concurrency=1):
+    ctrl, supervisor = (cost_identity(100), cost_identity(200))
+    lives = [dict(identity=i, role=r, registered_ns=1, removed_ns=10000, removal_scope='sampling window ended; process exit not claimed') for i, r in [(ctrl, 'controller'), (supervisor, 'supervisor')]]
+    events, samples, phases = ([], [], {})
+    for n, label in enumerate(gate._COST_PHASES):
+        t = 100 + n * 100
+        worker = cost_identity(300 + n)
+        live = dict(identity=worker, role='worker', registered_ns=t + 2, removed_ns=t + 8)
+        lives.append(live)
+        for name, time, index, owner in [('readiness', t, None, None), ('readiness', t + 1, None, worker), ('submit', t + 3, 0, worker), ('receive', t + 5, 0, worker), ('cleanup', t + 6, None, worker)]:
+            event = dict(schema_version=1, event=name, monotonic_ns=time, mode=mode, role='worker' if owner else 'controller', configured_concurrency=concurrency, workers_started=1 if owner else 0, live_workers=1 if owner else 0, pending_requests=int(name == 'submit'), inflight_reserved_bytes=1, mailbox_source_bytes=1, mailbox_request_bytes=1, mailbox_result_bytes=1, admitted_bytes=1, controller=ctrl, worker=owner, index=index, cleanup=dict(leader_reaped=True, group_absent=True, mailboxes_removed=True) if name == 'cleanup' else None, phase=label)
+            events.append(event)
+        values = [dict(pid=i['pid'], rss_bytes=64, read_started_ns=t + 4, read_ended_ns=t + 4) for i in (ctrl, supervisor, worker)]
+        samples.append(dict(started_ns=t + 4, ended_ns=t + 4, read_skew_ns=0, phase=label, owners=values, gaps=[], complete=True, owned_rss_bytes=192))
+        resource = dict(elapsed_seconds=0.002, process_peak_rss_bytes=64, process_user_seconds=0.001, process_system_seconds=0, file_user_seconds=0.001, file_system_seconds=0, timings={k: 0 for k in queued_collector.NATIVE_TIMINGS})
+        queued = dict(workers_started=1, elapsed_seconds=0.003, limits=dict(memory_bytes=512 * 1024 ** 2, cpu_seconds=30, total_wall_seconds=20, worker_wall_seconds=20, max_inflight_bytes=40 * 1024 ** 2, max_admitted_bytes=32 * 1024 ** 2), worker_resources=[[resource]], telemetry=dict(schema_version=1, controller_timings={k: 0 for k in queued_collector.CONTROLLER_TIMINGS}, controller_identity=ctrl, observer_events_delivered=5, observer_failed=False, observer_failure_reason=None, actual_workers_started=1, worker_process_identities=[worker]))
+        phases[label] = dict(label=label, status='complete', wall_seconds=0.01, proof_retention_seconds=0.001, observed_attempt_seconds=0.011, stages={k: dict(calls=1, inclusive_seconds=0.001) for k in ('source_read', 'collection_controller', 'global_resolution', 'snapshot_construction')}, receipt=dict(resources=dict(queued=queued)))
+    lines = [dict(kind='lifecycle', value={k: None if k == 'removed_ns' else v for k, v in row.items() if k != 'removal_scope'}) for row in lives]
+    lines += [dict(kind='event', value=e) for e in events] + [dict(kind='sample', value=s) for s in samples]
+    data = b''.join((cost_encoded(r) + b'\n' for r in lines))
+    rss = dict(schema_version=1, label='peak_sampled_owned_rss_bytes', peak_sampled_owned_rss_bytes=192, sample_window=dict(started_ns=1, ended_ns=10000), requested_interval_seconds=0.025, max_samples=4000, max_live_owners=6, max_lifetime_owners=64, lifecycles=lives, max_log_bytes=8 * 1024 ** 2, retained_log_bytes=len(data), sample_count=8, largest_start_interval_ns=100, complete_sample_count=8, sample_gap_count=0, max_read_skew_ns=0, samples=samples, queue_events=events, controller=ctrl, remaining_registered_worker_owners=[], sampler_stopped=True, error=None, unsampled_peak_bound=False)
+    job = dict(mode=mode, concurrency=concurrency, owned_rss={k: v for k, v in rss.items() if k not in ('samples', 'queue_events')}, owned_rss_artifact=dict(path='owned-rss.json', sha256=cost_sha(cost_encoded(rss)), bytes=len(cost_encoded(rss))), owned_telemetry_artifact=dict(path='owned-telemetry.jsonl', sha256=cost_sha(data), bytes=len(data)))
+
+    def read(path, parsed=True):
+        return rss if path == 'owned-rss.json' else data
+    return (job, read, phases, rss, data)
+
+class CostProofTests(unittest.TestCase):
+
+    def test_eight_phase_current_rss_and_typed_telemetry(self):
+        for mode, count in gate._COST_MODES:
+            job, read, phases, _, _ = cost_telemetry(mode, count)
+            self.assertEqual(gate._proof_cost_rss(job, read, phases), dict(peak_sampled_owned_rss_bytes=192, complete_sample_count=8, sample_gap_count=0))
+
+    def test_registry_clock_is_distinct_from_waiting_producer_clock(self):
+        job, _, phases, rss, _ = cost_telemetry()
+        worker = cost_identity(300)
+        first = rss['samples'][0]
+        additions = []
+        for stamp, live in [(101, False), (107, True), (108, False)]:
+            owners = [dict(v, read_started_ns=stamp, read_ended_ns=stamp) for v in first['owners'] if live or v['pid'] != worker['pid']]
+            additions.append(dict(first, started_ns=stamp, ended_ns=stamp, owners=owners, owned_rss_bytes=sum((v['rss_bytes'] for v in owners))))
+        rss['samples'] = sorted(rss['samples'] + additions, key=lambda r: r['started_ns'])
+
+        def bind():
+            lines = [dict(kind='lifecycle', value={k: None if k == 'removed_ns' else v for k, v in row.items() if k != 'removal_scope'}) for row in rss['lifecycles']]
+            lines += [dict(kind='event', value=e) for e in rss['queue_events']] + [dict(kind='sample', value=r) for r in rss['samples']]
+            data = b''.join((cost_encoded(r) + b'\n' for r in lines))
+            rss.update(retained_log_bytes=len(data), sample_count=11, complete_sample_count=11)
+            job['owned_rss'] = {k: v for k, v in rss.items() if k not in ('samples', 'queue_events')}
+            return lambda path, parsed=True: rss if path == 'owned-rss.json' else data
+        self.assertEqual(gate._proof_cost_rss(job, bind(), phases)['complete_sample_count'], 11)
+        rss['lifecycles'][2]['registered_ns'] = 104
+        with self.assertRaises(ValueError):
+            gate._proof_cost_rss(job, bind(), phases)
+
+    def test_peak_label_cannot_substitute_lifetime_maxima(self):
+        job, read, phases, rss, _ = cost_telemetry()
+        rss['peak_sampled_owned_rss_bytes'] = 999
+        job['owned_rss']['peak_sampled_owned_rss_bytes'] = 999
+        with self.assertRaises(ValueError):
+            gate._proof_cost_rss(job, read, phases)
+
+    def test_unregistered_stale_identity_and_cleanup_refusal(self):
+        for field, value in [('identity', 9999), ('cleanup', False)]:
+            job, read, phases, rss, _ = cost_telemetry()
+            if field == 'identity':
+                rss['queue_events'][2]['worker'] = dict(rss['queue_events'][2]['worker'], starttime_ticks=value)
+            else:
+                rss['queue_events'][4]['cleanup']['group_absent'] = value
+            with self.assertRaises(ValueError):
+                gate._proof_cost_rss(job, read, phases)
+
+    def test_resource_cpu_delta_observer_failure_and_bool_rejected(self):
+        for kind in ('cpu', 'observer', 'bool', 'infinity'):
+            _, _, phases, _, _ = cost_telemetry()
+            phase = phases['fresh-output']
+            queue = phase['receipt']['resources']['queued']
+            if kind == 'cpu':
+                queue['worker_resources'][0][0]['file_user_seconds'] = 1
+            elif kind == 'observer':
+                queue['telemetry']['observer_failed'] = True
+            elif kind == 'bool':
+                queue['worker_resources'][0][0]['timings']['parse_seconds'] = True
+            else:
+                phase['wall_seconds'] = float('inf')
+            with self.assertRaises(ValueError):
+                gate._proof_cost_timings(phase)
+
+    def test_missing_cost_and_status_fabrication_fail_closed(self):
+        proof = gate.preselection_cost_proof_checks({'preselection_cost': {'status': 'complete', 'cases': [{'id': 'SYNTHETIC_PRIVATE_ID', 'status': 'complete'}]}})
+        self.assertEqual(proof['status'], 'blocked')
+        self.assertEqual(proof['individual_results'], [])
+        self.assertEqual(proof['observed_records'], [dict(id='cost:0', status='complete')])
+        self.assertNotIn('SYNTHETIC_PRIVATE_ID', json.dumps(proof))
+
+    def test_projection_private_strings_fail_closed(self):
+        wrapper = dict(status='failed', cases=[dict(id='SYNTHETIC_PRIVATE_ID', mode='synthetic.invalid', concurrency=1, repeat=0, status='failed')])
+        with self.assertRaises(ValueError):
+            analysis.compact_preselection_cost(wrapper)
+        wrapper['cases'][0]['mode'] = 'serial'
+        safe = analysis.compact_preselection_cost(wrapper)
+        self.assertNotIn('SYNTHETIC_PRIVATE_ID', json.dumps(safe))
+        self.assertEqual(safe['cases'][0]['id'], 'serial-1-0')
+
+    def test_outer_invocation_requires_actual_wall_exit_and_bound_logs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            evidence = Path(temporary)
+            directory = evidence / ('invocation-' + '1' * 32)
+            directory.mkdir()
+            with SourceRoot(directory) as source:
+                owner = source.identity
+            supervisor = cost_identity(200)
+            full = dict(binding_before={}, binding_after={}, supervisor_envelope=dict(process_identity=supervisor))
+            wrapper = dict(full_private_report=full, archive=dict(directory='native-dual-' + '2' * 32, files=[], bytes=0))
+            stdout = cost_encoded(wrapper)
+            stderr = b''
+            raw = dict(schema_version=1, kind='private_native_dual_invocation', status='complete', directory=directory.name, evidence_owner_identity=owner, wrapper_sha256=gate._COST_INVOCATION_SHA256, wrapper_identity_stable=True, engine_selected=False, qualification_complete=False, source_after_unavailable=False, admitted_wall_exhausted=False, attempts_started=1, returncode=0, wall_seconds=90, measurement_elapsed_seconds=1, elapsed_seconds=1.01, teardown_seconds=0.01, wrapper_isolation=dict(private_cwd=True, private_environment_allowlist=True, isolated_python=True, bytecode_disabled=True), cleanup=dict(signals=[], leader_reaped=True, group_absent=True, returncode=0), process_identity=supervisor, source_before={}, source_after={}, logs={}, supervisor_result=dict(status='complete', kind='native_dual_fixture_profile', cases_retained=9, archive_directory=wrapper['archive']['directory'], archive_bytes=0, stdout_sha256=cost_sha(stdout), stdout_bytes=len(stdout)))
+            for name, payload in [('stdout', stdout), ('stderr', stderr)]:
+                raw['logs'][name] = dict(path=name + '.log', overflow=False, complete=True, sha256=cost_sha(payload), bytes=len(payload), bytes_received=len(payload), bytes_retained=len(payload))
+                (directory / (name + '.log')).write_bytes(payload)
+
+            def bind():
+                (directory / 'invocation.json').write_bytes(cost_encoded(raw))
+                refs = [dict(path=n, sha256=cost_sha((directory / n).read_bytes()), bytes=len((directory / n).read_bytes())) for n in ('invocation.json', 'stdout.log', 'stderr.log')]
+                return dict(invocation=analysis.compact_cost_invocation(raw, directory.name, refs))
+            self.assertEqual(gate._proof_cost_invocation(bind(), evidence)[2]['status'], 'complete')
+            raw['measurement_elapsed_seconds'] = 90.01
+            raw['elapsed_seconds'] = 90.02
+            with self.assertRaises(ValueError):
+                gate._proof_cost_invocation(bind(), evidence)
+            raw.update(measurement_elapsed_seconds=1, elapsed_seconds=1.01, failure=dict(kind='RuntimeError', message='SYNTHETIC_PRIVATE_MESSAGE'))
+            portable = bind()
+            self.assertNotIn('SYNTHETIC_PRIVATE_MESSAGE', json.dumps(portable))
+            with self.assertRaises(ValueError):
+                gate._proof_cost_invocation(portable, evidence)
+            del raw['failure']
+            raw['logs']['stderr']['overflow'] = True
+            with self.assertRaises(ValueError):
+                gate._proof_cost_invocation(bind(), evidence)
+
+    def test_no_owner_from_passed_labels_or_late_proof_failure(self):
+        names = ('syntax_direct_binding', 'reusable_source_screen', 'real_call_quality', 'finite_worker_lifecycle', 'evidence_uncertainty', 'incremental_equivalence', 'bounded_query_work', 'optional_installation')
+        report = dict(case_results=[dict(id=n, status='passed') for n in names], implementation=dict(commit='a' * 40, sha256={p: 'a' * 64 for p in gate._DELIVERY_EXPERIMENT_PATHS}))
+        with patch.object(gate, 'adapter_proof_checks', return_value=dict(status='passed', individual_results={'updates': [dict(status='passed')]})), patch.object(gate, 'preselection_cost_proof_checks', return_value=dict(status='blocked', individual_results=[dict(id='serial-1-0', status='failed')])), patch.object(gate, '_proof_real_call_quality', return_value=dict(source_binding=True, measurements=True)), patch.object(gate, '_proof_component_basics', return_value=dict(syntax=True, screen=True, lifecycle=True)):
+            result = gate.component_selection_decision(report)
+        self.assertFalse(result['engine_selected'])
+        self.assertIsNone(result['selected_owner'])
+        self.assertEqual(result['proofs']['finite_cost']['individual_results'][0]['status'], 'failed')
 
 
 if __name__ == '__main__':

@@ -5,7 +5,7 @@ uv sync --python 3.12 --extra analysis
 uv run python evaluations/analysis.py --engine tree-sitter --suite component
 
 No provider calls, real-corpus download, daemon, dynamic imports of source code,
-or runtime product installation occurs. Results do not select an engine.
+or runtime product installation occurs. Experimental selection requires all component and finite-cost proofs.
 """
 import argparse
 from contextlib import contextmanager
@@ -196,9 +196,20 @@ def record_task(root, task, result, artifact, maximum):
     }
     report.update(gate='code-understanding-progress', status='in_progress',
                   engine_selected=False, qualification_complete=False,
-                  limits=['Task-scoped component and source-screen evidence; no structural owner selected.',
+                  limits=['Task-scoped component evidence; any selected owner remains experimental until later product qualification.',
                           'The approved independent AI source key does not provide human UX or agent-answer grading.',
-                          'Incremental, query, scale, agent, human and distribution gates remain incomplete.'])
+                          'Recorded finite update/query proofs do not qualify full T008 scale, agent, human, distribution or release gates.'])
+    if task == 'T007':
+        from evaluations.acceptance import experimental_owner_binding
+        selected = (result.get('status') == 'passed' and result.get('engine_selected') is True and
+            result.get('selected_owner') == 'native-tree-sitter' and
+            result.get('owner_binding') == experimental_owner_binding(result))
+        report['tasks'][task].update(engine_selected=selected,
+            selected_owner=result.get('selected_owner') if selected else None,
+            owner_binding=result.get('owner_binding') if selected else None,
+            qualification_complete=False, selection_scope=result.get('selection_scope'))
+        report.update(engine_selected=selected, selected_owner=result.get('selected_owner') if selected else None,
+            selection_scope=result.get('selection_scope'), qualification_complete=False)
     write_result(root, path, report, maximum)
 
 
@@ -359,7 +370,7 @@ def comparison_identity(root=ROOT):
              'evaluations/code-understanding/supplement-oracle.json',
              'evaluations/code-understanding/supplement-lock.json',
              'evaluations/code-understanding/source-target-lock.json',
-             'evaluations/code-understanding/source-target-locations.json', 'pyproject.toml', 'uv.lock')
+             'evaluations/code-understanding/source-target-locations.json', 'evaluations/performance.py', 'repo_graph/__init__.py', 'repo_graph/builder.py', 'repo_graph/search.py', 'evaluations/code-understanding/engine-decisions.json', 'pyproject.toml', 'uv.lock')
     with SourceRoot(root) as source:
         hashes = {path: source.read(path, 1024 * 1024, hash_full=True)[1] for path in paths}
     return {'source_identity': identity, 'commit': subprocess.check_output(
@@ -417,8 +428,233 @@ def compact_attempt(attempt):
     return result
 
 
+def compact_preselection_cost(wrapper):
+    """Export finite source-free costs; actual proof remains in the bound archive."""
+    from evaluations.acceptance import _COST_MODES, _COST_PHASES, _COST_HELPERS, _proof_frozen
+    def select(value, fields):
+        return {k: value[k] for k in fields.split() if k in value} if type(value) is dict else {}
+    statuses = {'complete', 'failed', 'running', 'blocked', 'missing', 'invalid_identity',
+        'equivalence_failed', 'measurement_failed', 'evidence_failed', 'admission_failed', 'cleanup_failed'}
+    def status(value):
+        return value if type(value) is str and value in statuses else 'malformed'
+    def error(value):
+        known = {'OSError', 'ValueError', 'RuntimeError', 'TypeError', 'KeyError', 'MemoryError',
+                 'RecursionError', 'AttributeError', 'TimeoutExpired', 'BackendUnavailable'}
+        kind = value.get('error_kind', value.get('kind')) if type(value) is dict else None
+        return {'error_kind': kind if type(kind) is str and kind in known else 'OtherError'}
+    report = wrapper.get('full_private_report', wrapper)
+    result = dict(select(report, 'schema_version kind engine_selected qualification_complete '
+        'measurement_defaults_qualified large_corpus_profiled phase_semantic_agreement'), status=status(report.get('status')))
+    if 'archive' in wrapper:
+        archive = wrapper['archive']; jobs = {f'{m}-{c}-{n}' for m,c in _COST_MODES for n in range(3)}
+        if type(archive) is not dict or set(archive) != {'directory', 'files', 'bytes'} or \
+            type(archive['directory']) is not str or re.fullmatch(r'native-dual-[0-9a-f]{32}', archive['directory']) is None:
+            raise ValueError('Unknown cost archive shape')
+        # Only fixed producer filenames can enter a public reference. The raw
+        # archive validator subsequently verifies all bytes and its full inventory.
+        simple = set(_COST_PHASES) | {p+'.facts' for p in _COST_PHASES} | {'control', 'result', 'owned-rss'}
+        for row in archive['files']:
+            path = row['path']; parts = SourceRoot.parts(path)
+            safe = path == 'report.json'
+            if len(parts) == 2 and parts[0] in jobs:
+                safe |= parts[1] in {n+'.json' for n in simple} | {'stdout.log', 'stderr.log', 'owned-telemetry.jsonl'}
+            if len(parts) in (3,4) and parts[0] in jobs and re.fullmatch(r'run-[0-9a-f]{32}', parts[1]):
+                safe |= len(parts) == 3 and parts[2] == 'receipt.json'
+                safe |= len(parts) == 4 and re.fullmatch(r'worker-[0-3]', parts[2]) is not None and parts[3] in {
+                    'stdout.log', 'stderr.log', 'control.json', 'ready.json', 'request.json', 'source.bin', 'payload.json', 'result.json'}
+            if not safe: raise ValueError('Unknown finite cost archive reference')
+        result['archive'] = archive
+    for key in ('binding_before', 'binding_after'):
+        result[key] = select(report.get(key), 'measured_commit implementation input_binding root_identity backend')
+    for key in ('failure', 'identity_failure'):
+        if key in report: result[key] = error(report[key])
+    envelope = report.get('supervisor_envelope', {})
+    result['supervisor_envelope'] = select(envelope, 'address_space_soft_bytes address_space_hard_bytes '
+        'cpu_soft_seconds cpu_hard_seconds core_bytes file_bytes whole_wall_seconds limits_qualified sigxcpu_default')
+    result['cases'] = []
+    for position, row in enumerate(report.get('cases', [])):
+        item = select(row, 'mode concurrency repeat returncode identity_verified cleanup report_artifact logs')
+        expected = next((f'{m}-{c}-{n}' for m,c in _COST_MODES for n in range(3) if
+            row.get('mode') == m and type(row.get('concurrency')) is int and row['concurrency'] == c and
+            type(row.get('repeat')) is int and row['repeat'] == n), None)
+        item.update(id=expected or f'cost:{position}', status=status(row.get('status')))
+        item['cleanup'] = select(row.get('cleanup'), 'signals leader_reaped group_absent returncode')
+        item['logs'] = [select(v, 'path sha256 bytes complete') for v in row.get('logs', [])]
+        for key in ('failure', 'identity_failure'):
+            if key in row: item[key] = error(row[key])
+        job = row.get('report') or {}
+        item['source_owner_identity'] = job.get('source_owner_identity')
+        rss = job.get('owned_rss') or {}
+        item['owned_rss'] = select(rss, 'peak_sampled_owned_rss_bytes sample_count complete_sample_count '
+            'sample_gap_count largest_start_interval_ns max_read_skew_ns requested_interval_seconds '
+            'sampler_stopped unsampled_peak_bound retained_log_bytes max_samples max_live_owners max_lifetime_owners')
+        for key in ('owned_rss_artifact', 'owned_telemetry_artifact'):
+            item[key] = select(job.get(key), 'path sha256 bytes')
+        item['phases'] = []
+        for index, phase in enumerate(job.get('phases', [])):
+            p = select(phase, 'wall_seconds observed_attempt_seconds proof_retention_seconds')
+            p.update(label=phase.get('label') if phase.get('label') in _COST_PHASES else f'phase:{index}',
+                     status=status(phase.get('status')))
+            p['stages'] = {k: select(v, 'calls inclusive_seconds') for k,v in phase.get('stages', {}).items()
+                if k in {'source_read', 'collection_controller', 'handoff_decode', 'cache_decode', 'cache_encode',
+                         'global_resolution', 'snapshot_construction'}}
+            p['facts_artifact'] = select(phase.get('facts_artifact'), 'path sha256 bytes')
+            p['receipt'] = compact_attempt(phase['receipt']) if 'receipt' in phase else None
+            queued = phase.get('receipt', {}).get('resources', {}).get('queued', {})
+            timing = queued.get('telemetry', {})
+            p['controller_timings'] = select(timing.get('controller_timings'), 'mailbox_write_seconds mailbox_read_seconds '
+                'receipt_decode_seconds handoff_decode_seconds admission_seconds observer_seconds')
+            p['observer'] = select(timing, 'observer_events_delivered observer_failed actual_workers_started')
+            p['file_costs'] = [{**select(v, 'file_user_seconds file_system_seconds'),
+                'timings': select(v.get('timings'), 'backend_setup_seconds parse_seconds traversal_lowering_seconds '
+                    'collect_elapsed_seconds handoff_serialize_seconds')} for worker in queued.get('worker_resources', []) for v in worker]
+            for key in ('error', 'measurement_error', 'evidence_failure'):
+                if key in phase: p[key] = error(phase[key])
+            item['phases'].append(p)
+        result['cases'].append(item)
+    result['scope'] = 'Finite frozen24-file costs only; sampled current RSS includes measurement overhead; no scale/default qualification'
+    # A malformed private receipt must not turn a nested arbitrary string/key
+    # into a public value before archive/source admission. Fixed paths come
+    # only from locked inputs or the bounded producer filename grammar above.
+    vocabulary = statuses | {'malformed', 'OtherError', 'native_dual_fixture_profile', 'serial', 'queued',
+        'parsed', 'configuration', 'SIGTERM', 'SIGKILL', result['scope']} | set(_COST_PHASES) | set(_COST_HELPERS)
+    vocabulary |= {'OSError', 'ValueError', 'RuntimeError', 'TypeError', 'KeyError', 'MemoryError',
+        'RecursionError', 'AttributeError', 'TimeoutExpired', 'BackendUnavailable'}
+    vocabulary |= {f'{m}-{c}-{n}' for m,c in _COST_MODES for n in range(3)}
+    vocabulary |= {f'cost:{n}' for n in range(9)} | {f'phase:{n}' for n in range(8)}
+    vocabulary |= set(PINS) | set(PINS.values())
+    if 'archive' in result:
+        vocabulary |= {result['archive']['directory']} | {r['path'] for r in result['archive']['files']}
+        vocabulary |= {Path(r['path']).name for r in result['archive']['files']}
+        vocabulary |= set(_proof_frozen(ROOT)['binding'])
+    keys = set('schema_version kind engine_selected qualification_complete measurement_defaults_qualified '
+        'large_corpus_profiled phase_semantic_agreement status archive directory files path sha256 bytes '
+        'binding_before binding_after measured_commit implementation input_binding root_identity backend '
+        'failure identity_failure error_kind supervisor_envelope address_space_soft_bytes address_space_hard_bytes '
+        'cpu_soft_seconds cpu_hard_seconds core_bytes file_bytes whole_wall_seconds limits_qualified sigxcpu_default '
+        'cases mode concurrency repeat returncode identity_verified cleanup report_artifact logs id signals '
+        'leader_reaped group_absent complete source_owner_identity owned_rss peak_sampled_owned_rss_bytes '
+        'sample_count complete_sample_count sample_gap_count largest_start_interval_ns max_read_skew_ns '
+        'requested_interval_seconds sampler_stopped unsampled_peak_bound retained_log_bytes max_samples '
+        'max_live_owners max_lifetime_owners owned_rss_artifact owned_telemetry_artifact phases wall_seconds '
+        'observed_attempt_seconds proof_retention_seconds label stages calls inclusive_seconds source_read '
+        'collection_controller handoff_decode cache_decode cache_encode global_resolution snapshot_construction '
+        'facts_artifact receipt controller_timings mailbox_write_seconds mailbox_read_seconds receipt_decode_seconds '
+        'handoff_decode_seconds admission_seconds observer_seconds observer observer_events_delivered observer_failed '
+        'actual_workers_started file_costs file_user_seconds file_system_seconds timings backend_setup_seconds '
+        'parse_seconds traversal_lowering_seconds collect_elapsed_seconds handoff_serialize_seconds error '
+        'measurement_error evidence_failure scope generation source_identity semantic_facts_sha256 counts definitions '
+        'sites previous_generation stop_reason cache_or_ready_snapshot_published inventory_sha256 inventory_status_counts '
+        'source_failures validation_failures collector_failures resolution_errors remaining_inventory resources '
+        'source_bytes digest_read_bytes digest_read_operations changed_files_collected unchanged_source_collections_reused '
+        'all_admitted_bindings_reresolved elapsed_seconds resolve collected_nodes facts_emitted queued '
+        'configured_concurrency workers_started files_admitted files_collected collected_handoff_bytes '
+        'collected_definitions peak_inflight_reserved_bytes worker_file_hard_limit_bytes limits max_request_bytes '
+        'max_result_bytes max_inflight_bytes max_admitted_bytes memory_bytes cpu_seconds worker_wall_seconds '
+        'total_wall_seconds log_bytes worker_summaries observed_requests observed_request_elapsed_seconds_sum '
+        'process_peak_rss_bytes process_user_seconds process_system_seconds worker_isolation python_isolated_mode '
+        'bytecode_writes_disabled user_site_disabled private_environment own_session_and_group controller_death_signal '
+        'requests mailboxes_removed index language record errno reason'.split()) | vocabulary
+    def guard(value):
+        if type(value) is dict:
+            if not set(value) <= keys: raise ValueError('Unknown cost projection field')
+            for child in value.values(): guard(child)
+        elif type(value) is list:
+            for child in value: guard(child)
+        elif type(value) is str:
+            if value not in vocabulary and re.fullmatch(r'(?:[0-9a-f]{40}|[0-9a-f]{64})', value) is None:
+                raise ValueError('Unknown cost projection string')
+        elif value is not None and type(value) not in (bool, int, float):
+            raise ValueError('Unknown cost projection primitive')
+        elif type(value) in (int, float) and (not math.isfinite(value) or abs(value) > 2**63-1):
+            raise ValueError('Unbounded cost projection number')
+    guard(result)
+    return result
+
+
+
+def compact_cost_invocation(raw, directory, references):
+    """Fixed public counters/references; no private PID, path or error text."""
+    if re.fullmatch(r'invocation-[0-9a-f]{32}', directory) is None:
+        raise ValueError('Unknown cost invocation directory')
+    states = {'complete', 'failed', 'running', 'invalid_identity', 'cleanup_failed', 'deadline_exceeded'}
+    result = {k: raw[k] for k in ('schema_version', 'wrapper_sha256', 'wrapper_identity_stable',
+        'wall_seconds', 'measurement_elapsed_seconds', 'elapsed_seconds', 'teardown_seconds',
+        'attempts_started', 'returncode', 'source_after_unavailable', 'admitted_wall_exhausted') if k in raw}
+    result.update(directory=directory, owner_identity=raw.get('evidence_owner_identity'), files=references,
+        status=raw.get('status') if raw.get('status') in states else 'malformed')
+    result['cleanup'] = {k: v for k,v in (raw.get('cleanup') or {}).items()
+        if k in {'signals', 'leader_reaped', 'group_absent', 'returncode'}}
+    result['isolation'] = {k: v for k,v in (raw.get('wrapper_isolation') or {}).items()
+        if k in {'private_cwd', 'private_environment_allowlist', 'isolated_python', 'bytecode_disabled'}}
+    for key in ('failure', 'source_after_failure', 'cleanup_failure'):
+        if key in raw:
+            kind = raw[key].get('kind') if type(raw[key]) is dict else None
+            known = {'OSError', 'ValueError', 'RuntimeError', 'TypeError', 'KeyError',
+                'TimeoutError', 'TimeoutExpired', 'MemoryError', 'RecursionError', 'KeyboardInterrupt'}
+            result[key] = {'error_kind': kind if kind in known else 'OtherError'}
+    # Direct counters are typed before being exported; malformed private strings
+    # cannot acquire a public slot even when the raw invocation failed.
+    for key in ('wrapper_sha256', 'owner_identity'):
+        if re.fullmatch(r'[0-9a-f]{64}', result.get(key) or '') is None:
+            raise ValueError('Typed invocation source/owner digest required')
+    for key in ('schema_version', 'wall_seconds', 'attempts_started'):
+        if key in result and (type(result[key]) is not int or not 0 <= result[key] < 2**63):
+            raise ValueError('Typed invocation counter required')
+    if result.get('returncode') is not None and type(result['returncode']) is not int:
+        raise ValueError('Typed invocation return code required')
+    for key in ('measurement_elapsed_seconds', 'elapsed_seconds', 'teardown_seconds'):
+        if key in result and (type(result[key]) not in (int,float) or not math.isfinite(result[key]) or not 0 <= result[key] < 2**63):
+            raise ValueError('Finite invocation timing required')
+    for key in ('wrapper_identity_stable', 'source_after_unavailable', 'admitted_wall_exhausted'):
+        if key in result and type(result[key]) is not bool:
+            raise ValueError('Typed invocation observation required')
+    if any(type(v) is not bool for v in result['isolation'].values()) or any(
+        type(result['cleanup'][k]) is not bool for k in ('leader_reaped','group_absent') if k in result['cleanup']) or \
+        any(v not in ('SIGTERM','SIGKILL') for v in result['cleanup'].get('signals',[])):
+        raise ValueError('Typed invocation isolation/cleanup required')
+    if 'returncode' in result['cleanup'] and result['cleanup']['returncode'] is not None and type(result['cleanup']['returncode']) is not int:
+        raise ValueError('Typed cleanup return code required')
+    return result
+
+def read_preselection_cost(path):
+    """Read an evidence-only private wrapper; never launch or retry a profiler."""
+    if path is None:
+        return {'status': 'missing', 'engine_selected': False, 'qualification_complete': False, 'cases': []}
+    from evaluations.acceptance import _proof_directory, _proof_value, read_json as strict_read
+    try:
+        path = Path(path); parent, owner = _proof_directory(path.parent)
+        if path.name != 'stdout.log': raise ValueError('Fixed cost invocation output required')
+        references = []
+        with SourceRoot(parent) as source:
+            wrapper, _ = strict_read(source, path.name, 8 * 1024 * 1024)
+            receipt, _ = strict_read(source, 'invocation.json', 256 * 1024)
+            for name in ('invocation.json', 'stdout.log', 'stderr.log'):
+                cap = 256 * 1024 if name == 'invocation.json' else 8 * 1024 * 1024
+                raw, sha, info = source.read(name, cap+1, hash_full=False)
+                if len(raw) != info.st_size or len(raw) > cap: raise ValueError('Complete bounded invocation file required')
+                references.append({'path': name, 'sha256': sha, 'bytes': len(raw)})
+            if source.identity != receipt.get('evidence_owner_identity'):
+                raise ValueError('Cost invocation receipt owner changed')
+        _proof_value(wrapper); _proof_value(receipt)
+        result = compact_preselection_cost(wrapper)
+        result['invocation'] = compact_cost_invocation(receipt, parent.name, references)
+        if _proof_directory(parent)[1] != owner: raise ValueError('Cost invocation owner changed')
+        return result
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, MemoryError, RecursionError) as error:
+        raw = wrapper.get('full_private_report', wrapper) if type(locals().get('wrapper')) is dict else None
+        rows = raw.get('cases', []) if type(raw) is dict else []
+        if type(rows) is not list: rows = []
+        states = {'complete', 'failed', 'blocked', 'missing', 'cleanup_failed', 'invalid_identity', 'measurement_failed'}
+        return {'status': 'blocked', 'error_kind': type(error).__name__, 'engine_selected': False,
+                'qualification_complete': False, 'cases': [{'id': f'cost:{n}', 'status': row.get('status')
+                    if row.get('status') in states else 'malformed'} for n,row in enumerate(rows[:9]) if type(row) is dict]}
+
+
 def compact_adapter_result(report, kind):
     """Full responses stay in a bound private archive; portable occurrence proofs remain."""
+    if kind == 'preselection_cost':
+        return compact_preselection_cost(report)
     def select(value, names):
         return {key: value[key] for key in names.split() if key in value}
     archive = report.get('archive')
@@ -532,11 +768,12 @@ def compact_adapter_result(report, kind):
     return result
 
 
-def compare_component(source_map, work_root=None):
+def compare_component(source_map, work_root=None, preselection_cost_report=None):
     """Run source-only experiments; absent capabilities cannot select an owner."""
     from evaluations.real_calls import compare_real_calls
     from evaluations.engine_checks import run_checks, run_updates, run_queries, run_missing_backend
     captured = comparison_identity()
+    cost = read_preselection_cost(preselection_cost_report or os.environ.get('REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT'))
     syntax, screen = component(), screen_engines()
     real = compare_real_calls(source_map)
     with worker_directory(source_map, work_root) as directory:
@@ -569,23 +806,36 @@ def compare_component(source_map, work_root=None):
         {'id': 'bounded_query_work', 'status': queries['status'],
          'scope': 'Ten frozen query assertions in each mode; exact physical occurrences, pages, work and bytes retained'},
     ]
-    return {'schema_version': 1, 'experiment': 'component-engine-comparison', 'status': 'blocked',
+    result = {'schema_version': 1, 'experiment': 'component-engine-comparison', 'status': 'blocked',
         'engine_selected': False, 'selected_owner': None, 'qualification_complete': False,
         'source_identity': real['source_identity'], 'source_map_sha256': real['source_map_sha256'],
         'implementation': {k: captured[k] for k in ('commit', 'sha256')},
         'scope': 'Finite component comparison; no product owner selected',
         'component': syntax, 'real_calls': real, 'lifecycle': lifecycle, 'source_screen': screen,
-        'updates': updates, 'queries': queries, 'missing_backend': missing,
+        'updates': updates, 'queries': queries, 'missing_backend': missing, 'preselection_cost': cost,
         'case_results': gates, 'coverage_failures': syntax['coverage_failures'],
         'blocking_gates': [c['id'] for c in gates if c['status'] != 'passed'],
         'decision': {'native': 'unqualified', 'reusable': 'source-rejected or install-blocked; no reusable engine executed',
                      'owner': 'unselected', 'automatic_rewrite': False},
-        'remaining_gates': ['measured resource budgets before owner selection',
-                            'scale/update/query measurements', 'agent', 'independent human UX', 'distribution', 'release'],
+        'remaining_gates': ['full T008 capacity and measured defaults',
+                            'representative scale/update/query measurements', 'agent', 'independent human UX', 'distribution', 'release'],
         'limitations': ['Parser syntax alone is not call resolution; individual binding/unknown/candidate results retained.',
             'Passing an experiment would not qualify the later human-facing product.',
             'Component mode equivalence does not establish supported semantics, large-corpus throughput or combined process RSS.',
-            'Source-quality failures and unqualified reference resource budgets prevent selection.']}
+            'Finite fixture cost evidence cannot qualify reference resource budgets or resource defaults.']}
+    from evaluations.acceptance import component_selection_decision
+    decision = component_selection_decision(result, root=ROOT,
+        evidence_root=work_root, source_map=source_map)
+    result.update({k: decision[k] for k in ('status', 'engine_selected', 'selected_owner', 'owner_binding',
+        'qualification_complete', 'measurement_defaults_qualified', 'selection_scope')})
+    result['selection_proofs'] = decision['proofs']
+    result['blocking_gates'] += decision['blocking_proofs']
+    result['scope'] = decision['selection_scope']
+    result['decision'].update(native='experimentally selected' if result['engine_selected'] else 'unqualified',
+        owner=result['selected_owner'] or 'unselected')
+    if comparison_identity() != captured:
+        raise ValueError('Comparison inputs or implementation changed during selection validation')
+    return result
 
 
 def compact_profile_result(result):
@@ -803,6 +1053,7 @@ def main(argv=None):
     parser.add_argument('--source-map', type=Path, default=os.environ.get('REPO_GRAPH_EVAL_SOURCE_MAP'),
                         help='private pinned source map; alternatively REPO_GRAPH_EVAL_SOURCE_MAP')
     parser.add_argument('--work-root', type=Path, help='private directory outside all source roots')
+    parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
     parser.add_argument('--suite', choices=['component'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
@@ -816,6 +1067,8 @@ def main(argv=None):
         args.max_result_bytes = (2 if args.compare else 1) * 1024 * 1024
     if args.freeze_budgets and not args.profile:
         parser.error('--freeze-budgets requires --profile')
+    if args.preselection_cost_report and not args.compare:
+        parser.error('--preselection-cost-report requires --compare')
     if args.profile_report and not args.profile:
         parser.error('--profile-report requires --profile')
     default = ('evaluations/results/code-understanding/engine-comparison.json' if args.compare else
@@ -832,13 +1085,13 @@ def main(argv=None):
                           'case_results': [], 'reason': 'Private pinned --source-map or REPO_GRAPH_EVAL_SOURCE_MAP required',
                           'engine_selected': False, 'qualification_complete': False}
             else:
-                result = (compare_component(args.source_map, args.work_root) if args.compare else
+                result = (compare_component(args.source_map, args.work_root, args.preselection_cost_report) if args.compare else
                           profile_component(args.source_map, args.work_root, args.freeze_budgets, args.profile_report))
             size = write_result(ROOT, args.output, result, args.max_result_bytes)
             if args.output == default:
                 record_task(ROOT, 'T007' if args.compare else 'T008', result, args.output, args.max_result_bytes)
             print(json.dumps({'status': result['status'], 'result': args.output, 'result_bytes': size,
-                              'engine_selected': False, 'qualification_complete': False}))
+                              'engine_selected': result.get('engine_selected') is True, 'qualification_complete': False}))
             return 0 if result['status'] == 'passed' else 1
         if args.screen_engines:
             result = screen_engines()

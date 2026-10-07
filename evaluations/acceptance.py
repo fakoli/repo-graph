@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 import platform
 import subprocess
@@ -444,7 +445,7 @@ def _proof_archive(portable, kind, evidence_root):
     archive = portable['archive']
     _proof_require(type(archive) is dict and set(archive) == {'directory', 'files', 'bytes'}, 'Archive shape')
     name = _proof_path(archive['directory'])
-    prefix = {'updates': 'updates-', 'queries': 'queries-', 'missing_backend': 'missing-backend-'}[kind]
+    prefix = {'updates': 'updates-', 'queries': 'queries-', 'missing_backend': 'missing-backend-', 'preselection_cost': 'native-dual-'}[kind]
     _proof_require(name.startswith(prefix) and len(name) == len(prefix) + 32 and
                    all(c in '0123456789abcdef' for c in name[len(prefix):]), 'Finite adapter archive directory')
     references = archive['files']
@@ -508,7 +509,7 @@ def _proof_frozen(root):
         lock, lock_sha = read_json(source, INPUTS + 'supplement-lock.json')
     binding = dict(lock['sha256'], **{INPUTS + 'supplement-lock.json': lock_sha})
     _proof_require(len(binding) == 31 and committed(root, binding), 'Exactly31 committed frozen artifacts')
-    return {'fixture': fixture, 'source': manifest, 'oracle': oracle, 'binding': binding, 'lock_sha': lock_sha}
+    return {'fixture': fixture, 'source': manifest, 'oracle': oracle, 'binding': binding, 'lock_sha': lock_sha, 'preparation': prepared}
 
 
 def _proof_binding(raw, kind, root, frozen, hashes, revision):
@@ -1208,7 +1209,7 @@ _DELIVERY_EXPERIMENT_PATHS = ('evaluations/analysis.py', 'evaluations/acceptance
     'evaluations/supplement_preparation.py', 'evaluations/code-understanding/supplement-source.json',
     'evaluations/code-understanding/supplement-oracle.json', 'evaluations/code-understanding/supplement-lock.json',
     'evaluations/code-understanding/source-target-lock.json', 'evaluations/code-understanding/source-target-locations.json',
-    'pyproject.toml', 'uv.lock')
+    'evaluations/performance.py', 'repo_graph/__init__.py', 'repo_graph/builder.py', 'repo_graph/search.py', 'evaluations/code-understanding/engine-decisions.json', 'pyproject.toml', 'uv.lock')
 
 
 def _proof_delivery(root, measured, hashes, *, validation_commit=None):
@@ -1390,6 +1391,632 @@ def adapter_proof_checks(report, *, root=ROOT, evidence_root=None, source_map=No
             'Helper bytes are bound to current disk and commit; this is not general module-load attestation.']}
 
 
+
+
+_COST_MODES = (('serial', 1), ('queued', 2), ('queued', 4))
+_COST_PHASES = ('fresh-output', 'unchanged-repeat', 'U-PY-BODY-reset-prime',
+    'U-PY-BODY-changed', 'U-PY-BODY-clean-rebuild', 'U-PY-EXPORT-reset-prime',
+    'U-PY-EXPORT-changed', 'U-PY-EXPORT-clean-rebuild')
+_COST_HELPERS = tuple(sorted(set(_ADAPTER_HELPERS) | {'evaluations/performance.py',
+    'evaluations/real_calls.py', 'evaluations/supplement_preparation.py',
+    'repo_graph/__init__.py', 'repo_graph/builder.py', 'repo_graph/search.py',
+    'evaluations/code-understanding/engine-decisions.json', 'pyproject.toml', 'uv.lock'}))
+
+
+def _proof_cost_sources(frozen, phase):
+    """Apply only independently locked source operations, after production."""
+    base = {r['path']: r['content_utf8'].encode() for r in frozen['source']['files']}
+    records = [{k: r[k] for k in ('path', 'language', 'kind', 'sha256', 'bytes')}
+               for r in frozen['source']['files']]
+    _proof_require(len(base) == len(records) == 24, 'Exact finite cost source inventory')
+    changed = dict(base)
+    if phase.endswith(('-changed', '-clean-rebuild')):
+        name = phase.rsplit('-', 1)[0] if phase.endswith('-changed') else phase[:-14]
+        updates = [u for u in frozen['source']['updates'] if u['id'] == name]
+        _proof_require(len(updates) == 1 and len(updates[0]['operations']) == 1, 'Locked finite cost mutation')
+        op = updates[0]['operations'][0]; path = op['path']; before = changed[path]
+        _proof_require(op['op'] == 'replace' and type(op['occurrences']) is int and op['occurrences'] == 1 and
+            digest(before) == op['sha256_before'] and before.count(op['old'].encode()) == 1, 'Exact before mutation bytes')
+        changed[path] = before.replace(op['old'].encode(), op['new'].encode())
+        _proof_require(digest(changed[path]) == op['sha256_after'], 'Exact after mutation bytes')
+    metadata = [dict(r, bytes=len(changed[r['path']]), sha256=digest(changed[r['path']])) for r in records]
+    return base, changed, records, metadata
+
+
+def _proof_cost_timings(phase):
+    from evaluations import queued_collector as queue
+    _proof_require(_proof_number(phase['wall_seconds']) and _proof_number(phase['proof_retention_seconds']) and
+        _proof_number(phase['observed_attempt_seconds']) and phase['observed_attempt_seconds'] + .001 >=
+        phase['wall_seconds'] + phase['proof_retention_seconds'],
+                   'Finite refresh and separate proof-retention time')
+    stages = phase['stages']
+    allowed = {'source_read', 'collection_controller', 'handoff_decode', 'cache_decode',
+               'cache_encode', 'global_resolution', 'snapshot_construction'}
+    _proof_require(type(stages) is dict and set(stages) <= allowed and
+        {'source_read', 'collection_controller', 'global_resolution', 'snapshot_construction'} <= set(stages),
+        'Required inclusive stage observations')
+    for row in stages.values():
+        _proof_require(type(row) is dict and set(row) == {'calls', 'inclusive_seconds'} and
+            _proof_int(row['calls'], 10000) and row['calls'] > 0 and
+            _proof_number(row['inclusive_seconds']) and row['inclusive_seconds'] <= phase['wall_seconds'] + .001,
+            'Typed inclusive stage time')
+    queued = phase['receipt']['resources']['queued']; observed = queued['telemetry']
+    _proof_require(not any(k in phase for k in ('error', 'measurement_error', 'evidence_failure')) and
+        queued['limits']['memory_bytes'] == 512*1024**2 and queued['limits']['cpu_seconds'] == 30 and
+        0 < queued['limits']['total_wall_seconds'] <= 20 and 0 < queued['limits']['worker_wall_seconds'] <= 20,
+        'Actual unchanged finite collector caps and no relabelled phase failure')
+    _proof_require(type(observed) is dict and set(observed) == {'schema_version', 'controller_timings',
+        'controller_identity', 'observer_events_delivered', 'observer_failed', 'observer_failure_reason',
+        'actual_workers_started', 'worker_process_identities'} and type(observed['schema_version']) is int and
+        observed['schema_version'] == 1 and observed['observer_failed'] is False and
+        observed['observer_failure_reason'] is None and _proof_int(observed['observer_events_delivered'], 10000) and
+        observed['observer_events_delivered'] > 0 and type(observed['actual_workers_started']) is int and
+        observed['actual_workers_started'] == queued['workers_started'], 'Measured queue observer success')
+    timings = observed['controller_timings']
+    _proof_require(type(timings) is dict and set(timings) == set(queue.CONTROLLER_TIMINGS) and
+        all(_proof_number(v) and v <= queued['elapsed_seconds'] + .001 for v in timings.values()),
+        'Typed controller mailbox/decode/admission times')
+    queue._process_valid(observed['controller_identity'])
+    identities = observed['worker_process_identities']
+    _proof_require(type(identities) is list and len(identities) == queued['workers_started'], 'Actual observed worker identities')
+    for identity in identities:
+        queue._process_valid(identity)
+        _proof_require(identity['pid'] == identity['pgid'] == identity['sid'], 'Owned worker session identity')
+    for worker in queued['worker_resources']:
+        for resource in worker:
+            queue._resources(resource, telemetry=True)
+    return observed
+
+
+def _proof_cost_rss(job, read, phases):
+    """Recompute current RSS sums and explicit ownership from immutable telemetry."""
+    from evaluations import queued_collector as queue
+    rss = read(job['owned_rss_artifact']['path'])
+    data = read(job['owned_telemetry_artifact']['path'], parsed=False)
+    _proof_require(len(data) <= 8 * 1024 * 1024 and len(data.splitlines()) <= 20064, 'Finite durable telemetry log')
+    from evaluations.supplement_preparation import decode
+    lines = [decode(line) for line in data.splitlines()]
+    _proof_require(all(type(row) is dict and set(row) == {'kind', 'value'} and
+        row['kind'] in ('sample', 'event', 'lifecycle') for row in lines), 'Typed durable telemetry rows')
+    _proof_require(type(rss) is dict and rss['schema_version'] == 1 and type(rss['schema_version']) is int and
+        rss['label'] == 'peak_sampled_owned_rss_bytes' and rss['error'] is None and
+        rss['sampler_stopped'] is True and rss['remaining_registered_worker_owners'] == [] and
+        rss['unsampled_peak_bound'] is False and rss['requested_interval_seconds'] == .025 and
+        rss['max_samples'] == 4000 and rss['max_live_owners'] == 6 and rss['max_lifetime_owners'] == 64 and
+        rss['max_log_bytes'] == 8 * 1024 * 1024, 'Finite sampled RSS scope; no lifetime sum or hard-peak claim')
+    _proof_require(job['owned_rss'] == {k: v for k, v in rss.items() if k not in ('samples', 'queue_events')},
+                   'Raw RSS summary must match bound artifact')
+    samples, events, lives = rss['samples'], rss['queue_events'], rss['lifecycles']
+    _proof_require(type(samples) is list and 0 < len(samples) <= 4000 and type(events) is list and
+        0 < len(events) <= 10000 and type(lives) is list and 2 <= len(lives) <= 64 and
+        [r['value'] for r in lines if r['kind'] == 'sample'] == samples and
+        [r['value'] for r in lines if r['kind'] == 'event'] == events, 'Full durable samples/events retained')
+    _proof_require(type(rss['retained_log_bytes']) is int and rss['retained_log_bytes'] == len(data) and
+        all(_proof_int(rss[k], 2**63-1) for k in ('sample_count', 'complete_sample_count', 'sample_gap_count',
+            'peak_sampled_owned_rss_bytes', 'max_read_skew_ns')), 'Typed retained sampler counters')
+    durable_lives = [r['value'] for r in lines if r['kind'] == 'lifecycle']
+    _proof_require(durable_lives == [{k: (None if k == 'removed_ns' else v) for k, v in row.items()
+        if k != 'removal_scope'} for row in lives], 'Every observed owner registration retained')
+    window = rss['sample_window']
+    _proof_require(type(window) is dict and set(window) == {'started_ns', 'ended_ns'} and
+        all(_proof_int(v, 2**63-1) for v in window.values()) and window['started_ns'] <= window['ended_ns'], 'Finite RSS window')
+    for row in lives:
+        queue._process_valid(row['identity'])
+        _proof_require(row['role'] in ('controller', 'supervisor', 'worker') and
+            _proof_int(row['registered_ns'], 2**63-1) and _proof_int(row['removed_ns'], 2**63-1) and
+            window['started_ns'] <= row['registered_ns'] <= row['removed_ns'] <= window['ended_ns'], 'Finite owner lifetime')
+    life_by_identity = {tuple(r['identity'][k] for k in ('pid', 'starttime_ticks', 'pgid', 'sid')): r for r in lives}
+    _proof_require(len(life_by_identity) == len(lives), 'Unique observed owner lifetimes')
+    controller = rss['controller']; queue._process_valid(controller)
+    _proof_require(controller['pid'] == controller['pgid'] == controller['sid'] and
+        len([r for r in lives if r['role'] == 'controller' and r['identity'] == controller]) == 1 and
+        len([r for r in lives if r['role'] == 'supervisor']) == 1, 'Controller plus direct owned supervisor sampled')
+    registered, pending, event_by_phase, previous_ns = {}, {}, {}, 0
+    for row in events:
+        _proof_require(type(row) is dict and row['phase'] in _COST_PHASES, 'Known measured phase event')
+        event = {k: v for k, v in row.items() if k != 'phase'}; queue._event_valid(event)
+        _proof_require(event['event'] != 'failure' and event['controller'] == controller and
+            event['mode'] == job['mode'] and event['configured_concurrency'] == job['concurrency'] and
+            previous_ns <= event['monotonic_ns'] <= window['ended_ns'], 'Ordered same-owner/mode events')
+        previous_ns = event['monotonic_ns']; event_by_phase.setdefault(row['phase'], []).append(event)
+        limits = phases[row['phase']]['receipt']['resources']['queued']['limits']
+        _proof_require(event['inflight_reserved_bytes'] <= limits['max_inflight_bytes'] and
+            event['admitted_bytes'] <= limits['max_admitted_bytes'], 'Observed backpressure/admission bounds')
+        identity = event['worker']
+        if identity is None:
+            _proof_require(event['event'] == 'readiness' and event['index'] is None, 'Controller readiness event')
+            continue
+        key = tuple(identity[k] for k in ('pid', 'starttime_ticks', 'pgid', 'sid'))
+        if event['event'] == 'readiness':
+            _proof_require(key not in registered and not any(v['pid'] == identity['pid'] for v in registered.values()), 'Unique live worker ownership')
+            registered[key] = identity
+            life = life_by_identity.get(key)
+            _proof_require(life is not None and life['role'] == 'worker' and
+                event['monotonic_ns'] <= life['registered_ns'], 'Producer readiness precedes actual registry admission')
+        else:
+            _proof_require(key in registered, 'Changed or unregistered worker identity')
+            if event['event'] == 'submit':
+                _proof_require(key not in pending and
+                    life_by_identity[key]['registered_ns'] <= event['monotonic_ns'] < life_by_identity[key]['removed_ns'],
+                    'Actual registry admission precedes bounded source submission')
+                pending[key] = event['index']
+            elif event['event'] == 'receive':
+                _proof_require(life_by_identity[key]['registered_ns'] <= event['monotonic_ns'] < life_by_identity[key]['removed_ns'] and
+                    key in pending and pending.pop(key) == event['index'], 'Received actual submitted request from registered owner')
+            elif event['event'] == 'cleanup':
+                _proof_require(key not in pending and all(event['cleanup'].values()) and
+                    life_by_identity[key]['registered_ns'] <= event['monotonic_ns'] <= life_by_identity[key]['removed_ns'],
+                    'Completed cleanup precedes actual registry removal')
+                del registered[key]
+    _proof_require(not registered and not pending and set(event_by_phase) == set(_COST_PHASES), 'Every phase ownership/cleanup retained')
+    for name, phase in phases.items():
+        observed = _proof_cost_timings(phase); rows = event_by_phase[name]
+        workers = [e['worker'] for e in rows if e['event'] == 'readiness' and e['worker'] is not None]
+        _proof_require(observed['controller_identity'] == controller and
+            observed['worker_process_identities'] == workers and
+            observed['observer_events_delivered'] == len(rows), 'Queue resource/observer event agreement')
+    peaks, gaps, skew, starts = [], 0, [], []
+    for row in samples:
+        _proof_require(type(row) is dict and set(row) == {'started_ns', 'ended_ns', 'read_skew_ns', 'phase',
+            'owners', 'gaps', 'complete', 'owned_rss_bytes'} and
+            row['phase'] in set(_COST_PHASES) | {p+'-proof-retention' for p in _COST_PHASES} | {'setup', 'source-cleanup'} and
+            all(_proof_int(row[k], 2**63-1) for k in ('started_ns', 'ended_ns', 'read_skew_ns')) and
+            window['started_ns'] <= row['started_ns'] <= row['ended_ns'] <= window['ended_ns'] and
+            row['read_skew_ns'] == row['ended_ns'] - row['started_ns'] and type(row['complete']) is bool and
+            type(row['owners']) is list and type(row['gaps']) is list, 'Typed current-RSS sample window')
+        active = {r['identity']['pid'] for r in lives if r['registered_ns'] <= row['started_ns'] < r['removed_ns']}
+        observed = row['owners']; absent = row['gaps']; ids = [v['pid'] for v in observed + absent]
+        _proof_require(len(ids) == len(set(ids)) and set(ids) == active and 2 <= len(ids) <= 6 and
+            row['complete'] == (not absent), 'Every registered live owner observed or explicit gap')
+        for value in observed:
+            _proof_require(type(value) is dict and set(value) == {'pid', 'rss_bytes', 'read_started_ns', 'read_ended_ns'} and
+                _proof_int(value['rss_bytes'], 4 * 1024**3) and value['rss_bytes'] > 0 and
+                type(value['pid']) is int and all(_proof_int(value[k], 2**63-1) for k in ('read_started_ns', 'read_ended_ns')) and
+                row['started_ns'] <= value['read_started_ns'] <= value['read_ended_ns'] <= row['ended_ns'], 'Current RSS bytes and read interval')
+        for value in absent:
+            _proof_require(type(value) is dict and set(value) <= {'pid', 'kind', 'errno'} and
+                type(value['pid']) is int and value['kind'] in ('OSError', 'ProcessLookupError', 'FileNotFoundError', 'PermissionError') and
+                (value.get('errno') is None or _proof_int(value['errno'], 4096)), 'Retained process-read gap')
+        total = sum(v['rss_bytes'] for v in observed) if not absent else None
+        _proof_require(row['owned_rss_bytes'] == total and (total is None or type(row['owned_rss_bytes']) is int), 'Recomputed instantaneous owned RSS sum')
+        if total is not None: peaks.append(total)
+        gaps += bool(absent); skew.append(row['read_skew_ns']); starts.append(row['started_ns'])
+    _proof_require(starts == sorted(starts) and peaks and rss['sample_count'] == len(samples) and
+        rss['complete_sample_count'] == len(peaks) and rss['sample_gap_count'] == gaps and
+        rss['peak_sampled_owned_rss_bytes'] == max(peaks) and rss['max_read_skew_ns'] == max(skew) and
+        rss['largest_start_interval_ns'] == max((b-a for a,b in zip(starts,starts[1:])), default=None),
+        'Recomputed observed RSS peak/counts/gaps/skew')
+    return {'peak_sampled_owned_rss_bytes': max(peaks), 'complete_sample_count': len(peaks), 'sample_gap_count': gaps}
+
+
+def _proof_cost(raw, frozen, hashes, references, read_artifact, root, revision):
+    from evaluations.tree_sitter_baseline import PINS
+    from evaluations import performance
+    _proof_require(type(raw) is dict and raw['status'] == 'complete' and
+        raw['kind'] == 'native_dual_fixture_profile' and raw['engine_selected'] is False and
+        raw['qualification_complete'] is False and raw['measurement_defaults_qualified'] is False and
+        raw['large_corpus_profiled'] is False and not any(k in raw for k in
+            ('failure', 'identity_failure', 'evidence_failure', 'driver_failure', 'archive_failure')), 'Actual finite cost proof required')
+    bound, after = raw['binding_before'], raw['binding_after']
+    keys = ('measured_commit', 'implementation', 'input_binding', 'root_identity', 'backend', 'queue_identity', 'runtime')
+    _proof_require(type(bound) is dict and type(after) is dict and after == {k: bound[k] for k in keys} and
+        set(bound) == set(keys) | {'preparation'} and bound['preparation'] == frozen['preparation'] and
+        bound['measured_commit'] == revision and
+        bound['input_binding'] == frozen['binding'] and bound['backend'] == PINS and
+        bound['implementation'] == {p: hashes[p] for p in _COST_HELPERS}, 'Cost before/after exact source/pins binding')
+    with SourceRoot(root) as owner:
+        _proof_require(bound['root_identity'] == owner.identity, 'Cost same implementation owner')
+    runtime = bound['runtime']
+    _proof_require(type(runtime) is dict and set(runtime) == {'python_version', 'python_implementation', 'system', 'release', 'machine'} and
+        all(type(v) is str and 0 < len(v) <= 128 for v in runtime.values()) and runtime['system'] == 'Linux', 'Bound measured runtime')
+    envelope = raw['supervisor_envelope']
+    _proof_require(type(envelope) is dict and all(type(envelope[k]) is int and envelope[k] == v for k, v in {
+        'address_space_soft_bytes': 256*1024**2, 'address_space_hard_bytes': 512*1024**2,
+        'cpu_soft_seconds': 10, 'cpu_hard_seconds': 60, 'core_bytes': 0,
+        'file_bytes': 8*1024**2, 'whole_wall_seconds': 90}.items()) and
+        envelope['limits_qualified'] is False and envelope['sigxcpu_default'] is True and
+        type(envelope['affinity']) is list and 0 < len(envelope['affinity']) <= 4 and
+        all(_proof_int(v, 65535) for v in envelope['affinity']) and
+        envelope['affinity'] == sorted(set(envelope['affinity'])), 'Finite unqualified supervisor envelope')
+    expected = [(mode, concurrency, repeat) for mode, concurrency in _COST_MODES for repeat in range(3)]
+    rows = raw['cases']; _proof_require(type(rows) is list and len(rows) == 9, 'Exactly9 cost jobs')
+    outcomes, digest_by_phase = [], {}
+    for position, (mode, concurrency, repeat) in enumerate(expected):
+        row = rows[position]; name = f'{mode}-{concurrency}-{repeat}'
+        try:
+            _proof_require(type(row) is dict and row['id'] == name and row['mode'] == mode and
+                type(row['concurrency']) is int and row['concurrency'] == concurrency and
+                type(row['repeat']) is int and row['repeat'] == repeat and row['status'] == 'complete' and
+                type(row['returncode']) is int and row['returncode'] == 0 and row['identity_verified'] is True and
+                row['binding_before'] == row['binding_after'] == after and not any(k in row for k in
+                    ('failure', 'identity_failure')), 'Actual requested job result and stable identity')
+            _proof_cleanup([row['cleanup']], 1, mailboxes=False)
+            def read(path, *, parsed=True):
+                return read_artifact(name + '/' + _proof_path(path), parsed=parsed)
+            def ref(reference):
+                _proof_require(type(reference) is dict and set(reference) == {'path', 'sha256', 'bytes'} and
+                    references[reference['path']] == reference, 'Exact cost artifact reference')
+            ref(row['report_artifact']); job = read_artifact(row['report_artifact']['path'])
+            _proof_require(row['report_artifact']['path'] == name+'/result.json', 'Fixed owned job report')
+            _proof_require(job == row['report'], 'Actual worker report differs from retained job')
+            performance._dual_validate_result(job, bound, mode, concurrency, repeat)
+            control = read('control.json')
+            _proof_require(control['binding'] == bound and control['mode'] == mode and
+                type(control['concurrency']) is int and control['concurrency'] == concurrency and
+                type(control['repeat']) is int and control['repeat'] == repeat and
+                control['supervisor'] == envelope['process_identity'] and _proof_sha(control['directory_owner']), 'Bound controller control')
+            logs = row['logs']
+            _proof_require(type(logs) is list and len(logs) == 2 and
+                [r['path'] for r in logs] == [name+'/stdout.log', name+'/stderr.log'] and
+                all(r['complete'] is True for r in logs), 'Both complete bounded controller logs')
+            for log in logs: ref({k: log[k] for k in ('path', 'sha256', 'bytes')})
+            limits = job['representation_limits']
+            _proof_require(type(limits) is dict and limits['limits_qualified'] is False and
+                limits['combined_hard_rss_cap'] is False and all(type(limits[k]) is int and limits[k] == v for k,v in {
+                    'candidate_cached_bytes': 64*1024**2, 'snapshot_fact_bytes': 64*1024**2, 'snapshot_fact_count': 40000,
+                    'queue_admitted_bytes': 32*1024**2, 'queue_inflight_bytes': 40*1024**2,
+                    'controller_address_space_soft_bytes': 512*1024**2, 'controller_address_space_hard_bytes': 512*1024**2,
+                    'whole_profile_wall_seconds': 90}.items()), 'Existing finite representation ceilings, unqualified defaults')
+            envelope_actual = job['controller_envelope']
+            _proof_require(all(envelope_actual[k] == v and all(type(n) is int for n in envelope_actual[k]) for k,v in {
+                'address_space': [512*1024**2]*2, 'cpu_seconds': [60]*2, 'core_bytes': [0]*2,
+                'file_bytes': [8*1024**2]*2}.items()) and envelope_actual['sigxcpu_default'] is True and
+                envelope_actual['affinity'] == envelope['affinity'], 'Actual isolated controller envelope')
+            _proof_require(job['source_owner_identity'] == job['source_owner_identity_after'] and
+                type(job['isolation']) is dict and set(job['isolation']) == {'python_isolated_mode', 'bytecode_writes_disabled',
+                    'user_site_disabled', 'private_environment_confined', 'owned_private_working_directory', 'own_session_and_group'} and
+                all(value is True for value in job['isolation'].values()) and not any(k in job for k in
+                    ('failure', 'identity_failure', 'evidence_failure')), 'Stable private source owner and isolation')
+            phases = {phase['label']: phase for phase in job['phases']}
+            _proof_require(len(phases) == 8 and list(phases) == list(_COST_PHASES), 'All8 cost phases retained')
+            produced = {}
+            prefix_refs = {p[len(name)+1:]: dict(r, path=p[len(name)+1:]) for p, r in references.items() if p.startswith(name+'/')}
+            for label, phase in phases.items():
+                _proof_require(read(label+'.json') == phase and phase['mode'] == mode and
+                    type(phase['concurrency']) is int and phase['concurrency'] == concurrency and
+                    phase['receipt']['resources']['queued']['identity'] == bound['queue_identity'], 'Actual phase receipt/queue identity retained')
+                _, sources, _, records = _proof_cost_sources(frozen, label)
+                if label == 'fresh-output':
+                    _proof_require(job['input_manifest'] == records and type(job['source_bytes']) is int and
+                        job['source_bytes'] == sum(r['bytes'] for r in records), 'Exact admitted base source metadata')
+                count = sum(r['kind'] == 'source' for r in records)
+                changed = 0 if label == 'unchanged-repeat' else 1 if label.endswith('-changed') else count
+                reused = count - changed if changed < count else 0
+                attempt = dict(phase['receipt'], facts_artifact=phase['facts_artifact'])
+                produced[label] = _proof_attempt(attempt, records, job['source_owner_identity'],
+                    hashes['evaluations/tree_sitter_baseline.py'], mode, concurrency, changed, reused,
+                    produced=((prefix_refs, read), sources), require_snapshot_state=False, implementation=hashes,
+                    changed_bytes=0 if not changed else len(sources[next(op['operations'][0]['path'] for op in frozen['source']['updates']
+                        if op['id'] == label[:-8])]) if changed == 1 else sum(r['bytes'] for r in records if r['kind'] == 'source'))
+                digest_by_phase.setdefault(label, []).append(digest(canonical(produced[label])))
+            for label in ('U-PY-BODY', 'U-PY-EXPORT'):
+                a, b = phases[label+'-changed']['receipt'], phases[label+'-clean-rebuild']['receipt']
+                _proof_require(all(a[k] == b[k] for k in ('generation', 'source_identity', 'semantic_facts_sha256')) and
+                    a['generation'] != phases[label+'-reset-prime']['receipt']['generation'], 'Same-owner update/clean equivalence with actual changed generation')
+            _proof_require(all(phases['fresh-output']['receipt'][k] == phases['unchanged-repeat']['receipt'][k]
+                for k in ('generation', 'source_identity', 'semantic_facts_sha256')), 'Unchanged same-owner reuse equivalence')
+            for key in ('owned_rss_artifact', 'owned_telemetry_artifact'):
+                reference = dict(job[key], path=name+'/'+job[key]['path']); ref(reference)
+            measurement = _proof_cost_rss(job, read, phases)
+            observed_rss = read(job['owned_rss_artifact']['path'])
+            _proof_require(type(row['pid']) is int and row['pid'] == observed_rss['controller']['pid'] and
+                next(r['identity'] for r in observed_rss['lifecycles'] if r['role'] == 'supervisor') == envelope['process_identity'],
+                'Actual created controller and direct supervisor ownership')
+            outcomes.append({'id': name, 'status': 'passed', **measurement})
+        except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, MemoryError) as error:
+            outcomes.append({'id': name, 'status': 'failed', 'error_kind': type(error).__name__})
+    agreement = {label: len(values) == 9 and len(set(values)) == 1 for label, values in digest_by_phase.items()}
+    if (set(agreement) != set(_COST_PHASES) or raw['phase_semantic_agreement'] != agreement or not all(agreement.values())):
+        outcomes.append({'id': 'both_mode_facts', 'status': 'failed', 'error_kind': 'ValueError'})
+    return outcomes
+
+
+def _proof_real_call_quality(report, root):
+    from evaluations.analysis import frozen_inputs
+    _, identity = frozen_inputs(root)
+    source = report.get('source_identity') or {}
+    from evaluations.real_calls import source_locations
+    with SourceRoot(root) as owner:
+        calls, _ = read_json(owner, INPUTS + 'real-calls.json')
+        reviewed, _ = read_json(owner, INPUTS + 'source-review.json')
+    locations, supplemental = source_locations(root, calls, reviewed, identity)
+    source_binding = all(source.get(k) == v for k, v in supplemental.items())
+    expected_calls = {c['id']: c for c in calls['cases']}
+    judgments = {c['id']: c for c in reviewed['judgments']}
+    real = report['real_calls']
+    actual = {c['id']: c for c in real['case_results']}
+    valid = len(actual) == len(real['case_results']) and set(actual) == set(expected_calls)
+    correctness = {}
+    for name, candidate in expected_calls.items():
+        row, judgment = actual[name], judgments[name]
+        valid &= all(row[k] == candidate[k] for k in ('repository_id', 'revision', 'path', 'language', 'file_sha256', 'range'))
+        valid &= type(row['supported']) is bool and row['supported'] == judgment['supported']
+        valid &= row['reviewed_targets'] == judgment['targets'] and row['expected_certainty'] == judgment['certainty']
+        sites = row['actual_sites']
+        bound = [b for b in row['target_bindings'] if b['status'] == 'bound']
+        valid &= len(sites) == 1 and sites[0]['role'] == 'call' and sites[0]['path'] == candidate['path']
+        if len(sites) == 1:
+            valid &= (sites[0]['range']['start_byte'], sites[0]['range']['end_byte']) == (
+                candidate['range']['utf8_bytes']['start'], candidate['range']['utf8_bytes']['end_exclusive'])
+            valid &= sites[0]['provenance']['source_sha256'] == candidate['file_sha256']
+            if not judgment['supported']:
+                valid &= row['status'] == 'passed' and bool(sites[0]['reason']) and (
+                    sites[0]['certainty'] == 'unresolved' and not sites[0]['targets'] or
+                    judgment['certainty'] == 'candidate' and sites[0]['certainty'] == 'candidate' and
+                    sites[0]['targets_exhaustive'] is False and
+                    set(sites[0]['targets']) <= {b['definition']['id'] for b in bound})
+        exact = len(sites) == 1 and sites[0]['certainty'] == 'resolved' and bool(sites[0]['targets'])
+        exact &= {b['key'] for b in bound} == set(judgment['targets'])
+        if exact:
+            exact &= set(sites[0]['targets']) == {b['definition']['id'] for b in bound}
+            exact &= (sites[0]['range']['start_byte'], sites[0]['range']['end_byte']) == (
+                candidate['range']['utf8_bytes']['start'], candidate['range']['utf8_bytes']['end_exclusive'])
+            exact &= sites[0]['provenance']['source_sha256'] == candidate['file_sha256']
+            for binding in bound:
+                declaration, anchor = binding['definition'], locations[name, binding['key']]
+                exact &= all(declaration[k] == anchor[k] for k in ('repository_id', 'revision', 'path'))
+                exact &= declaration['provenance']['source_sha256'] == anchor['file_sha256']
+                exact &= declaration['range'] in [anchor[k] for k in
+                    ('declaration_range', 'statement_range', 'callable_expression_range') if anchor.get(k)]
+        correctness[name] = row['status'] == 'passed' and row['outcome'] == 'supported' and exact
+        if judgment['supported'] and row['status'] == 'passed':
+            valid &= exact
+    quality = True
+    languages = {c['language'] for c in expected_calls.values()}
+    valid &= set(real['per_language']) == languages
+    for language in languages:
+        supported = [c for c in expected_calls.values() if c['language'] == language and judgments[c['id']]['supported']]
+        correct = sum(correctness[c['id']] for c in supported)
+        resolved = sum(any(s['certainty'] == 'resolved' for s in actual[c['id']]['actual_sites']) for c in supported)
+        ungraded = sum(actual[c['id']]['status'] == 'ungraded' for c in supported)
+        precision = None if ungraded or not resolved else correct / resolved
+        recall = correct / len(supported)
+        metrics = real['per_language'][language]
+        valid &= (metrics['supported_denominator'] == len(supported) and metrics['supported_correct'] == correct and
+            metrics['supported_ungraded'] == ungraded and metrics['selected_supported_precision'] == precision and
+            metrics['selected_supported_recall_lower_bound'] == recall)
+        quality &= precision is not None and precision >= .95 and recall >= .85 and not ungraded
+    return {'source_binding': source_binding, 'measurements': bool(valid and quality)}
+
+
+_COST_INVOCATION_SHA256 = '176ac0693f3131c52e6167925d020789b3768d3aaae784d86a87c24aeaea7e1d'
+
+
+def _proof_cost_invocation(portable, evidence_root):
+    """Bind the actual once-only outer wall/exit/cleanup receipt and raw response."""
+    from evaluations.analysis import compact_cost_invocation
+    from evaluations import queued_collector as queue
+    value = portable['invocation']
+    _proof_require(type(value) is dict and type(value['directory']) is str and
+        re.fullmatch(r'invocation-[0-9a-f]{32}', value['directory']) is not None, 'Fixed owned invocation directory')
+    directory, owner = _proof_directory(evidence_root / value['directory'])
+    refs = value['files']
+    _proof_require(type(refs) is list and len(refs) == 3 and [r['path'] for r in refs] ==
+        ['invocation.json', 'stdout.log', 'stderr.log'], 'All fixed outer receipt/log references')
+    blobs = {}
+    with SourceRoot(directory) as source:
+        _proof_require(source.identity == value['owner_identity'], 'Outer invocation source owner')
+        for reference in refs:
+            cap = 256*1024 if reference['path'] == 'invocation.json' else 8*1024*1024
+            _proof_require(set(reference) == {'path', 'sha256', 'bytes'} and _proof_sha(reference['sha256']) and
+                _proof_int(reference['bytes'], cap), 'Bounded typed outer file reference')
+            raw, sha, info = source.read(reference['path'], cap+1, hash_full=False)
+            _proof_require(len(raw) == info.st_size == reference['bytes'] and len(raw) <= cap and
+                sha == reference['sha256'], 'Exact outer receipt/log bytes')
+            blobs[reference['path']] = raw
+    from evaluations.supplement_preparation import decode
+    raw = decode(blobs['invocation.json']); wrapper = decode(blobs['stdout.log'])
+    _proof_require(compact_cost_invocation(raw, value['directory'], refs) == value and raw['schema_version'] == 1 and
+        type(raw['schema_version']) is int and raw['kind'] == 'private_native_dual_invocation' and
+        raw['directory'] == value['directory'] and raw['evidence_owner_identity'] == value['owner_identity'] and
+        raw['status'] == 'complete' and raw['wrapper_sha256'] == _COST_INVOCATION_SHA256 and
+        raw['wrapper_identity_stable'] is True and raw['engine_selected'] is False and
+        raw['qualification_complete'] is False and raw['source_after_unavailable'] is False and
+        raw['admitted_wall_exhausted'] is False and type(raw['attempts_started']) is int and raw['attempts_started'] == 1 and
+        type(raw['returncode']) is int and raw['returncode'] == 0 and not any(k in raw for k in
+            ('failure', 'source_after_failure', 'cleanup_failure')), 'Actual single normal bounded invocation')
+    _proof_require(type(raw['wall_seconds']) is int and raw['wall_seconds'] == 90 and
+        _proof_number(raw['measurement_elapsed_seconds']) and 0 < raw['measurement_elapsed_seconds'] <= 90 and
+        _proof_number(raw['elapsed_seconds']) and _proof_number(raw['teardown_seconds']) and
+        raw['elapsed_seconds'] + .001 >= raw['measurement_elapsed_seconds'] + raw['teardown_seconds'],
+        'Actual measurement wall is separate from reported cleanup grace')
+    _proof_require(raw['wrapper_isolation'] == {'private_cwd': True, 'private_environment_allowlist': True,
+        'isolated_python': True, 'bytecode_disabled': True} and all(type(v) is bool for v in raw['wrapper_isolation'].values()),
+        'Observed isolated private invocation')
+    _proof_cleanup([raw['cleanup']], 1, mailboxes=False)
+    _proof_require(raw['cleanup']['returncode'] == 0 and type(raw['cleanup']['returncode']) is int,
+        'Actual normal supervisor reap')
+    queue._process_valid(raw['process_identity'])
+    _proof_require(raw['process_identity']['pid'] == raw['process_identity']['pgid'] == raw['process_identity']['sid'],
+        'Owned separate supervisor session')
+    full = wrapper['full_private_report']; archive = wrapper['archive']; result = raw['supervisor_result']
+    _proof_require(raw['source_before'] == full['binding_before'] and raw['source_after'] == full['binding_after'] and
+        raw['process_identity'] == full['supervisor_envelope']['process_identity'] and
+        result == {'status': 'complete', 'kind': 'native_dual_fixture_profile', 'cases_retained': 9,
+            'archive_directory': archive['directory'], 'archive_bytes': archive['bytes'],
+            'stdout_sha256': digest(blobs['stdout.log']), 'stdout_bytes': len(blobs['stdout.log'])},
+        'Outer response/source/supervisor bindings')
+    _proof_require(set(raw['logs']) == {'stdout', 'stderr'}, 'Both outer logs retained')
+    for name in ('stdout', 'stderr'):
+        row = raw['logs'][name]; payload = blobs[name+'.log']
+        _proof_require(row['path'] == name+'.log' and row['overflow'] is False and row['complete'] is True and
+            not any(k in row for k in ('receipt_failure', 'error')) and row['sha256'] == digest(payload) and
+            all(type(row[k]) is int and row[k] == len(payload) for k in ('bytes', 'bytes_received', 'bytes_retained')),
+            'Actual complete bounded outer logs, no discarded overflow')
+    _proof_require(_proof_directory(directory)[1] == owner, 'Outer invocation changed during read')
+    return directory, owner, raw, wrapper
+
+
+def preselection_cost_proof_checks(report, *, root=ROOT, evidence_root=None, source_map=None):
+    """Replay actual finite costs; failed evidence cannot qualify a component owner."""
+    observed = []
+    portable = report.get('preselection_cost') if type(report) is dict else None
+    if type(portable) is dict and type(portable.get('cases')) is list:
+        for i, row in enumerate(portable['cases'][:9]):
+            if type(row) is dict:
+                observed.append({'id': f'cost:{i}', 'status': row.get('status') if row.get('status') in
+                    ('complete', 'failed', 'blocked', 'missing', 'cleanup_failed', 'invalid_identity', 'measurement_failed') else 'malformed'})
+    outcomes = []
+    failures = (OSError, ValueError, TypeError, KeyError, AttributeError, MemoryError, RecursionError, subprocess.SubprocessError)
+    try:
+        directory, evidence_owner = _proof_evidence_root(root, evidence_root, source_map)
+        frozen = _proof_frozen(root)
+        hashes = {}
+        with SourceRoot(root) as source:
+            for name in sorted(set(_DELIVERY_EXPERIMENT_PATHS) | set(_COST_HELPERS)):
+                raw, sha, info = source.read(name, 1024*1024+1, hash_full=False)
+                _proof_require(len(raw) == info.st_size and len(raw) <= 1024*1024, 'Cost implementation ceiling')
+                hashes[name] = sha
+        current = subprocess.check_output(['git', 'rev-parse', '--verify', 'HEAD'], cwd=root, text=True, timeout=20).strip()
+        revision = report['implementation']['commit']; recorded = report['implementation']['sha256']
+        _proof_require(type(recorded) is dict and set(recorded) == set(_DELIVERY_EXPERIMENT_PATHS) and
+            all(recorded[p] == hashes[p] for p in recorded), 'Complete measured experiment source')
+        delivery = _proof_delivery(root, revision, hashes | frozen['binding'], validation_commit=current)
+        invocation_directory, invocation_owner, invocation_raw, invocation_wrapper = _proof_cost_invocation(portable, directory)
+        archive_projection = {k: v for k,v in portable.items() if k != 'invocation'}
+        raw, references, archive_owner = _proof_archive(archive_projection, 'preselection_cost', invocation_directory)
+        _proof_require(raw == invocation_wrapper['full_private_report'] and
+            portable['archive'] == invocation_wrapper['archive'], 'Actual outer response equals archived profiler result')
+        archive = invocation_directory / portable['archive']['directory']
+        def read(path, *, parsed=True):
+            path = _proof_path(path); reference = references[path]
+            _proof_require(_proof_directory(archive)[1] == archive_owner, 'Cost archive owner changed')
+            with SourceRoot(archive) as source:
+                if parsed:
+                    value, sha = read_json(source, path, 16*1024*1024)
+                else:
+                    value, sha, info = source.read(path, 16*1024*1024+1, hash_full=False)
+                    _proof_require(len(value) == info.st_size == reference['bytes'], 'Full cost artifact bytes')
+            _proof_require(sha == reference['sha256'], 'Cost artifact changed before grading')
+            return value
+        outcomes = _proof_cost(raw, frozen, hashes, references, read, root, revision)
+        checked = _proof_archive(archive_projection, 'preselection_cost', invocation_directory)
+        _proof_require(_proof_cost_invocation(portable, directory) == (invocation_directory, invocation_owner, invocation_raw, invocation_wrapper) and
+            checked == (raw, references, archive_owner) and
+            _proof_directory(directory)[1] == evidence_owner and
+            subprocess.check_output(['git', 'rev-parse', '--verify', 'HEAD'], cwd=root, text=True, timeout=20).strip() == current and
+            _proof_delivery(root, revision, hashes | frozen['binding'], validation_commit=current) == delivery,
+            'Cost archive/source changed during validation')
+        passed = len(outcomes) == 9 and all(r['status'] == 'passed' for r in outcomes)
+        return {'status': 'passed' if passed else 'blocked', 'individual_results': outcomes,
+            'observed_records': observed, 'delivery_binding': delivery, 'qualification_complete': False,
+            'measurement_defaults_qualified': False, 'large_corpus_qualified': False}
+    except failures as error:
+        return {'status': 'blocked', 'individual_results': outcomes, 'observed_records': observed,
+            'error_kind': type(error).__name__, 'qualification_complete': False,
+            'measurement_defaults_qualified': False, 'large_corpus_qualified': False}
+
+
+def experimental_owner_binding(report):
+    """One source-bound candidate, with measured configurations kept explicit."""
+    from evaluations.tree_sitter_baseline import PINS, RULE_VERSION
+    hashes = report['implementation']['sha256']
+    return {'owner': 'native-tree-sitter', 'measured_commit': report['implementation']['commit'],
+        'collector_sha256': hashes['evaluations/tree_sitter_baseline.py'],
+        'resolver_and_update_sha256': hashes['evaluations/incremental_candidate.py'],
+        'queue_sha256': hashes['evaluations/queued_collector.py'], 'backend_pins': dict(PINS),
+        'rules': RULE_VERSION, 'supported_modes': ['serial', 'queued'],
+        'measured_configurations': [{'mode': m, 'concurrency': c} for m,c in _COST_MODES],
+        'scope': 'Experimental finite component owner; full T008 and product qualification pending'}
+
+
+def _proof_component_basics(report, root):
+    """Regrade produced synthetic facts and inspect finite lifecycle observations."""
+    from evaluations.analysis import frozen_inputs, grade, screen_engines
+    from evaluations.tree_sitter_baseline import PINS
+    fixture, identity = frozen_inputs(root); syntax = report['component']; facts = syntax['scan']['facts']
+    sources = {}
+    with SourceRoot(root) as owner:
+        for record in fixture['files']:
+            raw, sha, info = owner.read(record['path'], 1024*1024+1, hash_full=False)
+            _proof_require(len(raw) == info.st_size == record['bytes'] and sha == record['sha256'], 'Bound synthetic source bytes')
+            sources[record['path']] = raw
+    _proof_require(type(facts) is dict and set(facts) == {'definitions', 'sites'} and
+        all(type(v) is list and 0 < len(v) <= 40000 for v in facts.values()), 'Produced synthetic facts')
+    definitions = {v['id']: v for v in facts['definitions']}
+    _proof_require(len(definitions) == len(facts['definitions']), 'Unique synthetic declaration identities')
+    for kind, rows in facts.items():
+        _proof_require(len({v['id'] for v in rows}) == len(rows), 'Unique physical fact identity')
+        for row in rows:
+            _proof_require(row['id'] == _proof_physical(row, kind == 'sites'), 'Physical synthetic source identity')
+            raw = sources[row['path']]; span = row['range']; start, end = span['start_byte'], span['end_byte']
+            _proof_require(end <= len(raw) and row['text'] == raw[start:end].decode('utf-8') and
+                row['provenance']['source_sha256'] == digest(raw), 'Produced synthetic source anchor')
+            if kind == 'sites':
+                _proof_require(all(t in definitions for t in row['targets']) and
+                    (row['caller'] is None or row['caller'] in definitions), 'Produced caller/target physical identity')
+    declared, cases = grade(facts, fixture)
+    syntax_ok = (syntax['scan']['status'] == 'complete' and syntax['input_identity'] == identity and
+        canonical(syntax['definition_results']) == canonical(declared) and canonical(syntax['case_results']) == canonical(cases) and
+        all(row['status'] == 'passed' for row in declared + cases))
+    screen_ok = canonical(report['source_screen']) == canonical(screen_engines(root)) and report['source_screen']['status'] == 'passed'
+    life = report['lifecycle']; rows = life['check_results']; by_id = {r['id']: r for r in rows}
+    names = {'finite_native_scan', 'two_coexisting_scans', 'cooperative_cancel_before_source_read',
+        'outside_root_symlink_rejected', 'forced_timeout_kill_and_reap', 'external_scratch_canary_unchanged',
+        'owned_runtime_scratch_removed', 'implementation_identity_stable'}
+    _proof_require(type(rows) is list and len(rows) == 8 and set(by_id) == names and
+        life['source_identity'] == identity, 'All finite lifecycle observations retained')
+    stable = True
+    with SourceRoot(root) as owner:
+        for path, sha in life['implementation_sha256'].items():
+            raw, actual, info = owner.read(_proof_path(path), 1024*1024+1, hash_full=False)
+            stable &= len(raw) == info.st_size and actual == sha
+    _proof_require(stable and committed(root, life['implementation_sha256']), 'Current committed lifecycle helper bytes')
+    first = by_id['finite_native_scan']; pairs = by_id['two_coexisting_scans']['workers']
+    _proof_require(type(pairs) is list and len(pairs) == 2, 'Two finite coexisting observations')
+    for row in [first] + pairs:
+        _proof_cleanup([row['cleanup']], 1, mailboxes=False)
+        worker = row['worker']
+        _proof_require(row['timed_out'] is False and worker['status'] == 'complete' and worker['versions'] == PINS and
+            type(worker['isolation']) is dict and set(worker['isolation']) == {'python_isolated_mode',
+                'bytecode_writes_disabled', 'user_site_disabled', 'home_config_cache_temp_confined', 'own_session_and_group'} and
+            all(v is True for v in worker['isolation'].values()) and
+            worker['facts_sha256'] == digest(canonical(facts)), 'Observed finite isolated same-source facts')
+    intervals = [r['worker']['scan_interval'] for r in pairs]
+    _proof_require(all(_proof_number(r[k]) for r in intervals for k in ('start_monotonic', 'end_monotonic')) and
+        max(r['start_monotonic'] for r in intervals) < min(r['end_monotonic'] for r in intervals) and
+        by_id['two_coexisting_scans']['both_workers_live_before_release'] is True, 'Measured coexistence')
+    cancelled = by_id['cooperative_cancel_before_source_read']; _proof_cleanup([cancelled['cleanup']], 1, mailboxes=False)
+    _proof_require(cancelled['timed_out'] is False and cancelled['worker']['resources']['source_bytes'] == 0 and
+        len(cancelled['worker']['inventory']) == len(fixture['files']) and
+        all(r['status'] == 'cancelled' for r in cancelled['worker']['inventory']), 'Actual cancellation before source read')
+    outward = by_id['outside_root_symlink_rejected']; _proof_cleanup([outward['cleanup']], 1, mailboxes=False)
+    denied = [r for r in outward['worker']['inventory'] if r['path'] == 'outward.py']
+    _proof_require(outward['timed_out'] is False and len(denied) == 1 and denied[0]['status'] == 'source_error', 'Source-root denial observation')
+    forced = by_id['forced_timeout_kill_and_reap']; _proof_cleanup([forced['cleanup']], 1, mailboxes=False)
+    _proof_require(forced['timed_out'] is True and forced['cleanup']['signals'] == ['SIGTERM', 'SIGKILL'] and
+        forced['worker']['status'] == 'complete', 'Owned post-scan timeout cleanup')
+    _proof_require(by_id['external_scratch_canary_unchanged']['sha256'] ==
+        digest(b'def external_canary():\n    raise RuntimeError("scratch only")\n'), 'Retained owned external canary')
+    return {'syntax': syntax_ok, 'screen': screen_ok, 'lifecycle': all(r['status'] == 'passed' for r in rows)}
+
+
+def component_selection_decision(report, *, root=ROOT, evidence_root=None, source_map=None):
+    """A selection names the one tested candidate only after every obligation."""
+    required = {'syntax_direct_binding', 'reusable_source_screen', 'real_call_quality', 'finite_worker_lifecycle',
+                'evidence_uncertainty', 'incremental_equivalence', 'bounded_query_work', 'optional_installation'}
+    cases = report['case_results']
+    complete = type(cases) is list and len(cases) == 8 and {r['id'] for r in cases} == required and all(
+        r['status'] == 'passed' for r in cases)
+    adapter_proofs = adapter_proof_checks(report, root=root, evidence_root=evidence_root, source_map=source_map)
+    cost_proofs = preselection_cost_proof_checks(report, root=root, evidence_root=evidence_root, source_map=source_map)
+    source_proofs = {'status': 'blocked'}
+    try:
+        quality = _proof_real_call_quality(report, root); basic = _proof_component_basics(report, root)
+        admitted = all(quality.values()) and all(basic.values())
+        source_proofs = {'status': 'passed' if admitted else 'blocked', 'real_calls': quality, 'component': basic}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, MemoryError, RecursionError, subprocess.SubprocessError) as error:
+        source_proofs['error_kind'] = type(error).__name__
+    proofs = {'source': source_proofs, 'adapters': adapter_proofs, 'finite_cost': cost_proofs}
+    selected = complete and all(p['status'] == 'passed' for p in proofs.values())
+    return {'status': 'passed' if selected else 'blocked', 'engine_selected': selected,
+        'selected_owner': 'native-tree-sitter' if selected else None,
+        'owner_binding': experimental_owner_binding(report) if selected else None,
+        'qualification_complete': False, 'measurement_defaults_qualified': False,
+        'selection_scope': 'Experimental finite component owner; full T008 and product qualification pending',
+        'proofs': proofs, 'blocking_proofs': [key for key, value in proofs.items() if value['status'] != 'passed']}
+
+
 def experiment_gate(gate, root=None, *, evidence_root=None, source_map=None):
     """Validate actual experiment artifacts; missing measurements fail closed."""
     from evaluations.analysis import frozen_inputs
@@ -1397,7 +2024,7 @@ def experiment_gate(gate, root=None, *, evidence_root=None, source_map=None):
     path = 'evaluations/results/code-understanding/' + ('engine-comparison.json' if gate == 'engine' else 'capacity-profile.json')
     task = 'T007' if gate == 'engine' else 'T008'
     checks = []
-    adapter_proofs = None
+    adapter_proofs = cost_proofs = None
     def check(name, condition, detail):
         checks.append({'id': name, 'status': 'passed' if condition else 'failed', 'detail': detail})
     try:
@@ -1435,69 +2062,10 @@ def experiment_gate(gate, root=None, *, evidence_root=None, source_map=None):
               'Recorded implementation must match both current bytes and committed blobs, including the driver')
         cases = report.get('case_results') or []
         if gate == 'engine':
-            from evaluations.real_calls import source_locations
-            with SourceRoot(root) as owner:
-                calls, _ = read_json(owner, INPUTS + 'real-calls.json')
-                reviewed, _ = read_json(owner, INPUTS + 'source-review.json')
-            locations, supplemental = source_locations(root, calls, reviewed, identity)
-            check('supplemental_frozen_source', all(source.get(k) == v for k, v in supplemental.items()),
+            real_quality = _proof_real_call_quality(report, root)
+            check('supplemental_frozen_source', real_quality['source_binding'],
                   'Supplemental source positions and lock must be current and committed')
-            expected_calls = {c['id']: c for c in calls['cases']}
-            judgments = {c['id']: c for c in reviewed['judgments']}
-            real = report['real_calls']
-            actual = {c['id']: c for c in real['case_results']}
-            valid = len(actual) == len(real['case_results']) and set(actual) == set(expected_calls)
-            correctness = {}
-            for name, candidate in expected_calls.items():
-                row, judgment = actual[name], judgments[name]
-                valid &= all(row[k] == candidate[k] for k in ('repository_id', 'revision', 'path', 'language', 'file_sha256', 'range'))
-                valid &= type(row['supported']) is bool and row['supported'] == judgment['supported']
-                valid &= row['reviewed_targets'] == judgment['targets'] and row['expected_certainty'] == judgment['certainty']
-                sites = row['actual_sites']
-                bound = [b for b in row['target_bindings'] if b['status'] == 'bound']
-                valid &= len(sites) == 1 and sites[0]['role'] == 'call' and sites[0]['path'] == candidate['path']
-                if len(sites) == 1:
-                    valid &= (sites[0]['range']['start_byte'], sites[0]['range']['end_byte']) == (
-                        candidate['range']['utf8_bytes']['start'], candidate['range']['utf8_bytes']['end_exclusive'])
-                    valid &= sites[0]['provenance']['source_sha256'] == candidate['file_sha256']
-                    if not judgment['supported']:
-                        valid &= row['status'] == 'passed' and bool(sites[0]['reason']) and (
-                            sites[0]['certainty'] == 'unresolved' and not sites[0]['targets'] or
-                            judgment['certainty'] == 'candidate' and sites[0]['certainty'] == 'candidate' and
-                            sites[0]['targets_exhaustive'] is False and
-                            set(sites[0]['targets']) <= {b['definition']['id'] for b in bound})
-                exact = len(sites) == 1 and sites[0]['certainty'] == 'resolved' and bool(sites[0]['targets'])
-                exact &= {b['key'] for b in bound} == set(judgment['targets'])
-                if exact:
-                    exact &= set(sites[0]['targets']) == {b['definition']['id'] for b in bound}
-                    exact &= (sites[0]['range']['start_byte'], sites[0]['range']['end_byte']) == (
-                        candidate['range']['utf8_bytes']['start'], candidate['range']['utf8_bytes']['end_exclusive'])
-                    exact &= sites[0]['provenance']['source_sha256'] == candidate['file_sha256']
-                    for binding in bound:
-                        declaration, anchor = binding['definition'], locations[name, binding['key']]
-                        exact &= all(declaration[k] == anchor[k] for k in ('repository_id', 'revision', 'path'))
-                        exact &= declaration['provenance']['source_sha256'] == anchor['file_sha256']
-                        exact &= declaration['range'] in [anchor[k] for k in
-                            ('declaration_range', 'statement_range', 'callable_expression_range') if anchor.get(k)]
-                correctness[name] = row['status'] == 'passed' and row['outcome'] == 'supported' and exact
-                if judgment['supported'] and row['status'] == 'passed':
-                    valid &= exact
-            quality = True
-            languages = {c['language'] for c in expected_calls.values()}
-            valid &= set(real['per_language']) == languages
-            for language in languages:
-                supported = [c for c in expected_calls.values() if c['language'] == language and judgments[c['id']]['supported']]
-                correct = sum(correctness[c['id']] for c in supported)
-                resolved = sum(any(s['certainty'] == 'resolved' for s in actual[c['id']]['actual_sites']) for c in supported)
-                ungraded = sum(actual[c['id']]['status'] == 'ungraded' for c in supported)
-                precision = None if ungraded or not resolved else correct / resolved
-                recall = correct / len(supported)
-                metrics = real['per_language'][language]
-                valid &= (metrics['supported_denominator'] == len(supported) and metrics['supported_correct'] == correct and
-                    metrics['supported_ungraded'] == ungraded and metrics['selected_supported_precision'] == precision and
-                    metrics['selected_supported_recall_lower_bound'] == recall)
-                quality &= precision is not None and precision >= .95 and recall >= .85 and not ungraded
-            check('real_call_measurements', valid and quality,
+            check('real_call_measurements', real_quality['measurements'],
                   'Recompute supported denominators/exact bindings/precision/recall from all sixteen frozen cases; proposed targets are not measurements')
             required = {'syntax_direct_binding', 'reusable_source_screen', 'real_call_quality', 'finite_worker_lifecycle',
                         'evidence_uncertainty', 'incremental_equivalence', 'bounded_query_work', 'optional_installation'}
@@ -1510,9 +2078,18 @@ def experiment_gate(gate, root=None, *, evidence_root=None, source_map=None):
                       'Bound private archive and recomputed source-only observations required')
             check('qualified_adapter_available', adapter_proofs['status'] == 'passed',
                   'All36 both-mode updates,20 physical query assertions and actual absent-backend proof required')
-            check('qualified_owner', report.get('status') == 'passed' and report.get('engine_selected') is True and
-                  isinstance(report.get('selected_owner'), str) and bool(report['selected_owner']),
-                  'An unselected decision preserves failures but cannot qualify a structural owner')
+            cost_proofs = preselection_cost_proof_checks(report, root=root, evidence_root=evidence_root, source_map=source_map)
+            check('finite_preselection_cost', cost_proofs['status'] == 'passed',
+                  'Nine finite same-candidate jobs/all72 attempts, fact parity and actual sampled owned RSS; no T008 qualification')
+            basic = _proof_component_basics(report, root)
+            check('source_component_observations', all(basic.values()),
+                  'Regrade actual synthetic source facts/screen and typed lifecycle observations; passing labels are insufficient')
+            check('qualified_owner', all(row['status'] == 'passed' for row in checks) and
+                  report.get('status') == 'passed' and report.get('engine_selected') is True and
+                  report.get('selected_owner') == 'native-tree-sitter' and
+                  report.get('owner_binding') == experimental_owner_binding(report) and
+                  report.get('qualification_complete') is False and report.get('measurement_defaults_qualified') is False,
+                  'Experimental native owner requires all8 gates plus actual adapter/call/cost evidence and exact source binding')
         else:
             expected = {f'{corpus}:{engine}:{run}' for corpus in ('django', 'odoo', 'aws', 'kubernetes')
                         for engine in ('current-map', 'tree-sitter') for run in range(3)}
@@ -1542,8 +2119,8 @@ def experiment_gate(gate, root=None, *, evidence_root=None, source_map=None):
     passed = bool(checks) and all(c['status'] == 'passed' for c in checks)
     return {'schema_version': 1, 'gate': gate, 'status': 'passed' if passed else 'blocked',
             'source_identity': source_identity, 'case_results': checks, 'qualification_complete': False,
-            'remaining_gates': ['agent', 'independent human UX', 'distribution', 'release'],
-            'adapter_proofs': adapter_proofs,
+            'remaining_gates': (['full T008 capacity and measured defaults'] if gate == 'engine' else []) + ['agent', 'independent human UX', 'distribution', 'release'],
+            'adapter_proofs': adapter_proofs, 'preselection_cost_proofs': cost_proofs,
             'limitations': ['A component gate cannot establish later human or release acceptance.']}
 
 
