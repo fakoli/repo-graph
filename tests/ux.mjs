@@ -525,7 +525,7 @@ try {
     assert.equal(await page.locator('.impact-panel .call-evidence').isVisible(),false);
     const changedFile=page.locator('.impact-element[data-type="file"]').filter({hasText:'Changed path M'}).first();
     assert.match(await changedFile.innerText(),/src\/component00\/main.py/);await changedFile.getByRole('button',{name:'Open file in Explore',exact:true}).click();
-    await page.getByRole('button',{name:'Close details'}).waitFor();assert.match(await page.locator('#inspector').innerText(),/src\/component00\/main.py/);
+    await page.locator('#inspector').waitFor();assert.match(await page.locator('#inspector').innerText(),/src\/component00\/main.py/);
     await page.keyboard.press('Escape');impactChecks.push('actual captured Git-base modified file opens the mapped area; deleted source refuses navigation/excerpts and historical/worktree boundaries remain visible');
 
     await page.click('#tab-impact');await findImpact('missing.py','call');await collectImpact();
