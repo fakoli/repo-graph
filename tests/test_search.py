@@ -110,6 +110,42 @@ class SearchTests(unittest.TestCase):
             with self.assertRaises(InterruptedError):
                 search.Search(out).run('oldFunction', kind='functions', mode='keyword', cancel=cancel)
             self.assertEqual((out / 'search.db').read_bytes(), before)
+            baseline = search.Search(out).run('oldFunction', kind='functions', mode='keyword')
+            cancelled, external_calls = threading.Event(), []
+            excerpt = search._function_excerpt
+            def cancel_after_only_excerpt(*args, **kwargs):
+                result = excerpt(*args, **kwargs)
+                cancelled.set()
+                return result
+            class RecordingRanker:
+                def rank(self, query, rows):
+                    external_calls.append('rank')
+                    return rows, {}
+            for ranker in (None, RecordingRanker()):
+                cancelled.clear()
+                with self.subTest(reranker=ranker is not None), \
+                        patch.object(search, '_function_excerpt', side_effect=cancel_after_only_excerpt):
+                    stopped = search.Search(out).run('oldFunction', kind='functions', mode='keyword',
+                        cancel=cancelled.is_set, reranker=ranker)
+                self.assertTrue(stopped['truncated'])
+                self.assertEqual(stopped['stop_reason'], 'cancelled')
+                self.assertEqual(external_calls, [])
+                self.assertEqual(stopped['results'], baseline['results'])
+            class MutatingRanker:
+                def rank(self, query, rows):
+                    external_calls.append('mutate')
+                    rows[0].setdefault('range', {})['start_byte'] = 1234
+                    member = rows[0].setdefault('members', [{'range': {}}])[0]
+                    member['symbol_id'] = 'forged-symbol'
+                    member['range']['end_byte'] = 9999
+                    return rows, {}
+            preserved = search.Search(out).run('oldFunction', kind='functions', mode='keyword',
+                reranker=MutatingRanker())
+            self.assertEqual(external_calls, ['mutate'])
+            self.assertEqual(preserved['results'], baseline['results'])
+            self.assertEqual(preserved['identities'], baseline['identities'])
+            self.assertEqual(preserved['counts'], baseline['counts'])
+            self.assertEqual((out / 'search.db').read_bytes(), before)
 
     def test_serve_missing_cached_backend_keeps_keyword_functions_available(self):
         from tests.test_analysis import AVAILABLE

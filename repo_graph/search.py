@@ -1525,17 +1525,21 @@ def _run_function_search(engine, query, *, mode, limit, prefix, reranker, limits
     except _EvidenceStop as error: stopped = str(error)
     except sqlite3.OperationalError:
         if stopped not in ('cancelled', 'deadline_exceeded'): raise
+    try: check()
+    except _EvidenceStop as error: stopped = str(error)
     if reranker and results and stopped not in ('cancelled', 'deadline_exceeded'):
         originals = results
         rerank_started = time.monotonic()
         try:
-            offered = [dict(row, evidence=row['text'], _function_id=index) for index, row in enumerate(results)]
+            offered = [dict(path=row['path'], evidence=row['text'], _function_id=index) for index, row in enumerate(results)]
+            check()
             ranked, receipt = reranker.rank(query, offered)
             order = [row['_function_id'] for row in ranked]
             if (any(type(index) is not int for index in order) or sorted(order) != list(range(len(originals))) or
                     any(type(row.get('rerank_score', 0)) not in (int, float) or not math.isfinite(row.get('rerank_score', 0)) for row in ranked)):
                 raise ValueError('Invalid function rerank membership/score')
             results = [dict(originals[index], **({'rerank_score': float(row['rerank_score'])} if 'rerank_score' in row else {})) for index, row in zip(order, ranked)]
+        except _EvidenceStop as error: stopped = str(error); results = originals
         except (OSError, RuntimeError, ValueError, KeyError, TypeError): results = originals
         rerank_seconds = time.monotonic() - rerank_started
         try: check()

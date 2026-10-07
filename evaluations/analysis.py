@@ -1001,7 +1001,7 @@ def incremental(root=ROOT, budget=None):
                  'expected impacts graded after production; type flow, contract semantics, corpus, scale and human qualification unmeasured'}
 
 
-def coverage(root=ROOT, budget=None):
+def coverage(root=ROOT, budget=None, evidence_directory=None):
     """Grade captured status without another source scanner or model backend."""
     from collections import Counter
     from contextlib import ExitStack, closing, redirect_stdout
@@ -1047,6 +1047,24 @@ def coverage(root=ROOT, budget=None):
         before = {path: owner.read(path, 2 * 1024 * 1024, hash_full=True)[1] for path in code_paths}
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=20).strip()
     cases, coverage_failures, modes = [], [], []
+    if evidence_directory is not None:
+        evidence_directory = Path(evidence_directory).resolve()
+        if evidence_directory == root or root in evidence_directory.parents:
+            raise ValueError('Coverage receipts must remain outside the source checkout')
+        evidence_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    logs = Path(tempfile.mkdtemp(prefix='coverage-', dir=evidence_directory))
+
+    def retain_response(name, raw):
+        (logs / name).write_bytes(raw)
+        return {'name': name, 'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw)}
+
+    def captured_components(status):
+        # Backend observations and request timing may differ across entry points.
+        result = {key: value for key, value in status.items() if key not in ('storage', 'semantic', 'rerankers')}
+        for name in ('semantic_index', 'function_evidence'):
+            result[name] = {key: value for key, value in result[name].items()
+                            if key not in ('backend_available', 'backend_model')}
+        return result
 
     class FakeEmbedding:
         name = 'synthetic'
@@ -1076,7 +1094,11 @@ def coverage(root=ROOT, budget=None):
                 begun = time.monotonic()
                 status = search.index_status(index.output, owner=index.output_owner,
                     expected_source=expected_source, backend_available=backend_available)
-                observation = {'captured': status, 'elapsed_seconds': time.monotonic() - begun,
+                name = entry['id'].replace(':', '-') + '-%02d' % len(entry.get('observations', []))
+                raw_status = json.dumps(status, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode() + b'\n'
+                observation = {'captured': {key: value for key, value in status.items() if key != 'function_evidence'},
+                    'retained_response': retain_response(name + '-status.json', raw_status),
+                    'elapsed_seconds': time.monotonic() - begun,
                     'serialized_bytes': len(json.dumps(status).encode()), 'source_git_backend_calls': 0}
                 entry.setdefault('observations', []).append(observation)
                 assert status['status'] == 'ok', status
@@ -1087,18 +1109,16 @@ def coverage(root=ROOT, budget=None):
                     if expected_source is not None:
                         command += ['--expect-source', expected_source]
                     with redirect_stdout(output):
-                        assert cli_main(command) == 0
+                        command_exit = cli_main(command)
                     command_raw = output.getvalue().encode()
+                    retain_response(name + '-cli.json', command_raw)
+                    assert command_exit == 0
                     command_status = json.loads(command_raw)
-                    component_match = (command_status['structural'] == status['structural'] and
-                        {key: value for key, value in command_status['semantic_index'].items() if key != 'backend_available'} ==
-                        {key: value for key, value in status['semantic_index'].items() if key != 'backend_available'})
+                    component_match = captured_components(command_status) == captured_components(status)
                     observation['cli'] = {'response_sha256': hashlib.sha256(command_raw).hexdigest(),
                         'response_bytes': len(command_raw), 'storage': command_status['storage'],
                         'backend_available': command_status['semantic_index']['backend_available'],
                         'captured_components_match': component_match}
-                    if not component_match:
-                        observation['failed_cli_response'] = command_status
                     assert component_match
                     if expected_source is None:
                         with create_server(search.Search(index.output)) as server:
@@ -1107,16 +1127,14 @@ def coverage(root=ROOT, budget=None):
                             try:
                                 with urlopen('http://127.0.0.1:' + str(server.server_port) + '/api/status', timeout=2) as response:
                                     endpoint_raw = response.read(262145)
+                                    retain_response(name + '-server.json', endpoint_raw)
                                     endpoint = json.loads(endpoint_raw)
-                                component_match = (endpoint['structural'] == status['structural'] and
-                                                   endpoint['semantic_index'] == status['semantic_index'])
+                                component_match = captured_components(endpoint) == captured_components(status)
                                 observation['server'] = {'response_sha256': hashlib.sha256(endpoint_raw).hexdigest(),
                                     'response_bytes': len(endpoint_raw), 'storage': endpoint['storage'],
                                     'backend_available': endpoint['semantic_index']['backend_available'],
                                     'captured_components_match': component_match,
                                     'semantic': endpoint['semantic'], 'rerankers': endpoint['rerankers']}
-                                if not component_match:
-                                    observation['failed_server_response'] = endpoint
                                 assert component_match
                                 assert endpoint['semantic'] is False and endpoint['rerankers'] == ['none']
                             finally:
@@ -1447,6 +1465,8 @@ def coverage(root=ROOT, budget=None):
         'environment': environment(), 'qualification_complete': False, 'limits_qualified': False,
         'scope': 'Eight captured coverage/readiness groups in serial1 and queued2; existing locked sources '
                  'and separately identified state/storage controls; status does not scan source/Git/models; '
+                 'full responses retained privately with hashes and whole captured endpoint comparisons; '
+                 'additive function status is omitted from this T013 summary and is owned by T014; '
                  'receiver enumeration misses and unmeasured discovery/model/platform/scale/human scope remain explicit'}
 
 
@@ -2631,7 +2651,7 @@ def main(argv=None):
         if structural_task:
             producer = {'constructs': constructs, 'incremental': incremental, 'queries': queries, 'coverage': coverage,
                         'evidence': evidence}[args.suite]
-            options = {'evidence_directory': args.work_root} if args.suite == 'evidence' else {}
+            options = {'evidence_directory': args.work_root} if args.suite in ('coverage', 'evidence') else {}
             result = producer(ROOT, Budget(max_files=args.max_files,
                 max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes), **options)
             result['resources'] = {args.suite + '_elapsed_seconds': time.perf_counter() - started}
