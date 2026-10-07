@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import hashlib
 import importlib.metadata
 import json
+import math
 from pathlib import Path
 import os
 import signal
@@ -417,6 +418,107 @@ class OwnedWorkerTests(unittest.TestCase):
             except ProcessLookupError:
                 pass
             unrelated.wait(timeout=2)
+
+
+@unittest.skipUnless(sys.platform == 'linux' and backend_available(), 'Pinned Linux analysis backend required')
+class TelemetryTests(unittest.TestCase):
+    def clean(self, result):
+        self.assertTrue(all(row['leader_reaped'] and row['group_absent'] and row['mailboxes_removed']
+                            for row in result.cleanup))
+
+    def test_native_timings_preserve_facts_and_failed_phases(self):
+        source, timings = blob(), {}
+        plain = baseline.collect_file(source).to_json()
+        self.assertEqual(plain, baseline.collect_file(source, measurements=timings).to_json())
+        self.assertEqual(set(timings), set(queue.NATIVE_TIMINGS) - {'handoff_serialize_seconds'})
+        self.assertTrue(all(type(value) in (int, float) and math.isfinite(value) and value >= 0
+                            for value in timings.values()))
+        for invalid in (False, [], {'parse_seconds': 0}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                baseline.collect_file(source, measurements=invalid)
+        timings = {}
+        with patch.object(baseline, 'backend', side_effect=baseline.BackendUnavailable('synthetic')):
+            with self.assertRaises(baseline.BackendUnavailable):
+                baseline.collect_file(source, measurements=timings)
+        self.assertGreater(timings['collect_elapsed_seconds'], 0)
+        self.assertEqual(timings['parse_seconds'], 0)
+
+    def test_measured_modes_preserve_order_facts_and_owned_events(self):
+        sources = [blob('sentinel_source.py'), blob('second.py')]
+        plain = queue.collect_files(sources)
+        self.assertEqual(plain.status, 'complete')
+        self.assertNotIn('telemetry', plain.resources)
+        expected = [file.to_json() for file in plain.collected]
+        self.clean(plain)
+        for mode, concurrency in (('serial', 1), ('queued', 2), ('queued', 4)):
+            events = []
+            def observe(event):
+                queue._event_valid(event)
+                events.append(event)
+                return True
+            def inputs():
+                self.assertEqual(events[0]['role'], 'controller')
+                yield from sources
+            result = queue.collect_files(inputs(), mode=mode, concurrency=concurrency, observer=observe)
+            with self.subTest(mode=mode, concurrency=concurrency):
+                self.assertEqual(result.status, 'complete', result.failures)
+                self.assertEqual([file.to_json() for file in result.collected], expected)
+                self.assertEqual([file.path for file in result.collected], [source['path'] for source in sources])
+                self.assertLessEqual(result.resources['telemetry']['actual_workers_started'], concurrency)
+                self.assertNotIn('sentinel_source', json.dumps(events))
+                self.assertEqual(sum(event['event'] == 'submit' for event in events), len(sources))
+                self.assertEqual(sum(event['event'] == 'receive' for event in events), len(sources))
+                self.assertTrue(all(event['cleanup'] == {
+                    'leader_reaped': True, 'group_absent': True, 'mailboxes_removed': True}
+                    for event in events if event['event'] == 'cleanup'))
+                for worker in result.resources['worker_resources']:
+                    for receipt in worker:
+                        queue._resources(receipt, True)
+                self.clean(result)
+
+    def test_observer_failure_keeps_cleanup_and_stops_before_source(self):
+        touched = []
+        def inputs():
+            touched.append(True)
+            yield blob()
+        refused = queue.collect_files(inputs(), observer=lambda event: 1)
+        self.assertEqual(refused.status, 'failed')
+        self.assertEqual(refused.stop_reason, 'observer_refused')
+        self.assertFalse(touched)
+        self.assertEqual(refused.resources['telemetry']['actual_workers_started'], 0)
+        for callback, cap, reason in ((lambda event: True, 1, 'observer_event_budget_exceeded'),
+                (lambda event: event['event'] != 'cleanup', 10000, 'observer_refused')):
+            result = queue.collect_files([blob()], observer=callback, observer_max_events=cap)
+            with self.subTest(reason=reason):
+                self.assertEqual(result.status, 'failed')
+                self.assertEqual(result.stop_reason, reason)
+                self.assertTrue(result.resources['telemetry']['observer_failed'])
+                self.assertEqual(len(result.cleanup), 1)
+                self.clean(result)
+        for options in ({'telemetry': 1}, {'observer': False}, {'observer_max_events': True},
+                        {'observer_max_events': 0}, {'observer_max_events': 10001}):
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                queue.collect_files([], **options)
+
+    def test_resource_numbers_and_timing_intervals_reject_forgery(self):
+        result = queue.collect_files([blob()], telemetry=True)
+        self.assertEqual(result.status, 'complete', result.failures)
+        receipt = result.resources['worker_resources'][0][0]
+        self.clean(result)
+        for value in (True, -1, float('nan'), float('inf')):
+            bad = json.loads(json.dumps(receipt))
+            bad['timings']['parse_seconds'] = value
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                queue._resources(bad, True)
+        for key in ('file_user_seconds', 'file_system_seconds'):
+            bad = json.loads(json.dumps(receipt))
+            bad[key] = bad[key.replace('file_', 'process_')] + 1
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                queue._resources(bad, True)
+        bad = json.loads(json.dumps(receipt))
+        bad['timings']['collect_elapsed_seconds'] = bad['elapsed_seconds'] + 1
+        with self.assertRaises(ValueError):
+            queue._resources(bad, True)
 
 
 if __name__ == '__main__':

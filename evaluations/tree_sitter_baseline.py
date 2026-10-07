@@ -1356,48 +1356,77 @@ def resolver(files, configurations, context=None):
     return resolve
 
 
-def _collect_file(record, raw, parser, work):
+def _collect_file(record, raw, parser, work, measurements=None):
     """One parser/collector owner; native objects die with this file frame."""
     work.check()
     _record_valid(record, work.budget)
     before = time.perf_counter()
-    tree = parser.parse(raw)
-    work.parse_seconds += time.perf_counter() - before
-    file = FileFacts(record, raw, tree, work)
     try:
+        tree = parser.parse(raw)
+    finally:
+        elapsed = time.perf_counter() - before
+        work.parse_seconds += elapsed
+        if measurements is not None:
+            measurements['parse_seconds'] += elapsed
+    before = time.perf_counter() if measurements is not None else None
+    file = None
+    try:
+        file = FileFacts(record, raw, tree, work)
         file.collect()
         return file.lower()
     finally:
-        file.release()
+        if file is not None:
+            file.release()
+        if measurements is not None:
+            measurements['traversal_lowering_seconds'] += time.perf_counter() - before
 
 
-def collect_file(supplied, budget=None, cancel=None):
+def collect_file(supplied, budget=None, cancel=None, *, measurements=None):
     """Collect one source-only immutable blob for serial or owned worker use.
 
     Optional sha256/bytes are independent input identity checks, not expected
     facts. Gold keys, configuration blobs and cross-file target lists are not
-    accepted. Timing is observed by the caller; counts describe collected work.
+    accepted. Optional measurements must be an empty dict. Fixed wall timings
+    are written there, including failed phases, never into CollectedFile or its
+    identity. Backend/parse/traversal-lowering are disjoint; collect_elapsed is
+    inclusive and also includes source validation. Handoff encoding is a caller
+    stage. No measurements here establish resource defaults or capacity.
     """
-    budget = budget or Budget()
-    work = Work(budget, cancel)
-    work.check()
-    if (type(supplied) is not dict or not {'path', 'language', 'content'} <= set(supplied) or
-            set(supplied) - {'path', 'language', 'content', 'kind', 'sha256', 'bytes'}):
-        raise ValueError('Source-only blob metadata required')
-    raw = supplied['content']
-    if type(raw) is not bytes:
-        raise ValueError('Source content must be immutable bytes')
-    if len(raw) > min(budget.max_file_bytes, budget.max_total_bytes):
-        raise StopScan('source_byte_budget_exceeded')
-    record = {'path': supplied['path'], 'language': supplied['language'], 'kind': supplied.get('kind', 'source'),
-              'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw)}
-    _record_valid(record, budget)
-    if ('sha256' in supplied and supplied['sha256'] != record['sha256'] or
-            'bytes' in supplied and (type(supplied['bytes']) is not int or supplied['bytes'] != len(raw))):
-        raise ValueError('Source identity differs from supplied metadata')
-    raw.decode('utf-8')
-    parsers, _ = backend()
-    return _collect_file(record, raw, parsers[record['language']], work)
+    if measurements is not None:
+        if type(measurements) is not dict or measurements:
+            raise ValueError('Empty native measurement dictionary required')
+        measurements.update({key: 0.0 for key in ('backend_setup_seconds',
+            'parse_seconds', 'traversal_lowering_seconds', 'collect_elapsed_seconds')})
+    started = time.perf_counter() if measurements is not None else None
+    try:
+        budget = budget or Budget()
+        work = Work(budget, cancel)
+        work.check()
+        if (type(supplied) is not dict or not {'path', 'language', 'content'} <= set(supplied) or
+                set(supplied) - {'path', 'language', 'content', 'kind', 'sha256', 'bytes'}):
+            raise ValueError('Source-only blob metadata required')
+        raw = supplied['content']
+        if type(raw) is not bytes:
+            raise ValueError('Source content must be immutable bytes')
+        if len(raw) > min(budget.max_file_bytes, budget.max_total_bytes):
+            raise StopScan('source_byte_budget_exceeded')
+        record = {'path': supplied['path'], 'language': supplied['language'], 'kind': supplied.get('kind', 'source'),
+                  'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw)}
+        _record_valid(record, budget)
+        if ('sha256' in supplied and supplied['sha256'] != record['sha256'] or
+                'bytes' in supplied and (type(supplied['bytes']) is not int or supplied['bytes'] != len(raw))):
+            raise ValueError('Source identity differs from supplied metadata')
+        raw.decode('utf-8')
+        before = time.perf_counter() if measurements is not None else None
+        try:
+            parsers, _ = backend()
+        finally:
+            if measurements is not None:
+                measurements['backend_setup_seconds'] += time.perf_counter() - before
+        return _collect_file(record, raw, parsers[record['language']], work, measurements)
+    finally:
+        if measurements is not None:
+            measurements['collect_elapsed_seconds'] = time.perf_counter() - started
 
 
 def resolve_collected(collected, configurations=None, budget=None, cancel=None, go_context=None):

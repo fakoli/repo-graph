@@ -32,6 +32,12 @@ from repo_graph.source import SourceRoot, DESCRIPTOR_OPENS
 
 CONTROL_BYTES = 16 * 1024
 CODE_BYTES = 2 * 1024 * 1024
+NATIVE_TIMINGS = ('backend_setup_seconds', 'parse_seconds',
+                  'traversal_lowering_seconds', 'collect_elapsed_seconds',
+                  'handoff_serialize_seconds')
+CONTROLLER_TIMINGS = ('mailbox_write_seconds', 'mailbox_read_seconds',
+                      'receipt_decode_seconds', 'handoff_decode_seconds',
+                      'admission_seconds', 'observer_seconds')
 MAILBOXES = ('control.json', 'ready.json', 'request.json', 'source.bin',
              'payload.json', 'result.json')
 IMPLEMENTATIONS = ('evaluations/queued_collector.py',
@@ -212,9 +218,99 @@ def _record(blob, budget):
     return record
 
 
+def _process_valid(value):
+    if (type(value) is not dict or set(value) != {'pid', 'starttime_ticks', 'pgid', 'sid'} or
+            any(type(number) is not int or not 0 < number <= 2**63 - 1 for number in value.values()) or
+            any(value[key] > 2**31 - 1 for key in ('pid', 'pgid', 'sid'))):
+        raise ValueError('Invalid owned process identity')
+
+
+def _process_identity(pid):
+    """Bounded Linux identity reads from one held proc directory; no host scan."""
+    if type(pid) is not int or not 0 < pid <= 2**31 - 1:
+        raise ValueError('Invalid owned process PID')
+    directory = os.open('/proc/' + str(pid), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    def read():
+        fd = os.open('stat', os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory)
+        try:
+            raw = os.read(fd, 4097)
+        finally:
+            os.close(fd)
+        if len(raw) > 4096:
+            raise ValueError('Owned process identity byte ceiling exceeded')
+        head, separator, tail = raw.rpartition(b') ')
+        fields = tail.split()
+        if not separator or not head.startswith(str(pid).encode() + b' (') or len(fields) < 20:
+            raise ValueError('Malformed owned process stat')
+        value = {'pid': pid, 'starttime_ticks': int(fields[19]),
+                 'pgid': int(fields[2]), 'sid': int(fields[3])}
+        _process_valid(value)
+        return value
+    try:
+        before = read()
+        if os.getpgid(pid) != before['pgid'] or os.getsid(pid) != before['sid'] or read() != before:
+            raise ValueError('Owned process identity changed')
+        return before
+    finally:
+        os.close(directory)
+
+
+def _verify_worker(worker):
+    expected = worker['process_identity']
+    if (worker['process'].poll() is not None or
+            _process_identity(worker['process'].pid) != expected or
+            expected['pid'] != expected['pgid'] or expected['pid'] != expected['sid']):
+        raise ValueError('Stale or foreign owned worker identity')
+
+
+def _event_valid(event):
+    counters = ('monotonic_ns', 'configured_concurrency', 'workers_started', 'live_workers',
+                'pending_requests', 'inflight_reserved_bytes', 'mailbox_source_bytes',
+                'mailbox_request_bytes', 'mailbox_result_bytes', 'admitted_bytes')
+    if (type(event) is not dict or set(event) != set(counters) | {
+            'schema_version', 'event', 'mode', 'role', 'controller', 'worker', 'index', 'cleanup'} or
+            type(event['schema_version']) is not int or event['schema_version'] != 1 or
+            event['event'] not in ('readiness', 'submit', 'receive', 'failure', 'cleanup') or
+            event['mode'] not in ('serial', 'queued') or event['role'] not in ('controller', 'worker') or
+            any(type(event[key]) is not int or not 0 <= event[key] <= 2**63 - 1 for key in counters) or
+            not 1 <= event['configured_concurrency'] <= 4 or
+            event['mode'] == 'serial' and event['configured_concurrency'] != 1 or
+            not event['live_workers'] <= event['workers_started'] <= event['configured_concurrency'] or
+            not 0 <= event['pending_requests'] <= event['configured_concurrency'] or
+            (event['index'] is not None and (type(event['index']) is not int or not 0 <= event['index'] < 4096))):
+        raise ValueError('Invalid bounded observer event')
+    _process_valid(event['controller'])
+    if event['worker'] is not None:
+        _process_valid(event['worker'])
+        if event['worker']['pid'] != event['worker']['pgid'] or event['worker']['pid'] != event['worker']['sid']:
+            raise ValueError('Observer worker is not an owned session leader')
+    if (event['role'] == 'worker') != (event['worker'] is not None):
+        raise ValueError('Observer event role differs from ownership')
+    if event['event'] == 'cleanup':
+        cleanup = event['cleanup']
+        if (type(cleanup) is not dict or set(cleanup) != {'leader_reaped', 'group_absent', 'mailboxes_removed'} or
+                any(type(value) is not bool for value in cleanup.values())):
+            raise ValueError('Typed observer cleanup proof required')
+    elif event['cleanup'] is not None:
+        raise ValueError('Unexpected observer cleanup proof')
+
+
+def _timed(measurements, key, function, *args, **kwargs):
+    if measurements is None:
+        return function(*args, **kwargs)
+    before = time.monotonic()
+    try:
+        return function(*args, **kwargs)
+    finally:
+        measurements[key] += time.monotonic() - before
+
+
 def _ready(ready, worker, identity, token, limits):
+    keys = {'schema_version', 'token', 'identity', 'pid', 'limits', 'isolation'}
+    if worker.get('telemetry'):
+        keys.add('process_identity')
     if (type(ready) is not dict or set(ready) !=
-            {'schema_version', 'token', 'identity', 'pid', 'limits', 'isolation'} or
+            keys or
             type(ready['schema_version']) is not int or ready['schema_version'] != 1 or
             ready['token'] != token or ready['identity'] != identity or
             type(ready['pid']) is not int or ready['pid'] != worker['process'].pid or
@@ -224,27 +320,47 @@ def _ready(ready, worker, identity, token, limits):
                  'user_site_disabled': True, 'private_environment': True,
                  'own_session_and_group': True, 'controller_death_signal': True}, CONTROL_BYTES)):
         raise ValueError('Invalid owned worker readiness')
+    if worker.get('telemetry'):
+        _process_valid(ready['process_identity'])
+        worker['process_identity'] = dict(ready['process_identity'])
+        _verify_worker(worker)
 
 
-def _resources(resources):
-    if type(resources) is not dict or set(resources) != {'elapsed_seconds', 'process_peak_rss_bytes', 'process_user_seconds', 'process_system_seconds'}:
+def _resources(resources, telemetry=False):
+    keys = {'elapsed_seconds', 'process_peak_rss_bytes', 'process_user_seconds', 'process_system_seconds'}
+    if telemetry:
+        keys |= {'file_user_seconds', 'file_system_seconds', 'timings'}
+    if type(resources) is not dict or set(resources) != keys:
         raise ValueError('Invalid worker resource receipt')
     for key, value in resources.items():
+        if key == 'timings':
+            if type(value) is not dict or set(value) != set(NATIVE_TIMINGS):
+                raise ValueError('Invalid native timing fields')
+            if any(type(v) not in (int, float) or not math.isfinite(v) or v < 0 for v in value.values()):
+                raise ValueError('Invalid native timing number')
+            continue
         if key == 'process_peak_rss_bytes':
             valid = type(value) is int and value >= 0
         else:
             valid = type(value) in (int, float) and math.isfinite(value) and value >= 0
         if not valid:
             raise ValueError('Invalid worker resource number')
+    if telemetry:
+        if any(resources['file_' + key] > resources['process_' + key] for key in ('user_seconds', 'system_seconds')):
+            raise ValueError('Per-file CPU delta exceeds lifetime counter')
+        timings = resources['timings']
+        if (sum(timings[key] for key in NATIVE_TIMINGS[:3]) > timings['collect_elapsed_seconds'] + 0.001 or
+                timings['collect_elapsed_seconds'] + timings['handoff_serialize_seconds'] > resources['elapsed_seconds'] + 0.001):
+            raise ValueError('Disjoint timings exceed inclusive interval')
 
 
-def _receive(worker, identity, token, budget, limits, cancel):
+def _receive(worker, identity, token, budget, limits, cancel, measurements=None):
     guarded, pending = worker['guarded'], worker['pending']
     try:
-        raw, _ = _read(guarded, 'result.json', CONTROL_BYTES)
+        raw, _ = _timed(measurements, 'mailbox_read_seconds', _read, guarded, 'result.json', CONTROL_BYTES)
     except FileNotFoundError:
         return None
-    receipt = _decode(raw)
+    receipt = _timed(measurements, 'receipt_decode_seconds', _decode, raw)
     keys = {'schema_version', 'token', 'index', 'record', 'identity', 'status',
             'sha256', 'bytes', 'error_kind', 'reason', 'resources'}
     if (type(receipt) is not dict or set(receipt) != keys or
@@ -253,14 +369,14 @@ def _receive(worker, identity, token, budget, limits, cancel):
             type(receipt['index']) is not int or receipt['index'] != pending['index'] or
             _encoded(receipt['record'], CONTROL_BYTES) != _encoded(pending['record'], CONTROL_BYTES)):
         raise ValueError('Stale or foreign owned producer receipt')
-    _resources(receipt['resources'])
+    _resources(receipt['resources'], worker.get('telemetry', False))
     if receipt['status'] == 'collected':
         if receipt['error_kind'] is not None or receipt['reason'] is not None or type(receipt['bytes']) is not int:
             raise ValueError('Invalid successful producer receipt')
-        encoded, digest = _read(guarded, 'payload.json', limits.max_result_bytes)
+        encoded, digest = _timed(measurements, 'mailbox_read_seconds', _read, guarded, 'payload.json', limits.max_result_bytes)
         if receipt['bytes'] != len(encoded) or receipt['sha256'] != digest:
             raise ValueError('Owned producer payload identity differs')
-        result = _baseline().CollectedFile.from_json(encoded, pending['record'],
+        result = _timed(measurements, 'handoff_decode_seconds', _baseline().CollectedFile.from_json, encoded, pending['record'],
                     receipt['sha256'], budget=budget, cancel=cancel)
         if result.collector_sha256 != identity['collector']:
             raise ValueError('Producer differs from admitted collector implementation')
@@ -276,12 +392,13 @@ def _receive(worker, identity, token, budget, limits, cancel):
     return result, receipt
 
 
-def _start(guarded, identity, token, budget, limits, workers, cancel, deadline):
+def _start(guarded, identity, token, budget, limits, workers, cancel, deadline, telemetry=False):
     from evaluations.engine_checks import _environment
-    worker = {'guarded': guarded, 'pending': None, 'requests': 0}
+    worker = {'guarded': guarded, 'pending': None, 'requests': 0, 'telemetry': telemetry}
     workers.append(worker)
     _write(guarded, 'control.json', _encoded({'schema_version': 1, 'token': token,
-           'identity': identity, 'budget': asdict(budget), 'limits': asdict(limits)}, CONTROL_BYTES), CONTROL_BYTES)
+           'identity': identity, 'budget': asdict(budget), 'limits': asdict(limits),
+           'telemetry': telemetry}, CONTROL_BYTES), CONTROL_BYTES)
     handles = [guarded.open(name, create=True) for name in ('stdout.log', 'stderr.log')]
     # This bridge names the held directory, even after an ancestor rename/swap.
     job = Path('/proc/' + str(os.getpid()) + '/fd/' + str(guarded.fd))
@@ -309,16 +426,27 @@ def _start(guarded, identity, token, budget, limits, workers, cancel, deadline):
 
 
 def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
-                  limits=None, cancel=None, evidence_directory=None):
+                  limits=None, cancel=None, evidence_directory=None, telemetry=False,
+                  observer=None, observer_max_events=10000):
     """Return collected files in input order plus finite failures/cleanup.
 
     Never calls resolve_collected, retries a failed worker, or changes modes.
     evidence_directory must already exist outside this source checkout. A
     private run directory retains metadata logs/receipt; default runs are
     temporary. No successful outcome here constitutes engine qualification.
+
+    Optional telemetry is outside collected facts/cache identity. A synchronous
+    observer enables telemetry and must return exact True. Events are bounded,
+    source/path-free and not retained here. Refusal/error/overflow stops work;
+    cleanup remains owned even when observer delivery fails. The callback must
+    not block: this loop cannot interrupt a callback or a filesystem operation.
     """
     baseline = _baseline()
     budget, limits = budget or baseline.Budget(), limits or QueueLimits()
+    if (type(telemetry) is not bool or observer is not None and not callable(observer) or
+            type(observer_max_events) is not int or not 1 <= observer_max_events <= 10000):
+        raise ValueError('Explicit telemetry and bounded observer required')
+    telemetry = telemetry or observer is not None
     if (type(budget) is not baseline.Budget or type(limits) is not QueueLimits or
             mode not in ('serial', 'queued') or type(concurrency) is not int or
             not 1 <= concurrency <= 4 or mode == 'serial' and concurrency != 1):
@@ -367,7 +495,56 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
     source_bytes = admitted_bytes = inflight_peak = 0
     nodes = facts = count = 0
     seen, exhausted = set(), False
+    controller_timings = {key: 0.0 for key in CONTROLLER_TIMINGS} if telemetry else None
+    controller_identity = None
+    observer_count, observer_failure = 0, None
+    def emit(event, worker=None, index=None, cleanup=None):
+        nonlocal observer_count, observer_failure
+        if observer is None or observer_failure is not None:
+            return
+        observer_started = time.monotonic()
+        try:
+            if observer_count >= observer_max_events:
+                raise PoolStopped('observer_event_budget_exceeded')
+            mailbox = {name: 0 for name in ('source', 'request', 'result')}
+            for owned in workers:
+                if owned['guarded'].fd is None:
+                    continue
+                for name, category in (('source.bin', 'source'), ('request.json', 'request'),
+                                       ('payload.json', 'result'), ('result.json', 'result')):
+                    try:
+                        mailbox[category] += owned['guarded'].info(name).st_size
+                    except FileNotFoundError:
+                        pass
+            actual = sum('process' in owned for owned in workers)
+            pending = sum(owned['pending'] is not None for owned in workers)
+            value = {'schema_version': 1, 'event': event, 'monotonic_ns': time.monotonic_ns(),
+                'mode': mode, 'configured_concurrency': concurrency, 'workers_started': actual,
+                'live_workers': sum('process' in owned and owned['process'].poll() is None for owned in workers),
+                'pending_requests': pending, 'inflight_reserved_bytes': pending * reservation,
+                'mailbox_source_bytes': mailbox['source'], 'mailbox_request_bytes': mailbox['request'],
+                'mailbox_result_bytes': mailbox['result'], 'admitted_bytes': admitted_bytes,
+                'role': 'worker' if worker is not None else 'controller',
+                'controller': dict(controller_identity),
+                'worker': dict(worker['process_identity']) if worker is not None else None,
+                'index': index, 'cleanup': dict(cleanup) if cleanup is not None else None}
+            _event_valid(value)
+            _encoded(value, CONTROL_BYTES)
+            observer_count += 1
+            if observer(value) is not True:
+                raise PoolStopped('observer_refused')
+        except BaseException as error:
+            observer_failure = (str(error) if type(error) is PoolStopped and str(error) in
+                ('observer_event_budget_exceeded', 'observer_refused') else 'observer_error')
+            raise PoolStopped(observer_failure) from None
+        finally:
+            controller_timings['observer_seconds'] += time.monotonic() - observer_started
+        if event in ('readiness', 'submit', 'receive'):
+            _check(cancel, deadline)
     try:
+        if telemetry:
+            controller_identity = _process_identity(os.getpid())
+        emit('readiness')
         iterator = iter(blobs)
         while not exhausted or any(w['pending'] is not None for w in workers):
             _check(cancel, deadline)
@@ -382,32 +559,43 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
                     continue
                 if time.monotonic() >= pending['deadline']:
                     raise PoolStopped('worker_deadline_exceeded')
-                received = _receive(worker, identity, token, per_file, limits, cancel)
+                if telemetry:
+                    _verify_worker(worker)
+                received = _receive(worker, identity, token, per_file, limits, cancel, controller_timings)
                 if received is None:
                     if worker['process'].poll() is not None:
                         raise PoolStopped('worker_exited')
                     continue
                 file, receipt = received
                 worker['pending'] = None
+                worker.setdefault('resources', []).append(receipt['resources'])
+                admission_started = time.monotonic() if telemetry else None
+                try:
+                    if file is None:
+                        result.failures.append({'index': pending['index'], 'record': pending['record'],
+                                                'kind': receipt['error_kind'], 'reason': receipt['reason']})
+                    else:
+                        admitted_bytes += receipt['bytes']
+                        nodes += file.counts['nodes']
+                        facts += file.counts['definitions']
+                        if (admitted_bytes > min(limits.max_admitted_bytes, budget.max_collected_bytes) or
+                                nodes > budget.max_nodes or facts > budget.max_facts):
+                            result.failures.append({'index': pending['index'], 'record': pending['record'],
+                                                    'kind': 'aggregate_budget_exceeded'})
+                            raise PoolStopped('aggregate_budget_exceeded')
+                        completed[pending['index']] = file
+                        if file.partial or file.errors:
+                            result.failures.append({'index': pending['index'], 'record': pending['record'],
+                                                    'kind': 'partial_file', 'error_count': len(file.errors)})
+                finally:
+                    if telemetry:
+                        controller_timings['admission_seconds'] += time.monotonic() - admission_started
+                if file is None or file.partial or file.errors:
+                    emit('failure', worker, pending['index'])
                 if file is None:
-                    result.failures.append({'index': pending['index'], 'record': pending['record'],
-                                            'kind': receipt['error_kind'], 'reason': receipt['reason']})
                     if receipt['error_kind'] == 'BackendUnavailable':
                         raise PoolStopped('backend_unavailable')
-                else:
-                    admitted_bytes += receipt['bytes']
-                    nodes += file.counts['nodes']
-                    facts += file.counts['definitions']
-                    if (admitted_bytes > min(limits.max_admitted_bytes, budget.max_collected_bytes) or
-                            nodes > budget.max_nodes or facts > budget.max_facts):
-                        result.failures.append({'index': pending['index'], 'record': pending['record'],
-                                                'kind': 'aggregate_budget_exceeded'})
-                        raise PoolStopped('aggregate_budget_exceeded')
-                    completed[pending['index']] = file
-                    if file.partial or file.errors:
-                        result.failures.append({'index': pending['index'], 'record': pending['record'],
-                                                'kind': 'partial_file', 'error_count': len(file.errors)})
-                worker.setdefault('resources', []).append(receipt['resources'])
+                emit('receive', worker, pending['index'])
             while not exhausted:
                 active = sum(w['pending'] is not None for w in workers)
                 if active >= concurrency or (active + 1) * reservation > limits.max_inflight_bytes:
@@ -419,27 +607,38 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
                     exhausted = True
                     break
                 _check(cancel, deadline)
-                record = _record(blob, budget)
-                if count >= budget.max_files or source_bytes + record['bytes'] > budget.max_total_bytes:
-                    raise PoolStopped('source_admission_budget_exceeded')
-                if record['path'] in seen:
-                    raise ValueError('Duplicate source path')
-                seen.add(record['path'])
-                source_bytes += record['bytes']
+                record = _timed(controller_timings, 'admission_seconds', _record, blob, budget)
+                admission_started = time.monotonic() if telemetry else None
+                try:
+                    if count >= budget.max_files or source_bytes + record['bytes'] > budget.max_total_bytes:
+                        raise PoolStopped('source_admission_budget_exceeded')
+                    if record['path'] in seen:
+                        raise ValueError('Duplicate source path')
+                    seen.add(record['path'])
+                    source_bytes += record['bytes']
+                finally:
+                    if telemetry:
+                        controller_timings['admission_seconds'] += time.monotonic() - admission_started
                 worker = next((w for w in workers if w['pending'] is None), None)
                 if worker is None:
                     worker_name = 'worker-' + str(len(workers))
                     worker = _start(_new_directory(run, worker_name), identity, token, per_file,
-                                    limits, workers, cancel, deadline)
+                                    limits, workers, cancel, deadline, telemetry)
+                    emit('readiness', worker)
+                if telemetry:
+                    _verify_worker(worker)
                 request = _encoded({'schema_version': 1, 'token': token, 'index': count,
                                      'identity': identity, 'record': record}, limits.max_request_bytes)
-                _write(worker['guarded'], 'source.bin', blob['content'], budget.max_file_bytes)
-                _write(worker['guarded'], 'request.json', request, limits.max_request_bytes)
+                _timed(controller_timings, 'mailbox_write_seconds', _write,
+                       worker['guarded'], 'source.bin', blob['content'], budget.max_file_bytes)
+                _timed(controller_timings, 'mailbox_write_seconds', _write,
+                       worker['guarded'], 'request.json', request, limits.max_request_bytes)
                 worker['pending'] = {'index': count, 'record': record,
                     'deadline': min(deadline, time.monotonic() + limits.worker_wall_seconds)}
                 worker['requests'] += 1
                 count += 1
                 inflight_peak = max(inflight_peak, sum(w['pending'] is not None for w in workers) * reservation)
+                emit('submit', worker, count - 1)
                 del blob
             if any(w['pending'] is not None for w in workers):
                 time.sleep(0.005)
@@ -458,7 +657,7 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
                 'collected_byte_budget_exceeded', 'handoff_byte_budget_exceeded'} else 'collection_stopped'
         else:
             result.stop_reason = 'input_or_protocol_rejected'
-        result.status = 'partial' if completed else 'failed'
+        result.status = 'failed' if observer_failure is not None else ('partial' if completed else 'failed')
         for worker in workers:
             if worker['pending'] is not None:
                 result.failures.append({'index': worker['pending']['index'],
@@ -466,6 +665,11 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
                     'reason': result.stop_reason})
         if not result.failures:
             result.failures.append({'index': count, 'kind': type(error).__name__, 'reason': result.stop_reason})
+        try:
+            emit('failure', index=count if count < 4096 else None)
+        except PoolStopped as observer_error:
+            result.status, result.stop_reason = 'failed', str(observer_error)
+            result.failures.append({'index': count, 'kind': 'observer_failed', 'reason': result.stop_reason})
     finally:
         from evaluations.engine_checks import _stop_and_reap
         for worker in workers:
@@ -490,6 +694,14 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
                 cleanup['mailboxes_removed'] = True
             finally:
                 worker['guarded'].__exit__()
+            worker['pending'] = None
+            if telemetry and 'process_identity' in worker:
+                try:
+                    emit('cleanup', worker, cleanup={key: cleanup[key] for key in
+                        ('leader_reaped', 'group_absent', 'mailboxes_removed')})
+                except PoolStopped as error:
+                    result.status, result.stop_reason = 'failed', str(error)
+                    result.failures.append({'index': count, 'kind': 'observer_failed', 'reason': result.stop_reason})
         if any(not row['leader_reaped'] or not row['group_absent'] or not row['mailboxes_removed'] for row in result.cleanup):
             result.status, result.stop_reason = 'failed', 'cleanup_failed'
         result.collected = [completed[index] for index in sorted(completed)]
@@ -505,6 +717,12 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
             'worker_file_hard_limit_bytes': max(limits.max_result_bytes, limits.max_request_bytes,
                                                limits.log_bytes, CONTROL_BYTES),
             'limits_qualification': 'unmeasured_configuration_not_capacity_evidence'}
+        if telemetry:
+            result.resources['telemetry'] = {'schema_version': 1, 'controller_timings': controller_timings,
+                'controller_identity': controller_identity, 'observer_events_delivered': observer_count,
+                'observer_failed': observer_failure is not None, 'observer_failure_reason': observer_failure,
+                'actual_workers_started': sum('process' in worker for worker in workers),
+                'worker_process_identities': [dict(worker['process_identity']) for worker in workers if 'process_identity' in worker]}
         summary = {'status': result.status, 'stop_reason': result.stop_reason,
             'failures': [{key: value for key, value in row.items() if key != 'record'}
                          for row in result.failures],
@@ -513,11 +731,11 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
         summary_cap = max(1024 * 1024, budget.max_files * 512 + CONTROL_BYTES)
         try:
             _write(run, 'receipt.json', _encoded(summary, summary_cap), summary_cap)
-        except RuntimeError:
+        except (RuntimeError, ValueError, OSError) as error:
             # A directory fsync can fail after publication. Preserve the result
             # and cleanup, and remove that receipt so it cannot imply success.
             result.status, result.stop_reason = 'failed', 'input_or_protocol_rejected'
-            result.failures.append({'index': count, 'kind': 'RuntimeError',
+            result.failures.append({'index': count, 'kind': type(error).__name__,
                                     'reason': result.stop_reason, 'stage': 'receipt'})
             result.resources['receipt_write_failed'] = True
             try:
@@ -559,8 +777,11 @@ def _worker(fd, creator_pid):
         if job.root == ROOT or ROOT in job.root.parents:
             return 2
         control = _decode(_read(job, 'control.json', CONTROL_BYTES)[0])
-        if type(control) is not dict or set(control) != {'schema_version', 'token', 'identity', 'budget', 'limits'} or type(control['schema_version']) is not int or control['schema_version'] != 1:
+        if (type(control) is not dict or set(control) != {'schema_version', 'token', 'identity', 'budget', 'limits', 'telemetry'} or
+                type(control['schema_version']) is not int or control['schema_version'] != 1 or
+                type(control['telemetry']) is not bool):
             return 2
+        telemetry = control['telemetry']
         limits = QueueLimits(**control['limits'])
         resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, limits.memory_bytes))
         resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_seconds, limits.cpu_seconds))
@@ -581,9 +802,12 @@ def _worker(fd, creator_pid):
                             ('XDG_CACHE_HOME', 'cache'), ('XDG_DATA_HOME', 'data'), ('TMPDIR', 'tmp'))),
                     'own_session_and_group': os.getpid() == os.getsid(0) == os.getpgrp(),
                     'controller_death_signal': True}
-        _write(job, 'ready.json', _encoded({'schema_version': 1, 'token': token,
+        ready = {'schema_version': 1, 'token': token,
             'identity': identity, 'pid': os.getpid(), 'limits': asdict(limits),
-            'isolation': isolated}, CONTROL_BYTES), CONTROL_BYTES)
+            'isolation': isolated}
+        if telemetry:
+            ready['process_identity'] = _process_identity(os.getpid())
+        _write(job, 'ready.json', _encoded(ready, CONTROL_BYTES), CONTROL_BYTES)
         previous = -1
         while True:
             try:
@@ -604,10 +828,19 @@ def _worker(fd, creator_pid):
             if _record(supplied, budget) != record or _identity() != identity:
                 return 2
             started = time.monotonic()
+            before_cpu = resource.getrusage(resource.RUSAGE_SELF) if telemetry else None
+            timings = {} if telemetry else None
             payload, error_kind, reason = None, None, None
             try:
-                collected = baseline.collect_file(supplied, budget=budget)
-                payload = collected.to_json(budget=budget)
+                collected = baseline.collect_file(supplied, budget=budget, measurements=timings)
+                if telemetry:
+                    timings['handoff_serialize_seconds'] = 0.0
+                before = time.monotonic() if telemetry else None
+                try:
+                    payload = collected.to_json(budget=budget)
+                finally:
+                    if telemetry:
+                        timings['handoff_serialize_seconds'] += time.monotonic() - before
                 del collected
             except baseline.BackendUnavailable:
                 error_kind, reason = 'BackendUnavailable', 'backend_unavailable'
@@ -620,6 +853,11 @@ def _worker(fd, creator_pid):
             resources = {'elapsed_seconds': time.monotonic() - started,
                 'process_peak_rss_bytes': usage.ru_maxrss * (1 if sys.platform == 'darwin' else 1024),
                 'process_user_seconds': usage.ru_utime, 'process_system_seconds': usage.ru_stime}
+            if telemetry:
+                timings.setdefault('handoff_serialize_seconds', 0.0)
+                resources.update(file_user_seconds=usage.ru_utime - before_cpu.ru_utime,
+                    file_system_seconds=usage.ru_stime - before_cpu.ru_stime, timings=timings)
+                _resources(resources, True)
             if payload is not None:
                 _write(job, 'payload.json', payload, limits.max_result_bytes)
             receipt = {'schema_version': 1, 'token': token, 'index': previous,
