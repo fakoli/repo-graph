@@ -1701,7 +1701,7 @@ def _persistent_impacts(index, expected, directory, label):
         selected_declarations=len(facts['definitions']), selected_sites=len(facts['sites']))
 
 
-def _persistent_queries(index, directory, *, specs=PERSISTENT_QUERY_SPECS, fanout=None):
+def _persistent_queries(index, directory, *, specs=PERSISTENT_QUERY_SPECS, fanout=None, progress=None):
     """Frozen workloads: cold application session and ten cached warm calls.
 
     Source selector resolution and correctness grading are outside each measured
@@ -1720,13 +1720,31 @@ def _persistent_queries(index, directory, *, specs=PERSISTENT_QUERY_SPECS, fanou
                 if len(selected[spec['id']]) > 1: raise ValueError('Ambiguous frozen query selector')
     if index.metadata() != metadata or any(len(values) != 1 for values in selected.values()):
         raise ValueError('Missing or changed frozen query selector')
-    results = dict(freeze_sha256=PERSISTENT_FREEZE_SHA, generation=metadata['generation'],
+    results = {} if progress is None else progress
+    results.update(freeze_sha256=PERSISTENT_FREEZE_SHA, generation=metadata['generation'],
         identities=metadata, scope='unmodified fresh publication only; cold application session, OS cache possibly warm',
         cold_calls=1, warm_calls=10, limits=dict(PERSISTENT_QUERY_LIMITS), workloads=[], cursor_control=None, passed=False)
 
-    def record(session, payload, name, temperature):
-        began = time.monotonic_ns(); response = session.run(payload)
-        elapsed = (time.monotonic_ns() - began) / 1e9; raw = encoded(response)
+    def record(session, payload, name, temperature, samples):
+        sample = dict(temperature=temperature, passed=False); samples.append(sample)
+        began = time.monotonic_ns()
+        try: response = session.run(payload)
+        finally: sample['elapsed_seconds'] = (time.monotonic_ns() - began) / 1e9
+        raw = encoded(response); limits = payload['limits']; name += '.json'
+        sample.update(wire_bytes=len(raw), **{key: response.get(key) for key in
+            ('generation', 'source_identity', 'examined_relationships', 'examined_symbols', 'returned_entities',
+             'returned_symbol_handles', 'returned_edges', 'excerpt_bytes', 'storage_progress_callbacks',
+             'storage_setup_seconds', 'snapshot_copy_seconds', 'total_count', 'truncated', 'stop_reason')})
+        if len(raw) > limits['max_response_bytes']: raise ValueError('Query receipt byte budget exhausted')
+        with SourceRoot(directory) as owner:
+            if not owner.secure: raise ValueError('Private query receipt directory required')
+            with owner.atomic_writer(name) as stream: stream.write(raw)
+        retained, sha = checks._adapter_bytes(directory, name, cap=limits['max_response_bytes'])
+        if retained != raw: raise ValueError('Canonical query receipt changed')
+        sample['artifact'] = dict(path=name, sha256=sha, bytes=len(retained))
+        return response, sample
+
+    def grade(response, payload, sample):
         limits = payload['limits']; seed = payload['seed']; handles = set()
         for row in response['rows']:
             if 'site' in row:
@@ -1737,69 +1755,72 @@ def _persistent_queries(index, directory, *, specs=PERSISTENT_QUERY_SPECS, fanou
                 response['returned_symbol_handles'] != len(handles) or response['returned_entities'] != len(handles - {seed}) or
                 len(handles) > limits['max_entities'] or response['returned_edges'] > limits['max_edges'] or
                 response['examined_relationships'] > limits['max_examined_relationships'] or
-                len(raw) > limits['max_response_bytes'] or response['excerpt_bytes'] != 0 or
+                sample['wire_bytes'] > limits['max_response_bytes'] or response['excerpt_bytes'] != 0 or
                 response['stop_reason'] in ('cancelled', 'deadline_exceeded', 'continuation_capacity_exhausted',
                     'continuation_state_budget_exceeded', 'snapshot_session_capacity_exhausted')):
             raise ValueError('Frozen query generation, counter, work or stop control failed')
-        name += '.json'
-        with SourceRoot(directory) as owner:
-            if not owner.secure: raise ValueError('Private query receipt directory required')
-            with owner.atomic_writer(name) as stream: stream.write(raw)
-        retained, sha = checks._adapter_bytes(directory, name, cap=limits['max_response_bytes'])
-        if retained != raw: raise ValueError('Canonical query receipt changed')
-        sample = dict(temperature=temperature, elapsed_seconds=elapsed, wire_bytes=len(raw),
-            **{key: response[key] for key in ('generation', 'source_identity', 'examined_relationships', 'examined_symbols',
-                'returned_entities', 'returned_symbol_handles', 'returned_edges', 'excerpt_bytes', 'storage_progress_callbacks',
-                'storage_setup_seconds', 'snapshot_copy_seconds', 'total_count', 'truncated', 'stop_reason')},
-            artifact=dict(path=name, sha256=sha, bytes=len(retained)))
-        return response, sample
 
-    for spec in specs:
-        payload = dict(seed=selected[spec['id']][0], operation=spec['operation'], depth=2,
-            limits=dict(PERSISTENT_QUERY_LIMITS, **spec.get('overrides', {})))
-        samples = []; semantic = None
-        with Queries(index.output, owner=index.output_owner, repository_identity=index.owner) as session:
-            for number in range(11):
-                response, sample = record(session, payload, spec['id'] + '-' + str(number).zfill(2),
-                                          'cold' if number == 0 else 'warm')
-                current = digest(response['rows'])
-                if semantic is None: semantic = current
-                elif current != semantic: raise ValueError('Same-generation warm query rows changed')
-                if spec['id'] != 'F-REFERENCE-LOCAL' and not response['rows']:
-                    raise ValueError('Frozen query returned vacuous rows')
-                if spec['id'] == 'F-UNRESOLVED-DYNAMIC' and not any(row['certainty'] == 'unresolved' for row in response['rows']):
-                    raise ValueError('Frozen dynamic query lost unresolved evidence')
-                if spec['id'] == 'F-FANOUT-STOP' and (not response['truncated'] or response['cursor'] is None):
-                    raise ValueError('Frozen fanout did not exercise bounded continuation')
-                samples.append(sample)
-        warm = sorted(sample['elapsed_seconds'] for sample in samples[1:])
-        results['workloads'].append(dict(id=spec['id'], operation=spec['operation'], seed=payload['seed'],
-            limits=payload['limits'], samples=samples, warm_p50_seconds=statistics.median(warm),
-            warm_p95_seconds=warm[math.ceil(.95 * len(warm)) - 1], rows_sha256=semantic, passed=True))
-        if spec['id'] == 'F-FANOUT-STOP':
-            if type(fanout) is not dict: raise ValueError('Frozen fanout occurrence oracle required')
-            expected = [(row['site']['path'], tuple(row['site']['range'][key] for key in
-                ('start_byte', 'end_byte', 'start_line', 'end_line')), row['site']['source_sha256'])
-                for row in fanout['invocations'] if row['caller_key'] == 'PY.fanout.hub']
-            if not expected or len(expected) > 256: raise ValueError('Finite nonempty fanout oracle required')
-            seen, pages, cursors = [], [], set()
+    try:
+        for spec in specs:
+            payload = dict(seed=selected[spec['id']][0], operation=spec['operation'], depth=2,
+                limits=dict(PERSISTENT_QUERY_LIMITS, **spec.get('overrides', {})))
+            samples = []; semantic = None
+            workload = dict(id=spec['id'], operation=spec['operation'], seed=payload['seed'],
+                limits=payload['limits'], samples=samples, passed=False)
+            results['workloads'].append(workload)
             with Queries(index.output, owner=index.output_owner, repository_identity=index.owner) as session:
-                while len(pages) < 64:
-                    response, sample = record(session, payload, 'fanout-page-' + str(len(pages)).zfill(2), 'cursor_control')
-                    for row in response['rows']:
-                        site = row['site']; seen.append((site['path'], tuple(site['range'][key] for key in
-                            ('start_byte', 'end_byte', 'start_line', 'end_line')), site['source_sha256']))
-                    pages.append(sample); cursor = response['cursor']
-                    if cursor is None: break
-                    if cursor in cursors: raise ValueError('Fanout cursor did not advance')
-                    cursors.add(cursor); payload = dict(payload, cursor=cursor)
-                if (response['cursor'] is not None or response['truncated'] or seen != expected or
-                        len(seen) != len(set(seen))):
-                    raise ValueError('Frozen fanout pages incomplete, reordered or duplicate')
-            results['cursor_control'] = dict(passed=True, pages=pages, returned_occurrences=len(seen),
-                expected_occurrences=len(expected), max_pages=64, physical_occurrences_sha256=digest(seen))
-    if index.metadata() != metadata: raise ValueError('Query measurement publication changed')
-    results['passed'] = True; checks._adapter_dump(directory, 'queries.json', results)
+                for number in range(11):
+                    response, sample = record(session, payload, spec['id'] + '-' + str(number).zfill(2),
+                                              'cold' if number == 0 else 'warm', samples)
+                    grade(response, payload, sample)
+                    current = digest(response['rows'])
+                    if semantic is None: semantic = current
+                    elif current != semantic: raise ValueError('Same-generation warm query rows changed')
+                    if spec['id'] != 'F-REFERENCE-LOCAL' and not response['rows']:
+                        raise ValueError('Frozen query returned vacuous rows')
+                    if spec['id'] == 'F-UNRESOLVED-DYNAMIC' and not any(row['certainty'] == 'unresolved' for row in response['rows']):
+                        raise ValueError('Frozen dynamic query lost unresolved evidence')
+                    if spec['id'] == 'F-FANOUT-STOP' and (not response['truncated'] or response['cursor'] is None):
+                        raise ValueError('Frozen fanout did not exercise bounded continuation')
+                    sample['passed'] = True
+            warm = sorted(sample['elapsed_seconds'] for sample in samples[1:])
+            workload.update(warm_p50_seconds=statistics.median(warm),
+                warm_p95_seconds=warm[math.ceil(.95 * len(warm)) - 1], rows_sha256=semantic, passed=True)
+            if spec['id'] == 'F-FANOUT-STOP':
+                if type(fanout) is not dict: raise ValueError('Frozen fanout occurrence oracle required')
+                expected = [(row['site']['path'], tuple(row['site']['range'][key] for key in
+                    ('start_byte', 'end_byte', 'start_line', 'end_line')), row['site']['source_sha256'])
+                    for row in fanout['invocations'] if row['caller_key'] == 'PY.fanout.hub']
+                if not expected or len(expected) > 256: raise ValueError('Finite nonempty fanout oracle required')
+                seen, pages, cursors = [], [], set()
+                control = dict(passed=False, pages=pages, returned_occurrences=0,
+                    expected_occurrences=len(expected), max_pages=64)
+                results['cursor_control'] = control
+                with Queries(index.output, owner=index.output_owner, repository_identity=index.owner) as session:
+                    while len(pages) < 64:
+                        response, sample = record(session, payload, 'fanout-page-' + str(len(pages)).zfill(2), 'cursor_control', pages)
+                        grade(response, payload, sample)
+                        for row in response['rows']:
+                            site = row['site']; seen.append((site['path'], tuple(site['range'][key] for key in
+                                ('start_byte', 'end_byte', 'start_line', 'end_line')), site['source_sha256']))
+                        control['returned_occurrences'] = len(seen); sample['passed'] = True; cursor = response['cursor']
+                        if cursor is None: break
+                        if cursor in cursors: raise ValueError('Fanout cursor did not advance')
+                        cursors.add(cursor); payload = dict(payload, cursor=cursor)
+                    if (response['cursor'] is not None or response['truncated'] or seen != expected or
+                            len(seen) != len(set(seen))):
+                        raise ValueError('Frozen fanout pages incomplete, reordered or duplicate')
+                control.update(passed=True, physical_occurrences_sha256=digest(seen))
+        if index.metadata() != metadata: raise ValueError('Query measurement publication changed')
+        results['passed'] = True
+        checks._adapter_dump(directory, 'queries.json', results)
+    except (OSError, ValueError, RuntimeError, TypeError, KeyError, MemoryError, RecursionError) as error:
+        results['passed'] = False
+        results['failure'] = checks._adapter_error(error)
+        try: checks._adapter_dump(directory, 'queries.json', results)
+        except (OSError, ValueError, RuntimeError, TypeError, KeyError, MemoryError, RecursionError) as retention_error:
+            results['retention_failure'] = checks._adapter_error(retention_error)
+        raise
     return results
 
 
@@ -1905,35 +1926,48 @@ def _persistent_attempt(index, records, label, mode, concurrency, directory, sam
             raise
         return GitProcess(process) if role == 'git_revision' else process
     def collected(*args, **kwargs):
-        if batch_count[0] >= PERSISTENT_MAX_BATCHES: raise ValueError('Persistent collection batch budget exhausted')
-        if kwargs.get('mode') != mode or kwargs.get('concurrency') != concurrency or kwargs.get('observer') is not None:
-            raise ValueError('Canonical collection mode or observer differs from profiler')
-        def observe(event):
-            if event.get('mode') != mode or event.get('configured_concurrency') != concurrency:
-                sampler.error = dict(kind='ValueError', reason='Observed producer mode/concurrency mismatch'); return False
-            return sampler.observe(event)
-        kwargs.update(telemetry=True, observer=observe, observer_max_events=10000)
-        result = measured('collection_controller', original_collect)(*args, **kwargs)
-        batch_count[0] += 1
-        full = dict(status=result.status, stop_reason=result.stop_reason, resources=result.resources,
-                    failures=result.failures, cleanup=result.cleanup)
-        name = label + '-collection-' + str(batch_count[0]).zfill(4) + '.json'
-        checks._adapter_dump(directory, name, full)
-        raw, sha = checks._adapter_bytes(directory, name, cap=DUAL_LOG_BYTES)
-        artifacts.append(dict(path=name, sha256=sha, bytes=len(raw)))
-        try: _persistent_add_source_accounting(source_accounting, result, index.budget)
-        except (ValueError, TypeError, KeyError):
+        stage = 'collection'
+        try:
+            if batch_count[0] >= PERSISTENT_MAX_BATCHES: raise ValueError('Persistent collection batch budget exhausted')
+            if kwargs.get('mode') != mode or kwargs.get('concurrency') != concurrency or kwargs.get('observer') is not None:
+                raise ValueError('Canonical collection mode or observer differs from profiler')
+            def observe(event):
+                if event.get('mode') != mode or event.get('configured_concurrency') != concurrency:
+                    sampler.error = dict(kind='ValueError', reason='Observed producer mode/concurrency mismatch'); return False
+                return sampler.observe(event)
+            kwargs.update(telemetry=True, observer=observe, observer_max_events=10000)
+            result = measured('collection_controller', original_collect)(*args, **kwargs)
+            batch_count[0] += 1
+            full = dict(status=result.status, stop_reason=result.stop_reason, resources=result.resources,
+                        failures=result.failures, cleanup=result.cleanup)
+            name = label + '-collection-' + str(batch_count[0]).zfill(4) + '.json'
+            stage = 'source_accounting'; accounting_error = None
+            try: _persistent_add_source_accounting(source_accounting, result, index.budget)
+            except (OSError, ValueError, RuntimeError, TypeError, KeyError, MemoryError, RecursionError) as error:
+                source_accounting['accounting_complete'] = False
+                source_accounting['accounting_failure'] = checks._adapter_error(error)
+                accounting_error = error
+            stage = 'batch_receipt_retention'
+            checks._adapter_dump(directory, name, full)
+            raw, sha = checks._adapter_bytes(directory, name, cap=DUAL_LOG_BYTES)
+            artifacts.append(dict(path=name, sha256=sha, bytes=len(raw)))
+            if accounting_error is not None:
+                stage = 'source_accounting'
+                raise accounting_error
+            stage = 'collection_metadata'
+            collection_totals['actual_workers_started'] += result.resources.get('workers_started', 0)
+            collection_totals['files_collected'] += result.resources.get('files_collected', 0)
+            queue_timings.update(result.resources.get('telemetry', {}).get('controller_timings', {}))
+            for worker in result.resources.get('worker_resources', []):
+                for file in worker:
+                    native_timings.update(file.get('timings', {}))
+                    for kind in ('user', 'system'):
+                        collection_totals['child_file_' + kind + '_seconds'] += file.get('file_' + kind + '_seconds', 0)
+            return result
+        except (OSError, ValueError, RuntimeError, TypeError, KeyError, MemoryError, RecursionError) as error:
             source_accounting['accounting_complete'] = False
+            source_accounting['failure'] = dict(stage=stage, **checks._adapter_error(error))
             raise
-        collection_totals['actual_workers_started'] += result.resources.get('workers_started', 0)
-        collection_totals['files_collected'] += result.resources.get('files_collected', 0)
-        queue_timings.update(result.resources.get('telemetry', {}).get('controller_timings', {}))
-        for worker in result.resources.get('worker_resources', []):
-            for file in worker:
-                native_timings.update(file.get('timings', {}))
-                for kind in ('user', 'system'):
-                    collection_totals['child_file_' + kind + '_seconds'] += file.get('file_' + kind + '_seconds', 0)
-        return result
     sampler.set_phase(label)
     began, refresh_end = time.monotonic_ns(), None
     attempt = dict(label=label, status='running', mode=mode, concurrency=concurrency)
@@ -2083,7 +2117,8 @@ def _persistent_run(root, directory, source, source_owner, bound, mode, concurre
         fresh = attempt(index, records, 'fresh-output')
         grade(index, 'fresh-output', ('U-PY-BODY', 'U-PY-EXPORT'), 'before')
         sampler.set_phase('frozen-fixture-queries')
-        report['queries'] = _persistent_queries(index, directory, fanout=oracle['query'])
+        report['queries'] = {}
+        _persistent_queries(index, directory, fanout=oracle['query'], progress=report['queries'])
         repeat = attempt(index, records, 'unchanged-repeat')
         report['equivalence']['unchanged_generation'] = fresh['identities'] == repeat['identities']
         report['equivalence']['unchanged_facts'] = fresh['semantic_facts_sha256'] == repeat['semantic_facts_sha256']

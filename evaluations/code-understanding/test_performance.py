@@ -19,6 +19,152 @@ from evaluations.acceptance import PINS
 
 
 class ObservedProfile(unittest.TestCase):
+    def test_persistent_query_failure_retains_responses_samples_and_prior_progress(self):
+        """Synthetic returned envelopes exercise retention, without a query workload."""
+        from repo_graph import analysis_queries as queries
+        definitions = [dict(id='main.py:0:10', path='main.py', name='first',
+                            range=dict(start_byte=0, end_byte=10, start_line=1, end_line=1)),
+                       dict(id='main.py:10:20', path='main.py', name='second',
+                            range=dict(start_byte=10, end_byte=20, start_line=2, end_line=2))]
+        meta = dict(generation='g' * 64, source_identity='s' * 64,
+                    repository_identity='r' * 64, analyzer_identity='a' * 64,
+                    config_identity='c' * 64)
+        specs = tuple(dict(id='synthetic-' + item['name'], operation='symbol',
+                           name=item['name'], path=item['path'],
+                           span=tuple(item['range'][key] for key in
+                               ('start_byte', 'end_byte', 'start_line', 'end_line')))
+                      for item in definitions)
+        for failure in ('deadline_exceeded', 'cancelled', 'bad_counter', 'raised_query'):
+            observed, prior_artifacts = [], {}
+            class Index:
+                output, output_owner, owner = Path('.'), 'output', meta['repository_identity']
+                def metadata(self): return dict(meta)
+                def read_facts(self, kind):
+                    if kind != 'definitions': raise AssertionError('Only selector facts required')
+                    return iter(definitions)
+            class Session:
+                def __init__(self, *args, **kwargs): pass
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+                def run(self, payload):
+                    item = next(row for row in definitions if row['id'] == payload['seed'])
+                    failing = item is definitions[1]
+                    if failing and failure == 'raised_query':
+                        prior_artifacts.update((path.name, path.read_bytes())
+                            for path in directory.glob('synthetic-first-*.json'))
+                        raise RuntimeError('synthetic query run failure')
+                    stop = failure if failing and failure != 'bad_counter' else None
+                    response = dict(rows=[item], generation=meta['generation'],
+                        source_identity=meta['source_identity'], repository_identity=meta['repository_identity'],
+                        returned_symbol_handles=0 if failing and failure == 'bad_counter' else 1,
+                        returned_entities=0, returned_edges=0, examined_relationships=0, examined_symbols=1,
+                        excerpt_bytes=0, stop_reason=stop, truncated=bool(stop), cursor=None,
+                        storage_progress_callbacks=0, storage_setup_seconds=0, snapshot_copy_seconds=0,
+                        total_count=dict(value=1, knowledge='exact'))
+                    observed.append(response)
+                    return response
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(prefix='persistent-query-failure-') as scratch:
+                directory, progress = Path(scratch), {}
+                error_kind, message = ((RuntimeError, 'synthetic query run failure')
+                    if failure == 'raised_query' else
+                    (ValueError, 'Frozen query generation, counter, work or stop control failed'))
+                with patch.object(queries, 'Queries', Session):
+                    with self.assertRaisesRegex(error_kind, message):
+                        performance._persistent_queries(Index(), directory, specs=specs, progress=progress)
+                self.assertEqual(len(observed), 11 if failure == 'raised_query' else 12)
+                self.assertFalse(progress['passed'])
+                self.assertEqual(len(progress['workloads']), 2)
+                self.assertTrue(progress['workloads'][0]['passed'])
+                self.assertTrue(all(sample['passed'] for sample in progress['workloads'][0]['samples']))
+                failed = progress['workloads'][1]
+                self.assertFalse(failed['passed'])
+                self.assertEqual(len(failed['samples']), 1)
+                sample = failed['samples'][0]
+                self.assertFalse(sample['passed'])
+                self.assertGreaterEqual(sample['elapsed_seconds'], 0)
+                if failure == 'raised_query':
+                    self.assertEqual(set(sample), {'temperature', 'passed', 'elapsed_seconds'})
+                    self.assertFalse((directory / 'synthetic-second-00.json').exists())
+                    self.assertEqual(len(prior_artifacts), 11)
+                    for earlier, response in zip(progress['workloads'][0]['samples'], observed):
+                        artifact = earlier['artifact']
+                        raw = (directory / artifact['path']).read_bytes()
+                        self.assertEqual(raw, prior_artifacts[artifact['path']])
+                        self.assertEqual(raw, queries.encoded(response))
+                        self.assertEqual(artifact['sha256'], hashlib.sha256(raw).hexdigest())
+                        self.assertEqual(artifact['bytes'], len(raw))
+                else:
+                    self.assertEqual(sample['stop_reason'], observed[-1]['stop_reason'])
+                    self.assertEqual(sample['returned_symbol_handles'], observed[-1]['returned_symbol_handles'])
+                    raw = (directory / sample['artifact']['path']).read_bytes()
+                    self.assertEqual(raw, queries.encoded(observed[-1]))
+                    self.assertEqual(sample['artifact']['sha256'], hashlib.sha256(raw).hexdigest())
+                    self.assertEqual(sample['wire_bytes'], len(raw))
+                    self.assertEqual(sample['artifact']['bytes'], len(raw))
+                self.assertEqual(json.loads((directory / 'queries.json').read_bytes()), progress)
+                self.assertEqual(progress['failure']['error_kind'], error_kind.__name__)
+
+    def test_persistent_collection_retention_failure_preserves_validated_lower_bounds(self):
+        from evaluations import engine_checks as checks
+        from repo_graph import analysis as runtime
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        class Sampler:
+            error = None
+            def set_phase(self, phase): pass
+            def register_process(self, *args): pass
+            def process_finished(self, *args): pass
+            def observe(self, event): return True
+        with tempfile.TemporaryDirectory(prefix='persistent-collection-failure-') as scratch:
+            source, logs = Path(scratch) / 'source', Path(scratch) / 'logs'
+            source.mkdir(); logs.mkdir()
+            raw = b'def function():\n    return 1\n'
+            (source / 'main.py').write_bytes(raw)
+            index = runtime.StructuralIndex(source, Path(scratch) / 'index')
+            captured, original_dump = [], checks._adapter_dump
+            def fail_batch(directory, name, value):
+                if name.startswith('retention-collection-'):
+                    captured.append(value)
+                    raise OSError(errno.ENOSPC, 'synthetic batch receipt retention failure')
+                return original_dump(directory, name, value)
+            with patch.object(checks, '_adapter_dump', side_effect=fail_batch):
+                retained = performance._persistent_attempt(index, ['main.py'], 'retention',
+                    'serial', 1, logs, Sampler())
+            self.assertEqual(len(captured), 1)
+            self.assertEqual(retained['status'], 'failed', retained)
+            self.assertFalse(retained['receipt']['published'])
+            self.assertEqual(retained['collection_batches'], 1)
+            self.assertEqual(retained['collection_artifacts'], [])
+            accounting = retained['source_accounting']
+            self.assertFalse(accounting['accounting_complete'])
+            self.assertEqual(accounting['totals_kind'], 'lower_bound')
+            self.assertEqual(accounting['failure']['stage'], 'batch_receipt_retention')
+            terminal = captured[0]['resources']
+            control = terminal['telemetry']['source_accounting']
+            self.assertEqual(accounting['passes']['controller_source_validation'], control['controller_source_validation'])
+            self.assertEqual(accounting['worker_requests_with_accounting'], control['worker_requests_with_accounting'])
+            self.assertEqual(accounting['worker_requests_with_accounting'], 1)
+            self.assertEqual(accounting['worker_requests_unknown'], 0)
+            worker = terminal['worker_resources'][0][0]['source_accounting']
+            for name, row in worker['passes'].items():
+                self.assertEqual(accounting['passes'][name], row)
+            self.assertEqual(accounting['passes']['mailbox_source']['stream_bytes'], len(raw))
+            self.assertGreater(accounting['total_hashed_bytes'], retained['source_reads']['hashed_bytes'])
+            self.assertEqual(json.loads((logs / 'retention.json').read_bytes()), retained)
+
+            # Without a returned collection, numeric zeroes are observed lower bounds only.
+            with patch.object(runtime, 'collect_files', side_effect=OSError(errno.EIO, 'synthetic unreturned collection')):
+                unreturned = performance._persistent_attempt(index, ['main.py'], 'unreturned',
+                    'serial', 1, logs, Sampler())
+            self.assertEqual(unreturned['status'], 'failed', unreturned)
+            self.assertFalse(unreturned['receipt']['published'])
+            self.assertEqual(unreturned['collection_batches'], 0)
+            self.assertFalse(unreturned['source_accounting']['accounting_complete'])
+            self.assertEqual(unreturned['source_accounting']['totals_kind'], 'lower_bound')
+            self.assertEqual(unreturned['source_accounting']['failure']['stage'], 'collection')
+            self.assertEqual(unreturned['source_accounting']['worker_requests_with_accounting'], 0)
+            self.assertEqual(json.loads((logs / 'unreturned.json').read_bytes()), unreturned)
+
     def test_persistent_attempt_observes_actual_alias_streams_and_failed_observer(self):
         from repo_graph import analysis as runtime
         from tests.test_analysis import AVAILABLE
