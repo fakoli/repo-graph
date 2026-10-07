@@ -245,3 +245,18 @@ The [100,000-document synthetic vector scan](synthetic-scale.json) took a median
 this is not a real 100k-file monorepo relevance test. Million-file support remains
 unqualified. Native Pi discovery and bounded keyword retrieval passed with no
 provider calls; agent instruction-following was not graded.
+
+## Supplemental real-call target locations
+
+The original sixteen AI-reviewed source judgments remain unchanged. The
+[supplemental location key](code-understanding/source-target-locations.json)
+records exact declaration boundaries, actual identifiers and explicit anonymous
+callable alternatives. A separate
+[supplemental lock](code-understanding/source-target-lock.json) binds the original
+input hashes and independent input audit. Its committed lock supersedes the
+supplement artifact's historical `freeze_review_pending` preparation label.
+The original ungraded comparison remains evidence of the earlier key limitation.
+
+These positions are consulted only by the grader after source-only extraction.
+They do not create target facts, change the supported denominator, select an
+engine, or satisfy the human evaluation gate.

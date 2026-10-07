@@ -1,0 +1,942 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "supplemental_independent_target_locations",
+  "status": "freeze_review_pending",
+  "scope": "same_sixteen_T004_sites",
+  "review": {
+    "kind": "independent_ai",
+    "model": "gpt-6-astra",
+    "independent": true,
+    "source_reviewed": true,
+    "human_evaluation": false,
+    "authorization": "explicit_user_override_for_T004_source_judgment",
+    "human_ux_gate": "T027_required",
+    "engine_outputs_consulted": false,
+    "engine_target_or_position_facts_consulted": false,
+    "engine_facts_used_to_choose_ranges": false,
+    "forbidden_engine_scripts_consulted": false,
+    "incidental_memory_disclosure": "The required supplemental-memory recall was queried for privacy and evidence preferences only. It unexpectedly returned unrelated historical scanner and T006 engine-screen summaries. No engine output, per-target result or target-position fact was returned or read; no such historical summary was used to locate or validate these declarations.",
+    "method": "Read the locked source judgments and exact raw source. Manually identified declaration tokens and lexical ancestors, then computed UTF-8 offsets from those independently selected line/column boundaries using Python standard-library byte operations. Verified each name, every range boundary, full source hashes, and the six clean Git pins. No candidate engine or corpus execution."
+  },
+  "created_at_utc": "2026-10-07T03:03:42.941821+00:00",
+  "input_sha256": {
+    "source-review.json": "ec360ca62426f69cfef6c801597968efc716dbe4c49e14caf43a907487dcca5d",
+    "real-calls.json": "0617c74053f358547b190c9be046c356e8d1f6675d0bd16dcfaab408b5fa624d",
+    "source-review-policy.json": "52fff0d8379c7bbd6c52dfbaba203d7349fdfb9f25d33c447f1cb650fbf0d35c"
+  },
+  "source_review_key_sha256": "ec360ca62426f69cfef6c801597968efc716dbe4c49e14caf43a907487dcca5d",
+  "range_convention": {
+    "bytes": "zero-based half-open UTF-8 byte offsets in the original source bytes",
+    "lines": "one-based; end_line is the line containing the final included byte",
+    "name": "actual declared identifier only; null for an anonymous function expression",
+    "named_ancestors": "actual lexically enclosing named callable declarations or bindings, outermost first; no invented names for anonymous callbacks or values returned by an IIFE",
+    "declaration": "source declaration or explicit callable binding/expression, excluding leading trivia and trailing whitespace; exported declarations retain export; an owned explicit terminator is retained",
+    "variable_boundary_alternatives": "Primary JS alias ranges use the variable declarator; a semicolon belongs to the separately recorded full lexical statement. Callable expressions are separately recorded. Go short binding ranges include := and the function literal; no implicit semicolon is represented by a fabricated byte."
+  },
+  "limitations": [
+    "Supplemental location key only; pending independent freeze review and not structural runtime facts.",
+    "All original case target sets, certainty, supported labels and source-binding assumptions remain unchanged.",
+    "The four unresolved cases have no targets. The two known callback candidate sets remain nonexhaustive.",
+    "Dependency identity is the recorded static pin, not proof of an active build dependency graph.",
+    "No human UX or agent-answer grading was performed; T027 remains mandatory."
+  ],
+  "case_coverage": [
+    {
+      "id": "PY-DJ-LOCAL-01",
+      "targets": [
+        "django:django/shortcuts.py#resolve_url"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "assumptions": [
+        "Normal completed module initialization; no external monkey-patching or dynamic rebinding."
+      ]
+    },
+    {
+      "id": "PY-OD-LOCAL-01",
+      "targets": [
+        "odoo:odoo/tools/func.py#reset_cached_properties"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "assumptions": [
+        "Normal module initialization; no external monkey-patching of module globals."
+      ]
+    },
+    {
+      "id": "PY-OD-IMPORT-01",
+      "targets": [],
+      "certainty": "unresolved",
+      "supported": false,
+      "assumptions": [
+        "No exact Python runtime or inspect module origin assumed; import syntax alone is not target-definition evidence."
+      ]
+    },
+    {
+      "id": "PY-DJ-DYNAMIC-01",
+      "targets": [],
+      "certainty": "unresolved",
+      "supported": false,
+      "assumptions": [
+        "Open caller set; custom managers, querysets and duck-typed receivers are possible; no whole-program points-to claim."
+      ]
+    },
+    {
+      "id": "GO-AWS-LOCAL-01",
+      "targets": [
+        "aws:internal/tfresource/retry.go#retryWhen"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "assumptions": [
+        "The pinned package is valid under a compatible Go toolchain; generic type inference is supported; no alternate generated/build-overlay declaration."
+      ]
+    },
+    {
+      "id": "GO-AWS-IMPORT-01",
+      "targets": [
+        "aws-sdk-go-base:tfawserr/awserr.go#ErrCodeEquals"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "assumptions": [
+        "Static dependency selection is the declared v2.0.0-beta.73 at the recorded commit; no workspace, vendor, replace, or transitive-version override. This review does not prove the active build dependency graph."
+      ]
+    },
+    {
+      "id": "GO-K8S-ALIAS-01",
+      "targets": [
+        "kubernetes:pkg/util/hash/hash.go#DeepHashObject"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "assumptions": [
+        "Pinned main-module source is used without workspace/build overlay replacement; valid Go package semantics."
+      ]
+    },
+    {
+      "id": "GO-K8S-DYNAMIC-01",
+      "targets": [
+        "kubernetes:pkg/controller/controller_utils.go#FilterActiveReplicaSets.activeFilter"
+      ],
+      "certainty": "candidate",
+      "supported": false,
+      "assumptions": [
+        "Candidate is the closure passed by FilterActiveReplicaSets; no closed-world caller analysis or exhaustive callback set."
+      ]
+    },
+    {
+      "id": "JS-LOCAL-01",
+      "targets": [
+        "viewer:repo_graph/assets/views.js#ordered.sort_callback.score"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "assumptions": [
+        "Execution reaches this callback and call; standard lexical binding semantics. The descriptive sort_callback scope identifies lines 13-16, not a runtime property."
+      ]
+    },
+    {
+      "id": "JS-LOCAL-02",
+      "targets": [
+        "viewer:repo_graph/assets/views.js#layout.split"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "assumptions": [
+        "Execution enters the treemap branch and reaches the call; layout.split names the block-local arrow at lines 26-35."
+      ]
+    },
+    {
+      "id": "JS-LOCAL-03",
+      "targets": [
+        "viewer:repo_graph/assets/views.js#layout.put"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "assumptions": [
+        "Execution enters the radial branch with a truthy root and reaches the call; lexical binding semantics."
+      ]
+    },
+    {
+      "id": "JS-DYNAMIC-01",
+      "targets": [],
+      "certainty": "unresolved",
+      "supported": false,
+      "assumptions": [
+        "Open caller set; no inferred Map identity, prototype stability, or whole-program receiver analysis."
+      ]
+    },
+    {
+      "id": "TS-LOCAL-01",
+      "targets": [
+        "extensions:packages/pi-brag/src/paths.ts#domainSkillSearchDirs"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "assumptions": [
+        "Normal TypeScript/ES module lexical semantics; no source transformation changing binding identity."
+      ]
+    },
+    {
+      "id": "TS-LOCAL-02",
+      "targets": [
+        "extensions:packages/pi-brag/src/paths.ts#augmentPath"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "assumptions": [
+        "Normal TypeScript/ES module lexical semantics; no source transformation changing binding identity."
+      ]
+    },
+    {
+      "id": "TS-IMPORT-01",
+      "targets": [],
+      "certainty": "unresolved",
+      "supported": false,
+      "assumptions": [
+        "No exact Node build/version or loader customization assumed; recognizing a builtin import does not verify a target blob."
+      ]
+    },
+    {
+      "id": "TS-DYNAMIC-01",
+      "targets": [
+        "extensions:packages/pi-brag/src/paths.ts#augmentPath.exists.default_callback"
+      ],
+      "certainty": "candidate",
+      "supported": false,
+      "assumptions": [
+        "Open caller set; no assumption that opts.exists is absent. default_callback is a descriptive key for the right operand of the nullish-coalescing initializer."
+      ]
+    }
+  ],
+  "location_count": 12,
+  "locations": [
+    {
+      "case_id": "PY-DJ-LOCAL-01",
+      "target_key": "django:django/shortcuts.py#resolve_url",
+      "repository_id": "django",
+      "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+      "path": "django/shortcuts.py",
+      "file_sha256": "2f46fc4d61f5f68545b4ee58fd325a1d75a0e883e58ac36be934cee4ea27db7b",
+      "name": "resolve_url",
+      "lexical_named_ancestors": [],
+      "kind": "function_declaration",
+      "name_range": {
+        "start_byte": 5770,
+        "end_byte": 5781,
+        "start_line": 176,
+        "end_line": 176
+      },
+      "declaration_range": {
+        "start_byte": 5766,
+        "end_byte": 6962,
+        "start_line": 176,
+        "end_line": 214
+      },
+      "certainty": "resolved",
+      "supported": true,
+      "notes": [
+        "Range starts at def and ends after the final body token; trailing newline and neighboring declarations are excluded. Leading documentation inside the body is part of the declaration."
+      ],
+      "range_sha256": {
+        "name_range": "50ca90e98f06ee59a85d4357dabb8dc5b21cf3293e9012b832c0366585b3eb7e",
+        "declaration_range": "d9062979fcc6170c192f1090848ad32e70e7817d49a87f8e1b2429e69e687695"
+      }
+    },
+    {
+      "case_id": "PY-OD-LOCAL-01",
+      "target_key": "odoo:odoo/tools/func.py#reset_cached_properties",
+      "repository_id": "odoo",
+      "revision": "2d9fd5562a0ef1f7f587eb393cc3bd293b047cca",
+      "path": "odoo/tools/func.py",
+      "file_sha256": "8f860a182298d18712d7df95f5e59544dc021d87b103888b548500f1de1b6630",
+      "name": "reset_cached_properties",
+      "lexical_named_ancestors": [],
+      "kind": "function_declaration",
+      "name_range": {
+        "start_byte": 468,
+        "end_byte": 491,
+        "start_line": 23,
+        "end_line": 23
+      },
+      "declaration_range": {
+        "start_byte": 464,
+        "end_byte": 752,
+        "start_line": 23,
+        "end_line": 29
+      },
+      "certainty": "resolved",
+      "supported": true,
+      "notes": [
+        "Range starts at def and ends after the final body token; trailing newline and neighboring declarations are excluded. Leading documentation inside the body is part of the declaration."
+      ],
+      "range_sha256": {
+        "name_range": "f3275696f7408198fc273bb144b90de1e9e4899724f948154b01f0532663f4f4",
+        "declaration_range": "643f4a9fed259ed67b6aaaea99955e3895699cb3b79ab515465b555063828782"
+      }
+    },
+    {
+      "case_id": "GO-AWS-LOCAL-01",
+      "target_key": "aws:internal/tfresource/retry.go#retryWhen",
+      "repository_id": "aws",
+      "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+      "path": "internal/tfresource/retry.go",
+      "file_sha256": "4f81f389d0747e5b80d455a161aa4200a77b41b2d7c494c488e2f743dc0915a5",
+      "name": "retryWhen",
+      "lexical_named_ancestors": [],
+      "kind": "function_declaration",
+      "name_range": {
+        "start_byte": 8769,
+        "end_byte": 8778,
+        "start_line": 259,
+        "end_line": 259
+      },
+      "declaration_range": {
+        "start_byte": 8764,
+        "end_byte": 9036,
+        "start_line": 259,
+        "end_line": 263
+      },
+      "certainty": "resolved",
+      "supported": true,
+      "notes": [
+        "Range starts at func and includes the closing body brace. Leading comments and the following newline are excluded; no physical trailing semicolon is present.",
+        "The declared identifier is retryWhen alone; the generic type-parameter list belongs to the declaration, not the identifier."
+      ],
+      "range_sha256": {
+        "name_range": "46bb4414c56839f1591baf352074129c50b72b7024033631008ae1c32b126734",
+        "declaration_range": "387b0b415c3ccc25e412f36c49e8b7fee4723b17257e27e8a9e1816eef78826d"
+      }
+    },
+    {
+      "case_id": "GO-AWS-IMPORT-01",
+      "target_key": "aws-sdk-go-base:tfawserr/awserr.go#ErrCodeEquals",
+      "repository_id": "aws-sdk-go-base",
+      "revision": "fc880961f63439eb567c7c403c6dbbcd4b65e8c5",
+      "path": "tfawserr/awserr.go",
+      "file_sha256": "42948c5583e761a594474c4a31b3ee84a49203cf5ae6fe92b6c8398e97c453db",
+      "name": "ErrCodeEquals",
+      "lexical_named_ancestors": [],
+      "kind": "function_declaration",
+      "name_range": {
+        "start_byte": 444,
+        "end_byte": 457,
+        "start_line": 18,
+        "end_line": 18
+      },
+      "declaration_range": {
+        "start_byte": 439,
+        "end_byte": 634,
+        "start_line": 18,
+        "end_line": 25
+      },
+      "certainty": "resolved",
+      "supported": true,
+      "notes": [
+        "Range starts at func and includes the closing body brace. Leading comments and the following newline are excluded; no physical trailing semicolon is present."
+      ],
+      "range_sha256": {
+        "name_range": "119e7cc292190d19961413cbe2390e96564c55b563703e38bba84d19981238a2",
+        "declaration_range": "542705fdd410c953e278956ab7527787e620c78bd9a246bed17caa6f9490d570"
+      }
+    },
+    {
+      "case_id": "GO-K8S-ALIAS-01",
+      "target_key": "kubernetes:pkg/util/hash/hash.go#DeepHashObject",
+      "repository_id": "kubernetes",
+      "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+      "path": "pkg/util/hash/hash.go",
+      "file_sha256": "ea60f15871653c2e4eb729f659af18570b8f8833472944c7d694b7beb09dadef",
+      "name": "DeepHashObject",
+      "lexical_named_ancestors": [],
+      "kind": "function_declaration",
+      "name_range": {
+        "start_byte": 846,
+        "end_byte": 860,
+        "start_line": 29,
+        "end_line": 29
+      },
+      "declaration_range": {
+        "start_byte": 841,
+        "end_byte": 981,
+        "start_line": 29,
+        "end_line": 32
+      },
+      "certainty": "resolved",
+      "supported": true,
+      "notes": [
+        "Range starts at func and includes the closing body brace. Leading comments and the following newline are excluded; no physical trailing semicolon is present."
+      ],
+      "range_sha256": {
+        "name_range": "e705c20de52880de61bab3a89539510209d5e78de8cfbee9a64917cce142a99b",
+        "declaration_range": "9900a1f9b0a5db0b6acbc22a1de14ebdd7cabf856730244958368ca8a1887ccd"
+      }
+    },
+    {
+      "case_id": "GO-K8S-DYNAMIC-01",
+      "target_key": "kubernetes:pkg/controller/controller_utils.go#FilterActiveReplicaSets.activeFilter",
+      "repository_id": "kubernetes",
+      "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+      "path": "pkg/controller/controller_utils.go",
+      "file_sha256": "e92c0053aaf3643bca8efafedd649975e6c8fc596ccc223539c8cc06b8e5cb76",
+      "name": "activeFilter",
+      "lexical_named_ancestors": [
+        "FilterActiveReplicaSets"
+      ],
+      "kind": "callable_variable_binding",
+      "name_range": {
+        "start_byte": 43463,
+        "end_byte": 43475,
+        "start_line": 1098,
+        "end_line": 1098
+      },
+      "declaration_range": {
+        "start_byte": 43463,
+        "end_byte": 43560,
+        "start_line": 1098,
+        "end_line": 1100
+      },
+      "certainty": "candidate",
+      "supported": false,
+      "notes": [
+        "activeFilter is the short variable declaration binding an anonymous function. Its primary range includes := and the function literal; callable_expression_range starts at func. Go supplies an implicit semicolon, so there is no physical terminator byte to include.",
+        "This is the single reviewed callback candidate; the candidate set remains nonexhaustive and supported remains false."
+      ],
+      "callable_expression_range": {
+        "start_byte": 43479,
+        "end_byte": 43560,
+        "start_line": 1098,
+        "end_line": 1100
+      },
+      "statement_range": {
+        "start_byte": 43463,
+        "end_byte": 43560,
+        "start_line": 1098,
+        "end_line": 1100
+      },
+      "candidate_set_exhaustive": false,
+      "range_sha256": {
+        "name_range": "6af8af90ac480dcdbdfaf03ea58073fead409457f47158a339f3ac850fa2e887",
+        "declaration_range": "8f8c88bf20eb500c95bb7b73028aadd22f8039a0257eeffd602795d8e3f63fa5",
+        "callable_expression_range": "716c9196ffd0edf31277158783845e840af6b5ed66cb7e2ec4761d05debe70fe",
+        "statement_range": "8f8c88bf20eb500c95bb7b73028aadd22f8039a0257eeffd602795d8e3f63fa5"
+      }
+    },
+    {
+      "case_id": "JS-LOCAL-01",
+      "target_key": "viewer:repo_graph/assets/views.js#ordered.sort_callback.score",
+      "repository_id": "viewer",
+      "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+      "path": "repo_graph/assets/views.js",
+      "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+      "name": "score",
+      "lexical_named_ancestors": [
+        "ordered"
+      ],
+      "kind": "callable_variable_binding",
+      "name_range": {
+        "start_byte": 537,
+        "end_byte": 542,
+        "start_line": 14,
+        "end_line": 14
+      },
+      "declaration_range": {
+        "start_byte": 537,
+        "end_byte": 660,
+        "start_line": 14,
+        "end_line": 14
+      },
+      "certainty": "resolved",
+      "supported": true,
+      "notes": [
+        "The primary range is the binding declarator from its identifier through its initializer. The enclosing lexical statement owns const and the semicolon; statement_range retains both. These are explicit syntactic alternatives, not an inferred engine span.",
+        "The outer immediately invoked arrow is anonymous. RepoViews names its returned value and is not recorded as a named lexical function ancestor.",
+        "ordered is the named enclosing function. The intervening sort callback is anonymous and recorded by anonymous_sort_callback_range; sort_callback in the unchanged target key is a descriptive label, not a source identifier."
+      ],
+      "statement_range": {
+        "start_byte": 531,
+        "end_byte": 661,
+        "start_line": 14,
+        "end_line": 14
+      },
+      "declaration_keyword_range": {
+        "start_byte": 531,
+        "end_byte": 536,
+        "start_line": 14,
+        "end_line": 14
+      },
+      "callable_expression_range": {
+        "start_byte": 545,
+        "end_byte": 660,
+        "start_line": 14,
+        "end_line": 14
+      },
+      "declaration_boundary_status": "binding_declarator_with_statement_alternative",
+      "boundary_alternatives": [
+        {
+          "interpretation": "variable_declarator",
+          "range_field": "declaration_range"
+        },
+        {
+          "interpretation": "lexical_declaration_statement",
+          "range_field": "statement_range"
+        },
+        {
+          "interpretation": "arrow_function_expression",
+          "range_field": "callable_expression_range"
+        }
+      ],
+      "anonymous_sort_callback_range": {
+        "start_byte": 514,
+        "end_byte": 757,
+        "start_line": 13,
+        "end_line": 16
+      },
+      "range_sha256": {
+        "name_range": "a575b79868a2336db378ac89cb6c7d93272b4bb8e74d1096e8630765cf480ef5",
+        "declaration_range": "d2d6c71df13a78d22793f7ca97e146f8d633380c3067799b7eb7c8f79c01dd60",
+        "statement_range": "1375ac4119c315d92fe90360e0779f01481659d7857b96fe31df6cbb93bb0233",
+        "declaration_keyword_range": "f75c6596507878933aa2bc17dfd9a8689ad0da4f85427ba457666ae5917fa631",
+        "callable_expression_range": "31094824cccaf0d93c3ae219ac50da296060699182b199ced6bf557307b00294",
+        "anonymous_sort_callback_range": "8562524d3feae2f7846efb73ea48a1296e1382cb9f58f0dabb286c4fc47b5cd7"
+      }
+    },
+    {
+      "case_id": "JS-LOCAL-02",
+      "target_key": "viewer:repo_graph/assets/views.js#layout.split",
+      "repository_id": "viewer",
+      "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+      "path": "repo_graph/assets/views.js",
+      "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+      "name": "split",
+      "lexical_named_ancestors": [
+        "layout"
+      ],
+      "kind": "callable_variable_binding",
+      "name_range": {
+        "start_byte": 1170,
+        "end_byte": 1175,
+        "start_line": 26,
+        "end_line": 26
+      },
+      "declaration_range": {
+        "start_byte": 1170,
+        "end_byte": 1814,
+        "start_line": 26,
+        "end_line": 35
+      },
+      "certainty": "resolved",
+      "supported": true,
+      "notes": [
+        "The primary range is the binding declarator from its identifier through its initializer. The enclosing lexical statement owns const and the semicolon; statement_range retains both. These are explicit syntactic alternatives, not an inferred engine span.",
+        "The outer immediately invoked arrow is anonymous. RepoViews names its returned value and is not recorded as a named lexical function ancestor.",
+        "split is inside the treemap branch block of layout; a block does not add a named function ancestor."
+      ],
+      "statement_range": {
+        "start_byte": 1164,
+        "end_byte": 1815,
+        "start_line": 26,
+        "end_line": 35
+      },
+      "declaration_keyword_range": {
+        "start_byte": 1164,
+        "end_byte": 1169,
+        "start_line": 26,
+        "end_line": 26
+      },
+      "callable_expression_range": {
+        "start_byte": 1178,
+        "end_byte": 1814,
+        "start_line": 26,
+        "end_line": 35
+      },
+      "declaration_boundary_status": "binding_declarator_with_statement_alternative",
+      "boundary_alternatives": [
+        {
+          "interpretation": "variable_declarator",
+          "range_field": "declaration_range"
+        },
+        {
+          "interpretation": "lexical_declaration_statement",
+          "range_field": "statement_range"
+        },
+        {
+          "interpretation": "arrow_function_expression",
+          "range_field": "callable_expression_range"
+        }
+      ],
+      "range_sha256": {
+        "name_range": "ad1a64057f9ab34fecfe3f4ee78660bb0316dbda9370581ffbeb1e8bddf3d598",
+        "declaration_range": "4377253f4306ae6ea1a48b305672f207dfbfb0ed0356ba370ff06f817a7cc5eb",
+        "statement_range": "2c294cd560f74e593f7e7c51f648ddf2698eaf10a27938f10ff9026f763d66e9",
+        "declaration_keyword_range": "f75c6596507878933aa2bc17dfd9a8689ad0da4f85427ba457666ae5917fa631",
+        "callable_expression_range": "3ae30104a83dfdc41d9e8001dc444d6cc0d007925f1d3bd9559d5ee85cf195e2"
+      }
+    },
+    {
+      "case_id": "JS-LOCAL-03",
+      "target_key": "viewer:repo_graph/assets/views.js#layout.put",
+      "repository_id": "viewer",
+      "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+      "path": "repo_graph/assets/views.js",
+      "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+      "name": "put",
+      "lexical_named_ancestors": [
+        "layout"
+      ],
+      "kind": "callable_variable_binding",
+      "name_range": {
+        "start_byte": 983,
+        "end_byte": 986,
+        "start_line": 22,
+        "end_line": 22
+      },
+      "declaration_range": {
+        "start_byte": 983,
+        "end_byte": 1057,
+        "start_line": 22,
+        "end_line": 22
+      },
+      "certainty": "resolved",
+      "supported": true,
+      "notes": [
+        "The primary range is the binding declarator from its identifier through its initializer. The enclosing lexical statement owns const and the semicolon; statement_range retains both. These are explicit syntactic alternatives, not an inferred engine span.",
+        "The outer immediately invoked arrow is anonymous. RepoViews names its returned value and is not recorded as a named lexical function ancestor."
+      ],
+      "statement_range": {
+        "start_byte": 977,
+        "end_byte": 1058,
+        "start_line": 22,
+        "end_line": 22
+      },
+      "declaration_keyword_range": {
+        "start_byte": 977,
+        "end_byte": 982,
+        "start_line": 22,
+        "end_line": 22
+      },
+      "callable_expression_range": {
+        "start_byte": 989,
+        "end_byte": 1057,
+        "start_line": 22,
+        "end_line": 22
+      },
+      "declaration_boundary_status": "binding_declarator_with_statement_alternative",
+      "boundary_alternatives": [
+        {
+          "interpretation": "variable_declarator",
+          "range_field": "declaration_range"
+        },
+        {
+          "interpretation": "lexical_declaration_statement",
+          "range_field": "statement_range"
+        },
+        {
+          "interpretation": "arrow_function_expression",
+          "range_field": "callable_expression_range"
+        }
+      ],
+      "range_sha256": {
+        "name_range": "373cb2c6d4fe2778441d4f0266505b699fa518d002e5793b87f9b48836de3f62",
+        "declaration_range": "ecc22ce5edc525c6b0f202800c975fe7b5de782d9fc2227d3749bff711959e9c",
+        "statement_range": "cc5191938da9be93756cf8d4bbc1fe3907217ec1a2b02e3e55c33195da0286cf",
+        "declaration_keyword_range": "f75c6596507878933aa2bc17dfd9a8689ad0da4f85427ba457666ae5917fa631",
+        "callable_expression_range": "2ed719138985550cdaa1089bdbf19c4861a5efe090e10a6ec189c507b3eea38c"
+      }
+    },
+    {
+      "case_id": "TS-LOCAL-01",
+      "target_key": "extensions:packages/pi-brag/src/paths.ts#domainSkillSearchDirs",
+      "repository_id": "extensions",
+      "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+      "path": "packages/pi-brag/src/paths.ts",
+      "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+      "name": "domainSkillSearchDirs",
+      "lexical_named_ancestors": [],
+      "kind": "exported_function_declaration",
+      "name_range": {
+        "start_byte": 3426,
+        "end_byte": 3447,
+        "start_line": 98,
+        "end_line": 98
+      },
+      "declaration_range": {
+        "start_byte": 3410,
+        "end_byte": 3688,
+        "start_line": 98,
+        "end_line": 106
+      },
+      "certainty": "resolved",
+      "supported": true,
+      "notes": [
+        "The exported declaration range includes the export token and closing body brace, excluding its preceding documentation comment and trailing newline."
+      ],
+      "range_sha256": {
+        "name_range": "825f957dc488c9ae276d2d31124168c48d2dfc4a323d981d3c19614ce4f647c6",
+        "declaration_range": "5e86134b56e007de30f1c1c87b988dd9a4101d530ddf8e94c9ce07942b6092c7"
+      }
+    },
+    {
+      "case_id": "TS-LOCAL-02",
+      "target_key": "extensions:packages/pi-brag/src/paths.ts#augmentPath",
+      "repository_id": "extensions",
+      "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+      "path": "packages/pi-brag/src/paths.ts",
+      "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+      "name": "augmentPath",
+      "lexical_named_ancestors": [],
+      "kind": "exported_function_declaration",
+      "name_range": {
+        "start_byte": 4734,
+        "end_byte": 4745,
+        "start_line": 132,
+        "end_line": 132
+      },
+      "declaration_range": {
+        "start_byte": 4718,
+        "end_byte": 5374,
+        "start_line": 132,
+        "end_line": 157
+      },
+      "certainty": "resolved",
+      "supported": true,
+      "notes": [
+        "The exported declaration range includes the export token and closing body brace, excluding its preceding documentation comment and trailing newline."
+      ],
+      "range_sha256": {
+        "name_range": "e72cee460e99ca27b76dcc4c47e323f09fa681d13fee4ba46d7e62f4e99ab0f7",
+        "declaration_range": "f1bcd818d498eb6be532a16a555ec261bbda248d30c175762c4620f7654fe167"
+      }
+    },
+    {
+      "case_id": "TS-DYNAMIC-01",
+      "target_key": "extensions:packages/pi-brag/src/paths.ts#augmentPath.exists.default_callback",
+      "repository_id": "extensions",
+      "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+      "path": "packages/pi-brag/src/paths.ts",
+      "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+      "name": null,
+      "lexical_named_ancestors": [
+        "augmentPath"
+      ],
+      "kind": "anonymous_arrow_function",
+      "name_range": null,
+      "declaration_range": {
+        "start_byte": 4918,
+        "end_byte": 5028,
+        "start_line": 138,
+        "end_line": 144
+      },
+      "certainty": "candidate",
+      "supported": false,
+      "notes": [
+        "This target is the anonymous fallback arrow, so name and name_range are null. Its declared parameter p is not a function identifier. augmentPath is its only named enclosing function.",
+        "The arrow range includes its parameter-list opening parenthesis and closing body brace. The additional grouping parentheses are recorded separately in parenthesized_expression_range.",
+        "exists is an enclosing variable binding whose initializer selects between opts.exists and the fallback arrow. That binding name is not assigned to the anonymous target. Its full const statement, including the owned semicolon, is recorded separately.",
+        "The unchanged default_callback target-key suffix is descriptive. The candidate set remains nonexhaustive; supported remains false."
+      ],
+      "parenthesized_expression_range": {
+        "start_byte": 4917,
+        "end_byte": 5029,
+        "start_line": 138,
+        "end_line": 144
+      },
+      "enclosing_binding_name_range": {
+        "start_byte": 4885,
+        "end_byte": 4891,
+        "start_line": 136,
+        "end_line": 136
+      },
+      "enclosing_binding_range": {
+        "start_byte": 4885,
+        "end_byte": 5029,
+        "start_line": 136,
+        "end_line": 144
+      },
+      "enclosing_statement_range": {
+        "start_byte": 4879,
+        "end_byte": 5030,
+        "start_line": 136,
+        "end_line": 144
+      },
+      "enclosing_declaration_keyword_range": {
+        "start_byte": 4879,
+        "end_byte": 4884,
+        "start_line": 136,
+        "end_line": 136
+      },
+      "candidate_set_exhaustive": false,
+      "range_sha256": {
+        "declaration_range": "b2d3f6165d5ba98d7dd0ce49de7a6856c9a4a5876f649dee4ab2f79ace042dc5",
+        "parenthesized_expression_range": "81100c60f712fa02c9752de9bcbe6ace0aa5331a78f2e18d2f4e4052b4b9ba35",
+        "enclosing_binding_name_range": "ad5aabc97d88f6e56deaffc34c7a6e292e9e12db04a56799d773cfb64ca9898d",
+        "enclosing_binding_range": "08042992b8bc3da41a101ca1070d61a1af23645c457ccea1badd32314c0b2182",
+        "enclosing_statement_range": "392fbb8d9de3614e2163f3c1806f7d507e2b1bba24cf5216da90193ab5ea26d5",
+        "enclosing_declaration_keyword_range": "f75c6596507878933aa2bc17dfd9a8689ad0da4f85427ba457666ae5917fa631"
+      }
+    }
+  ],
+  "source_receipts": [
+    {
+      "repository_id": "aws",
+      "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+      "path": "go.mod",
+      "file_sha256": "28fd21d4861cc1fa1b3b022d7e40d3af6cc6090d6ae75f59eeda9ff9b323f811",
+      "file_bytes": 22183,
+      "working_file_equals_pinned_git_blob": true,
+      "retrieval": "local_pinned_checkout"
+    },
+    {
+      "repository_id": "aws",
+      "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+      "path": "internal/tfresource/retry.go",
+      "file_sha256": "4f81f389d0747e5b80d455a161aa4200a77b41b2d7c494c488e2f743dc0915a5",
+      "file_bytes": 9037,
+      "working_file_equals_pinned_git_blob": true,
+      "retrieval": "local_pinned_checkout"
+    },
+    {
+      "repository_id": "aws-sdk-go-base",
+      "revision": "fc880961f63439eb567c7c403c6dbbcd4b65e8c5",
+      "path": "go.mod",
+      "file_sha256": "0da14776435c0711438ea52f93fca58f7e5e633dba09485c7d02b49e37f7e6fe",
+      "file_bytes": 2464,
+      "retrieval_url": "https://raw.githubusercontent.com/hashicorp/aws-sdk-go-base/fc880961f63439eb567c7c403c6dbbcd4b65e8c5/go.mod",
+      "final_url": "https://raw.githubusercontent.com/hashicorp/aws-sdk-go-base/fc880961f63439eb567c7c403c6dbbcd4b65e8c5/go.mod",
+      "status": 200,
+      "retrieval": "bounded_public_raw_source_request",
+      "source_reference": "https://github.com/hashicorp/aws-sdk-go-base/blob/fc880961f63439eb567c7c403c6dbbcd4b65e8c5/go.mod#L1-L3",
+      "max_response_bytes": 131072,
+      "timeout_seconds": 20,
+      "expected_hash_source": "original_source_review_key",
+      "full_hash_match": true
+    },
+    {
+      "repository_id": "aws-sdk-go-base",
+      "revision": "fc880961f63439eb567c7c403c6dbbcd4b65e8c5",
+      "path": "tfawserr/awserr.go",
+      "file_sha256": "42948c5583e761a594474c4a31b3ee84a49203cf5ae6fe92b6c8398e97c453db",
+      "file_bytes": 2270,
+      "retrieval_url": "https://raw.githubusercontent.com/hashicorp/aws-sdk-go-base/fc880961f63439eb567c7c403c6dbbcd4b65e8c5/tfawserr/awserr.go",
+      "final_url": "https://raw.githubusercontent.com/hashicorp/aws-sdk-go-base/fc880961f63439eb567c7c403c6dbbcd4b65e8c5/tfawserr/awserr.go",
+      "status": 200,
+      "retrieval": "bounded_public_raw_source_request",
+      "source_reference": "https://github.com/hashicorp/aws-sdk-go-base/blob/fc880961f63439eb567c7c403c6dbbcd4b65e8c5/tfawserr/awserr.go#L4-L25",
+      "max_response_bytes": 131072,
+      "timeout_seconds": 20,
+      "expected_hash_source": "original_source_review_key",
+      "full_hash_match": true
+    },
+    {
+      "repository_id": "django",
+      "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+      "path": "django/shortcuts.py",
+      "file_sha256": "2f46fc4d61f5f68545b4ee58fd325a1d75a0e883e58ac36be934cee4ea27db7b",
+      "file_bytes": 6963,
+      "working_file_equals_pinned_git_blob": true,
+      "retrieval": "local_pinned_checkout"
+    },
+    {
+      "repository_id": "extensions",
+      "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+      "path": "packages/pi-brag/src/paths.ts",
+      "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+      "file_bytes": 6020,
+      "working_file_equals_pinned_git_blob": true,
+      "retrieval": "local_pinned_checkout"
+    },
+    {
+      "repository_id": "kubernetes",
+      "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+      "path": "go.mod",
+      "file_sha256": "e889bc40421ef98f19eb7c604e2471719646b385c07a82866a26032b7f3c0b76",
+      "file_bytes": 11201,
+      "working_file_equals_pinned_git_blob": true,
+      "retrieval": "local_pinned_checkout"
+    },
+    {
+      "repository_id": "kubernetes",
+      "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+      "path": "pkg/controller/controller_utils.go",
+      "file_sha256": "e92c0053aaf3643bca8efafedd649975e6c8fc596ccc223539c8cc06b8e5cb76",
+      "file_bytes": 56626,
+      "working_file_equals_pinned_git_blob": true,
+      "retrieval": "local_pinned_checkout"
+    },
+    {
+      "repository_id": "kubernetes",
+      "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+      "path": "pkg/util/hash/hash.go",
+      "file_sha256": "ea60f15871653c2e4eb729f659af18570b8f8833472944c7d694b7beb09dadef",
+      "file_bytes": 982,
+      "working_file_equals_pinned_git_blob": true,
+      "retrieval": "local_pinned_checkout"
+    },
+    {
+      "repository_id": "odoo",
+      "revision": "2d9fd5562a0ef1f7f587eb393cc3bd293b047cca",
+      "path": "odoo/tools/func.py",
+      "file_sha256": "8f860a182298d18712d7df95f5e59544dc021d87b103888b548500f1de1b6630",
+      "file_bytes": 10318,
+      "working_file_equals_pinned_git_blob": true,
+      "retrieval": "local_pinned_checkout"
+    },
+    {
+      "repository_id": "viewer",
+      "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+      "path": "repo_graph/assets/views.js",
+      "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+      "file_bytes": 6031,
+      "working_file_equals_pinned_git_blob": true,
+      "retrieval": "local_pinned_checkout"
+    }
+  ],
+  "corpus_receipts": [
+    {
+      "repository_id": "django",
+      "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+      "observed_head": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+      "clean": true
+    },
+    {
+      "repository_id": "odoo",
+      "revision": "2d9fd5562a0ef1f7f587eb393cc3bd293b047cca",
+      "observed_head": "2d9fd5562a0ef1f7f587eb393cc3bd293b047cca",
+      "clean": true
+    },
+    {
+      "repository_id": "aws",
+      "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+      "observed_head": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+      "clean": true
+    },
+    {
+      "repository_id": "kubernetes",
+      "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+      "observed_head": "35fc3af13807e70534fb11736bcccc013631efde",
+      "clean": true
+    },
+    {
+      "repository_id": "viewer",
+      "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+      "observed_head": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+      "clean": true
+    },
+    {
+      "repository_id": "extensions",
+      "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+      "observed_head": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+      "clean": true
+    }
+  ],
+  "verification": {
+    "raw_source_hashes_verified": 11,
+    "clean_pinned_roots_verified": 6,
+    "dependency_requests": 2,
+    "all_ranges_verified_against_raw_bytes": true,
+    "original_input_hashes_rechecked": true,
+    "target_sets_unchanged": true,
+    "location_coverage_complete": true
+  }
+}
