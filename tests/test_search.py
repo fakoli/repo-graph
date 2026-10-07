@@ -239,6 +239,16 @@ class SearchTests(unittest.TestCase):
                     collection_failures_count=1, collection_failures_truncated=False)),
                 ('contradictory_status', lambda row: row['receipt'].update(status='ready')),
                 ('contradictory_publication', lambda row: row['receipt'].update(published=True)),
+                ('contradictory_previous_generation', lambda row: row.update(previous_generation='f' * 64)),
+                ('contradictory_nested_previous_generation', lambda row: row['receipt'].update(previous_generation='f' * 64)),
+                ('contradictory_published_coverage_generation', lambda row: row['receipt'].update(published_coverage_generation='f' * 64)),
+                ('nested_current_generation_cannot_rescue_foreign_prior', lambda row: (
+                    row.update(previous_generation='f' * 64),
+                    row['receipt'].update(previous_generation='f' * 64,
+                        published_coverage_generation='f' * 64, generation=ready['generation']))),
+                ('contradictory_reason', lambda row: (
+                    row.update(reason='source_changed_before_publication'),
+                    row['receipt'].update(reason='cancelled'))),
             ]
             try:
                 for name, mutate in nested_mutations:
@@ -246,6 +256,15 @@ class SearchTests(unittest.TestCase):
                         row = json.loads(json.dumps(failure_record)); mutate(row)
                         attempt.write_text(json.dumps(row))
                         refused = search.index_status(out, backend_available=True)
+                        if name == 'nested_current_generation_cannot_rescue_foreign_prior':
+                            self.assertEqual(refused['status'], 'ok')
+                            current = refused['structural']
+                            self.assertEqual(current['attempt_attribution'], 'unrelated_generation')
+                            self.assertEqual(current['state'], 'ready')
+                            self.assertEqual(current['freshness'], 'unknown')
+                            self.assertTrue(current['artifact_ready'])
+                            self.assertEqual(current['identities'], baseline['structural']['identities'])
+                            continue
                         self.assertEqual(refused['status'], 'unavailable')
                         self.assertFalse(refused['structural']['artifact_ready'])
                         self.assertFalse(refused['structural']['query_available'])

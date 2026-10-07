@@ -579,6 +579,9 @@ def _attempt_valid(record, component):
         if 'published' in receipt and type(receipt['published']) is not bool: raise ValueError('Typed receipt publication required')
         if 'published' in record and 'published' in receipt and record['published'] != receipt['published']:
             raise ValueError('Attempt and receipt publication differ')
+        for key in ('reason', 'error_kind'):
+            if key in record and key in receipt and record[key] != receipt[key]:
+                raise ValueError('Attempt and receipt failure attribution differ')
         if receipt.get('repository_identity') is not None and receipt['repository_identity'] != record.get('repository_identity'):
             raise ValueError('Attempt receipt belongs to another repository')
         if component == 'semantic':
@@ -587,7 +590,10 @@ def _attempt_valid(record, component):
             repository = (receipt.get('identity') or {}).get('repository') or (receipt.get('semantic_index') or {}).get('repository')
             if repository is not None and repository != record.get('repository_identity'):
                 raise ValueError('Attempt semantic receipt belongs to another repository')
-        if record.get('generation') is not None and receipt.get('generation') is not None and record['generation'] != receipt['generation']:
+        for key in ('previous_generation', 'published_coverage_generation'):
+            if key in receipt and receipt[key] != record.get('previous_generation'):
+                raise ValueError('Attempt receipt previous generation differs')
+        if 'generation' in record and 'generation' in receipt and record['generation'] != receipt['generation']:
             raise ValueError('Attempt receipt generation differs')
 
 
@@ -667,10 +673,9 @@ def _attempt_attribution(record, component, meta):
     if record['repository_identity'] != repository: return 'foreign_repository'
     generation = meta.get('structural_generation' if component == 'structural' else 'generation')
     receipt = record.get('receipt') or {}
-    if (generation is not None and record['status'] in ('ready', 'publication_uncertain') and
-            (record.get('generation') or receipt.get('generation')) != generation): return 'unrelated_generation'
-    if generation is not None and generation not in (record.get('previous_generation'), record.get('generation'),
-            receipt.get('generation'), receipt.get('previous_generation')):
+    fence = ((record.get('generation') or receipt.get('generation'))
+             if record['status'] in ('ready', 'publication_uncertain') else record.get('previous_generation'))
+    if generation is not None and fence != generation:
         return 'unrelated_generation'
     return 'captured_repository'
 
