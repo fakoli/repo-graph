@@ -234,9 +234,10 @@ class ObservedProfile(unittest.TestCase):
             self.assertTrue(report['deterministic_repeat'])
             self.assertEqual(len(report['records']), 2)
             cold, warm = report['records']
-            self.assertEqual(cold['counts']['inventoried_files'], 9)
+            frozen = json.loads((root / 'evaluations/code-understanding/supplement-source.json').read_bytes())['files']
+            self.assertEqual(cold['counts']['inventoried_files'], len(frozen))
             self.assertEqual(warm['coverage']['scanned'], 0)
-            self.assertEqual(warm['coverage']['reused'], 8)
+            self.assertEqual(warm['coverage']['reused'], sum(item['kind'] == 'source' for item in frozen))
             self.assertGreater(cold['source_reads']['hashed_bytes'], 0)
             self.assertGreater(cold['peak_rss_bytes'], 0)
             self.assertEqual(cold['input_inventory_sha256'], warm['input_inventory_sha256'])

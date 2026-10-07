@@ -1,9 +1,10 @@
 """Boundary and uncertainty checks for the optional native comparison baseline."""
+import hashlib
 import importlib.util
 import json
 import os
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 from contextlib import redirect_stdout
 import io
@@ -15,7 +16,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from evaluations.analysis import grade, record_task, write_result
-from evaluations import analysis
+from evaluations import analysis, real_calls
 from evaluations import tree_sitter_baseline as native
 
 AVAILABLE = all(importlib.util.find_spec(name) is not None for name in (
@@ -33,6 +34,24 @@ def site(result, source):
 
 
 class BackendTests(unittest.TestCase):
+    def test_go_filename_policy_is_pinned_and_does_not_guess_platforms(self):
+        names = {'api_client.go': 'neutral', 'api_op_GetItem.go': 'neutral',
+                 'x_unknownplatform.go': 'neutral', 'linux.go': 'neutral',
+                 'x_unix.go': 'neutral', 'x_linux.go': 'platform_variant',
+                 'x_amd64.go': 'platform_variant', 'x_linux_amd64.go': 'platform_variant',
+                 'x_linux.extra.go': 'platform_variant', 'x_ios.go': 'platform_variant',
+                 'x_android.go': 'platform_variant', 'x_illumos.go': 'platform_variant',
+                 'x_linux_test.go': 'test_file', 'x_test.go': 'test_file',
+                 '_ignored.go': 'ignored_filename', '.ignored.go': 'ignored_filename',
+                 '_ignored.s': 'ignored_filename', 'x.c': 'not_go_source'}
+        for name, expected in names.items():
+            with self.subTest(name=name):
+                self.assertEqual(native.go_filename_class('pkg/' + name), expected)
+        self.assertEqual(native.GO_FILENAME_POLICY['version'], 'go1.24.0-build-neutral-v1')
+        self.assertEqual(native.GO_FILENAME_POLICY['source_revision'], '3901409b5d0fb7c85a3e6730a59943cc93b2835c')
+        self.assertIn('unqualified', native.GO_FILENAME_POLICY['platform_selection'])
+        self.assertIn('no future-platform inference', native.GO_FILENAME_POLICY['unknown_suffix'])
+
     def test_profile_archive_keeps_measured_code_and_bounds_failure_export(self):
         from evaluations.acceptance import PINS as CORPUS_PINS
         import hashlib
@@ -238,6 +257,259 @@ class BackendTests(unittest.TestCase):
 
 @unittest.skipUnless(AVAILABLE, 'Optional analysis extra is not installed')
 class ExtractionTests(unittest.TestCase):
+    def registered_compact(self, blobs, context):
+        configurations, collected = {}, []
+        for supplied in blobs:
+            if supplied['kind'] == 'configuration':
+                configurations[supplied['path']] = supplied['content']
+                continue
+            source = {key: supplied[key] for key in ('path', 'language', 'content', 'kind', 'sha256', 'bytes')}
+            file = native.collect_file(source)
+            encoded = file.to_json()
+            file = native.CollectedFile.from_json(encoded, file.record, hashlib.sha256(encoded).hexdigest())
+            self.assertEqual(file.to_json(), encoded)
+            self.assertEqual(set(file.record), {'path', 'language', 'sha256', 'bytes', 'kind'})
+            self.assertFalse(hasattr(file, 'tree'))
+            self.assertFalse(hasattr(file, 'raw'))
+            self.assertTrue(all('targets' not in fact for fact, _, _ in file.candidates))
+            collected.append(file)
+        return collected, configurations
+
+    def test_registered_go_compact_round_trip_has_one_resolver_and_no_owner_mutation(self):
+        blobs, context = self.registered_go(alias='dep', package='different')
+        collected, configurations = self.registered_compact(blobs, context)
+        before = [file.to_json() for file in collected]
+        expected = native.extract(blobs, go_context=context)['facts']
+        for _ in range(2):
+            actual = native.resolve_collected(collected, configurations, go_context=context)
+            self.assertEqual(actual['facts'], expected)
+            self.assertEqual([file.to_json() for file in collected], before)
+            call = next(item for item in actual['facts']['sites'] if item['repository_id'] == 'caller' and item['role'] == 'call')
+            self.assertEqual(call['certainty'], 'resolved')
+            target = next(item for item in actual['facts']['definitions'] if item['id'] == call['targets'][0])
+            self.assertEqual((target['repository_id'], target['revision'], target['path']), ('dependency', 'c' * 40, 'pkg/main.go'))
+            target['provenance']['repository_id'] = 'output_mutation'
+            self.assertEqual([file.to_json() for file in collected], before)
+
+    def test_registered_go_alias_metadata_is_typed_and_default_package_is_conservative(self):
+        from copy import deepcopy
+        for alias, package, certainty in [('dep', 'different', 'resolved'), ('', 'pkg', 'resolved'), ('', 'different', 'unresolved')]:
+            blobs, context = self.registered_go(alias=alias, package=package)
+            collected, configurations = self.registered_compact(blobs, context)
+            caller = next(file for file in collected if file.path == native.snapshot_path('caller', 'a' * 40, 'main.go'))
+            self.assertIs(caller.imports[0]['explicit_alias'], bool(alias))
+            result = native.resolve_collected(collected, configurations, go_context=context)
+            call = next(item for item in result['facts']['sites'] if item['repository_id'] == 'caller' and item['role'] == 'call')
+            self.assertEqual(call['certainty'], certainty)
+            for malformed in (None, 1, 'true'):
+                payload = deepcopy(caller.payload())
+                payload['imports'][0]['explicit_alias'] = malformed
+                encoded = json.dumps(payload).encode()
+                with self.assertRaises(ValueError):
+                    native.CollectedFile.from_json(encoded, caller.record, hashlib.sha256(encoded).hexdigest())
+            payload = deepcopy(caller.payload())
+            payload['imports'][0]['explicit_alias'] = not bool(alias)
+            encoded = json.dumps(payload).encode()
+            with self.assertRaisesRegex(ValueError, 'import'):
+                native.CollectedFile.from_json(encoded, caller.record, hashlib.sha256(encoded).hexdigest())
+
+    def test_registered_go_compact_control_flags_withhold_bodyless_cgo_and_directives(self):
+        from copy import deepcopy
+        baseline, source_context = self.registered_go()
+        variants = [
+            (b'package pkg\nfunc Target() int\n', 'go_bodyless_function', 'bodyless'),
+            (b'package pkg\nimport "C"\nfunc Target() int {return 1}\n', 'go_cgo_import', 'CGO'),
+            (b'//go:build arbitrary\npackage pkg\nfunc Target() int {return 1}\n', 'go_control_directive', 'directive')]
+        for raw, flag, reason in variants:
+            blobs, context = deepcopy(baseline), deepcopy(source_context)
+            provider = next(item for item in blobs if item['repository_id'] == 'dependency' and item['kind'] == 'source')
+            provider.update(content=raw, bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+            next(item for item in context['packages'] if item['repository_id'] == 'dependency')['files'][0].update(bytes=provider['bytes'], sha256=provider['sha256'])
+            collected, configurations = self.registered_compact(blobs, context)
+            self.assertTrue(next(file for file in collected if file.path == provider['path']).syntax_metadata[flag])
+            result = native.resolve_collected(collected, configurations, go_context=context)
+            call = next(item for item in result['facts']['sites'] if item['repository_id'] == 'caller' and item['role'] == 'call')
+            self.assertEqual((call['certainty'], call['targets']), ('unresolved', []))
+            self.assertIn(reason, call['reason'])
+            self.assertEqual(result['facts'], native.extract(blobs, go_context=context)['facts'])
+
+    def test_registered_go_exact_pseudo_versions_remain_unqualified_after_handoff(self):
+        from copy import deepcopy
+        baseline, source_context = self.registered_go()
+        for version in ('v2.0.0-20250101120000-abcdef123456', 'v2.0.0-0.20250101120000-abcdef123456', 'v2.0.0-beta.0.20250101120000-abcdef123456'):
+            blobs, context = deepcopy(baseline), deepcopy(source_context)
+            context['dependencies'][0]['version'] = version
+            control = next(item for item in blobs if item['repository_id'] == 'caller' and item['kind'] == 'configuration')
+            raw = b'module example.test/caller\nrequire example.test/lib/v2 ' + version.encode() + b'\n'
+            control.update(content=raw, bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+            collected, configurations = self.registered_compact(blobs, context)
+            result = native.resolve_collected(collected, configurations, go_context=context)
+            call = next(item for item in result['facts']['sites'] if item['repository_id'] == 'caller' and item['role'] == 'call')
+            self.assertEqual((call['certainty'], call['targets']), ('unresolved', []))
+            self.assertIn('No unique qualified dependency', call['reason'])
+            self.assertEqual(result['facts'], native.extract(blobs, go_context=context)['facts'])
+
+    def registered_go(self, alias='dep', package='pkg'):
+        pins = {'caller': 'a' * 40, 'other': 'b' * 40, 'dependency': 'c' * 40}
+        contents = {
+            ('caller', 'go.mod'): b'module example.test/caller\nrequire example.test/lib/v2 v2.0.0\n',
+            ('other', 'go.mod'): b'module example.test/other\nrequire example.test/lib/v2 v2.0.0\n',
+            ('dependency', 'go.mod'): b'module example.test/lib/v2\n',
+            ('dependency', 'pkg/main.go'): f'package {package}\nfunc Target() int {{return 1}}\n'.encode(),
+        }
+        for owner in ('caller', 'other'):
+            binding = (alias + ' ') if alias else ''
+            name = alias or 'pkg'
+            contents[owner, 'main.go'] = (f'package caller\nimport {binding}"example.test/lib/v2/pkg"\n'
+                f'func Call() int {{return {name}.Target()}}\n'
+                f'func Shadow({name} interface{{}}) int {{return {name}.Target()}}\n').encode()
+        blobs, packages = [], []
+        for (owner, path), raw in contents.items():
+            blobs.append({'path': native.snapshot_path(owner, pins[owner], path), 'physical_path': path,
+                'repository_id': owner, 'revision': pins[owner], 'language': 'go' if path.endswith('.go') else 'unknown',
+                'content': raw, 'kind': 'source' if path.endswith('.go') else 'configuration',
+                'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw)})
+            if path.endswith('.go'):
+                packages.append({'repository_id': owner, 'revision': pins[owner], 'directory': str(PurePosixPath(path).parent) if '/' in path else '',
+                    'files': [{'path': path, 'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw)}]})
+        registration = {'consumer_repository_id': 'caller', 'consumer_revision': pins['caller'],
+            'dependency_repository_id': 'dependency', 'dependency_revision': pins['dependency'],
+            'module_path': 'example.test/lib/v2', 'version': 'v2.0.0'}
+        context = {'policy': 'declared_snapshot_only', 'dependencies': [registration], 'packages': packages,
+            'controls': [{'repository_id': owner, 'revision': pin, 'qualified': True} for owner, pin in pins.items()]}
+        return blobs, context
+
+    def test_registered_go_preserves_domain_ownership_and_shadowing(self):
+        blobs, context = self.registered_go()
+        result = native.extract(blobs, go_context=context)
+        self.assertEqual(result['status'], 'complete')
+        calls = [item for item in result['facts']['sites'] if item['role'] == 'call']
+        owned = [item for item in calls if item['repository_id'] == 'caller']
+        self.assertEqual([item['certainty'] for item in owned], ['resolved', 'unresolved'])
+        target = next(item for item in result['facts']['definitions'] if item['id'] == owned[0]['targets'][0])
+        self.assertEqual((target['repository_id'], target['revision'], target['path']), ('dependency', 'c' * 40, 'pkg/main.go'))
+        self.assertEqual(target['provenance']['repository_id'], 'dependency')
+        self.assertTrue(target['id'].startswith(native.snapshot_path('dependency', 'c' * 40, 'pkg/main.go') + ':'))
+        self.assertTrue(all(item['certainty'] == 'unresolved' for item in calls if item['repository_id'] == 'other'))
+        self.assertNotEqual(owned[0]['id'], next(item['id'] for item in calls if item['repository_id'] == 'other'))
+        self.assertIn('active build and MVS unqualified', result['limits']['go_dependency_policy'])
+
+    def test_registered_go_ordinary_underscores_keep_actual_ownership(self):
+        from copy import deepcopy
+        baseline, source_context = self.registered_go()
+        for name in ('api_client.go', 'api_op_GetItem.go', 'api_unknownplatform.go'):
+            blobs, context = deepcopy(baseline), deepcopy(source_context)
+            provider = next(item for item in blobs if item['repository_id'] == 'dependency' and item['kind'] == 'source')
+            physical = 'pkg/' + name
+            provider.update(path=native.snapshot_path('dependency', 'c' * 40, physical), physical_path=physical)
+            next(item for item in context['packages'] if item['repository_id'] == 'dependency')['files'][0]['path'] = physical
+            with self.subTest(name=name):
+                result = native.extract(blobs, go_context=context)
+                call = next(item for item in result['facts']['sites'] if item['repository_id'] == 'caller' and item['role'] == 'call')
+                self.assertEqual(call['certainty'], 'resolved')
+                definition = next(item for item in result['facts']['definitions'] if item['id'] == call['targets'][0])
+                self.assertEqual((definition['repository_id'], definition['revision'], definition['path']), ('dependency', 'c' * 40, physical))
+                self.assertEqual(result['limits']['go_filename_policy'], native.GO_FILENAME_POLICY)
+
+    def test_registered_go_platform_and_directive_variants_stay_unknown(self):
+        from copy import deepcopy
+        baseline, source_context = self.registered_go()
+        variants = [('x_linux.go', b'', 'GOOS/GOARCH'), ('x_amd64.go', b'', 'GOOS/GOARCH'),
+                    ('x_linux_amd64.go', b'', 'GOOS/GOARCH'),
+                    ('api_client.go', b'//go:build special\n', 'directive'),
+                    ('api_client.go', b'// +build special\n', 'directive'),
+                    ('api_client.go', b'//go:generate unknown\n', 'directive')]
+        for name, prefix, reason in variants:
+            blobs, context = deepcopy(baseline), deepcopy(source_context)
+            provider = next(item for item in blobs if item['repository_id'] == 'dependency' and item['kind'] == 'source')
+            physical = 'pkg/' + name
+            raw = prefix + provider['content']
+            provider.update(path=native.snapshot_path('dependency', 'c' * 40, physical), physical_path=physical,
+                            content=raw, bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+            next(item for item in context['packages'] if item['repository_id'] == 'dependency')['files'][0].update(
+                path=physical, bytes=provider['bytes'], sha256=provider['sha256'])
+            with self.subTest(name=name, prefix=prefix):
+                call = next(item for item in native.extract(blobs, go_context=context)['facts']['sites'] if item['repository_id'] == 'caller' and item['role'] == 'call')
+                self.assertEqual((call['certainty'], call['targets']), ('unresolved', []))
+                self.assertIn(reason, call['reason'])
+
+    def test_registered_go_ignored_blobs_never_emit_structural_facts(self):
+        blobs, context = self.registered_go()
+        for path in ('pkg/_ignored.go', 'pkg/.ignored.go', 'pkg/main_test.go'):
+            raw = b'\xff ignored bytes are not Go package input'
+            blobs.append({'path': native.snapshot_path('dependency', 'c' * 40, path), 'physical_path': path,
+                'repository_id': 'dependency', 'revision': 'c' * 40, 'language': 'go', 'content': raw,
+                'kind': 'source', 'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw)})
+        result = native.extract(blobs, go_context=context)
+        self.assertEqual(result['status'], 'complete')
+        excluded = [item for item in result['inventory'] if item['status'] == 'go_filename_excluded']
+        self.assertEqual(len(excluded), 3)
+        self.assertTrue(all(item['filename_policy'] == native.GO_FILENAME_POLICY['version'] for item in excluded))
+        self.assertFalse(any(native.go_filename_class(item['path']) in ('ignored_filename', 'test_file') for item in result['facts']['definitions'] + result['facts']['sites']))
+        self.assertEqual(next(item['certainty'] for item in result['facts']['sites'] if item['repository_id'] == 'caller' and item['role'] == 'call'), 'resolved')
+
+    def test_registered_go_manifest_cannot_count_ignored_file_as_active(self):
+        blobs, context = self.registered_go()
+        manifest = next(item for item in context['packages'] if item['repository_id'] == 'dependency')
+        for name in ('_ignored.go', '.ignored.go', 'main_test.go'):
+            with self.subTest(name=name), patch.object(native, 'backend') as backend:
+                manifest['files'][0]['path'] = 'pkg/' + name
+                with self.assertRaisesRegex(ValueError, 'eligible non-test'):
+                    native.extract(blobs, go_context=context)
+                backend.assert_not_called()
+
+    def test_registered_go_rejects_namespace_duplicates_before_collection(self):
+        from copy import deepcopy
+        blobs, context = self.registered_go()
+        duplicate = deepcopy(blobs) + [dict(blobs[0])]
+        with patch.object(native, 'backend') as backend:
+            with self.assertRaisesRegex(ValueError, 'duplicate snapshot'):
+                native.extract(duplicate, go_context=context)
+            backend.assert_not_called()
+        for field, value in [('physical_path', 'pkg/../main.go'), ('path', 'main.go'), ('sha256', '0' * 64), ('targets', ['gold'])]:
+            bad = deepcopy(blobs)
+            bad[0][field] = value
+            with patch.object(native, 'backend') as backend:
+                with self.assertRaises((ValueError, OSError)):
+                    native.extract(bad, go_context=context)
+                backend.assert_not_called()
+        context['dependencies'].append(dict(context['dependencies'][0]))
+        with patch.object(native, 'backend') as backend:
+            with self.assertRaisesRegex(ValueError, 'Duplicate dependency'):
+                native.extract(blobs, go_context=context)
+            backend.assert_not_called()
+
+    def test_registered_go_unqualified_variants_and_package_ambiguity(self):
+        from copy import deepcopy
+        baseline, source_context = self.registered_go()
+        for variant in ('version', 'revision', 'replace', 'workspace', 'incomplete', 'bytes', 'build', 'duplicate_binding'):
+            blobs, context = deepcopy(baseline), deepcopy(source_context)
+            provider = next(item for item in blobs if item['repository_id'] == 'dependency' and item['kind'] == 'source')
+            manifest = next(item for item in context['packages'] if item['repository_id'] == 'dependency')
+            if variant == 'version': context['dependencies'][0]['version'] = 'v2.0.1'
+            elif variant == 'revision': context['dependencies'][0]['dependency_revision'] = 'd' * 40
+            elif variant == 'replace':
+                item = next(item for item in blobs if item['repository_id'] == 'caller' and item['kind'] == 'configuration')
+                item['content'] += b'replace example.test/lib/v2 => ../foreign\n'
+                item.update(bytes=len(item['content']), sha256=hashlib.sha256(item['content']).hexdigest())
+            elif variant == 'workspace': context['controls'][0]['qualified'] = False
+            elif variant == 'incomplete': manifest['files'] = []
+            elif variant == 'bytes': manifest['files'][0]['sha256'] = '0' * 64
+            elif variant in ('build', 'duplicate_binding'):
+                provider['content'] += b'//go:build special\n' if variant == 'build' else b'func Target() int {return 2}\n'
+                provider.update(bytes=len(provider['content']), sha256=hashlib.sha256(provider['content']).hexdigest())
+                manifest['files'][0].update(bytes=provider['bytes'], sha256=provider['sha256'])
+            with self.subTest(variant=variant):
+                calls = [item for item in native.extract(blobs, go_context=context)['facts']['sites'] if item['repository_id'] == 'caller' and item['role'] == 'call']
+                self.assertTrue(calls)
+                self.assertTrue(all(item['certainty'] == 'unresolved' and not item['targets'] for item in calls))
+        # Explicit aliases are lexical source declarations. The basename cannot
+        # stand in for a different declared default package name.
+        blobs, context = self.registered_go(alias='', package='different')
+        self.assertTrue(all(item['certainty'] == 'unresolved' for item in native.extract(blobs, go_context=context)['facts']['sites']))
+        blobs, context = self.registered_go(alias='dep', package='different')
+        self.assertEqual(next(item['certainty'] for item in native.extract(blobs, go_context=context)['facts']['sites'] if item['repository_id'] == 'caller' and item['role'] == 'call'), 'resolved')
+
     def test_parameter_shadowing_never_binds_to_global_function(self):
         sources = {
             'python': 'def local():\n    return 1\ndef caller(local):\n    return local()\n',
@@ -465,6 +737,165 @@ print(json.dumps({"iterations": 100, "status": "complete"}))
         self.assertEqual(outcomes[0]['status'], 'failed')
         after = native.extract([source])
         self.assertEqual(before['facts'], after['facts'])
+
+
+
+
+@unittest.skipUnless(AVAILABLE, 'optional pinned analysis backend not installed')
+class DeclaredGoSourceTests(unittest.TestCase):
+    def go_extract(self, scratch, variant=None):
+        PIN = 'a' * 40
+        from evaluations.tree_sitter_baseline import extract
+        contents = {'left': {'go.mod': b'module example.test/left\nrequire example.test/lib/v2 v2.0.0\n',
+                            'main.go': b'package p\nimport dep "example.test/lib/v2/pkg"\nfunc Call() int {return dep.Target()}\n'},
+                    'right': {'go.mod': b'module example.test/lib/v2\n',
+                              'pkg/main.go': b'package pkg\nfunc Target() int {return 1}\n',
+                              'pkg/extra.go': b'package pkg\nfunc Other() int {return 2}\n',
+                              'pkg/extra_test.go': b'package pkg\nfunc Target() int {return 3}\n'}}
+        provider_path = 'pkg/main.go'
+        if variant == 'ordinary_underscores':
+            provider_path = 'pkg/api_client.go'
+            contents['right'][provider_path] = contents['right'].pop('pkg/main.go')
+            contents['right']['pkg/api_op_GetItem.go'] = contents['right'].pop('pkg/extra.go')
+        elif variant == 'platform_filename':
+            provider_path = 'pkg/api_client_linux.go'
+            contents['right'][provider_path] = contents['right'].pop('pkg/main.go')
+        elif variant == 'ignored':
+            contents['right'].update({'pkg/_ignored.go': b'\xff ignored source',
+                                     'pkg/.ignored.go': b'\xff ignored source',
+                                     'pkg/_ignored.s': b'ignored native build input'})
+        elif variant == 'git_ignored_source':
+            contents['right']['.gitignore'] = b'/pkg/hidden.go\n'
+        roots, selected = {}, {}
+        for repository, files in contents.items():
+            root = Path(scratch) / repository
+            root.mkdir()
+            roots[repository] = {'id': repository, 'source': str(root), 'revision': PIN}
+            for path, raw in files.items():
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_bytes(raw)
+            paths = ['main.go'] if repository == 'left' else [provider_path]
+            selected[repository] = [{'path': path, 'revision': PIN, 'language': 'go', 'kind': 'source',
+                'sha256': hashlib.sha256(files[path]).hexdigest(), 'bytes': len(files[path])} for path in paths]
+        registration = {'consumer_repository_id': 'left', 'consumer_revision': PIN,
+            'dependency_repository_id': 'right', 'dependency_revision': PIN,
+            'module_path': 'example.test/lib/v2', 'version': 'v2.0.0'}
+        if variant == 'symlink':
+            outside = Path(scratch) / 'outside.go'
+            outside.write_bytes(b'package pkg\nfunc Canary() int {return 7}\n')
+            (Path(roots['right']['source']) / 'pkg/unsafe.go').symlink_to(outside)
+        elif variant == 'ignored':
+            outside = Path(scratch) / 'outside.go'
+            outside.write_bytes(b'package pkg\nfunc Canary() int {return 7}\n')
+            ignored = Path(roots['right']['source']) / 'pkg/_ignored.go'
+            ignored.unlink()
+            ignored.symlink_to(outside)
+        elif variant == 'workspace':
+            (Path(roots['left']['source']) / 'go.work').write_text('go 1.23\nuse ../right\n')
+        elif variant == 'vendor':
+            vendor = Path(roots['left']['source']) / 'vendor'
+            vendor.mkdir()
+            (vendor / 'modules.txt').write_text('# example.test/lib/v2 v2.0.0\n')
+        elif variant == 'duplicate_binding':
+            (Path(roots['right']['source']) / 'pkg/extra.go').write_bytes(b'package pkg\nfunc Target() int {return 2}\n')
+        elif variant == 'assembly':
+            (Path(roots['right']['source']) / 'pkg/extra.s').write_bytes(b'private synthetic unsupported build input\n')
+        git_env = {'PATH': os.defpath, 'LANG': 'C.UTF-8', 'GIT_CONFIG_NOSYSTEM': '1',
+                   'GIT_CONFIG_GLOBAL': os.devnull}
+        for repository, entry in roots.items():
+            git = ['git', '-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false',
+                   '-c', 'commit.gpgSign=false', '-c', 'user.name=Fixture',
+                   '-c', 'user.email=fixture@example.test']
+            for args in (['init', '--quiet'], ['add', '.'], ['commit', '--quiet', '-m', 'Synthetic source']):
+                subprocess.run(git + args, cwd=entry['source'], env=git_env,
+                               capture_output=True, check=True, timeout=5)
+            pin = subprocess.check_output(git + ['rev-parse', 'HEAD'], cwd=entry['source'],
+                                          env=git_env, text=True, timeout=5).strip()
+            entry['revision'] = pin
+            for item in selected[repository]:
+                item['revision'] = pin
+        registration.update(consumer_revision=roots['left']['revision'], dependency_revision=roots['right']['revision'])
+        if variant == 'git_ignored_source':
+            (Path(roots['right']['source']) / 'pkg/hidden.go').write_bytes(b'package pkg\nfunc Canary() int {return 7}\n')
+        with patch.object(real_calls, 'extract', wraps=extract) as observed, \
+                patch.object(real_calls, 'scan') as legacy:
+            runs, raw = real_calls.extract_selected(selected, roots, native.Budget(), [registration])
+        legacy.assert_not_called()
+        observed.assert_called_once()
+        for blob in observed.call_args.args[0]:
+            self.assertEqual(set(blob), {'path', 'physical_path', 'repository_id', 'revision', 'language',
+                                        'kind', 'content', 'sha256', 'bytes'})
+        return runs, raw, contents, roots, selected, registration
+
+
+    def test_ignored_discovered_source_cannot_acquire_revision_ownership(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            runs, raw, _, roots, _, _ = self.go_extract(scratch, 'git_ignored_source')
+            self.assertEqual(real_calls.checkout_identity(Path(roots['right']['source']), roots['right']['revision'])['status'], 'verified')
+            self.assertFalse(runs['right']['source_control']['qualified'])
+            rejected = next(item for item in runs['right']['verification'] if item['path'] == 'pkg/hidden.go')
+            self.assertEqual(rejected['status'], 'source_read_error')
+            self.assertNotIn(('right', 'pkg/hidden.go'), raw)
+            call = next(item for item in runs['left']['facts']['sites'] if item['role'] == 'call')
+            self.assertEqual((call['certainty'], call['targets']), ('unresolved', []))
+            with real_calls.SourceRoot(Path(roots['right']['source'])) as source:
+                original = (source.root / 'pkg/main.go').read_bytes()
+                binding = real_calls.revision_blob_identity(source, roots['right']['revision'], 'pkg/main.go', original)
+                self.assertEqual(binding['status'], 'verified')
+                with self.assertRaisesRegex(ValueError, 'differ'):
+                    real_calls.revision_blob_identity(source, roots['right']['revision'], 'pkg/main.go', original + b'\n')
+            # Git must not give a subdirectory the repository root's relative paths.
+            nested = Path(roots['right']['source']) / 'pkg'
+            self.assertEqual(real_calls.checkout_identity(nested, roots['right']['revision'])['status'],
+                             'source_root_not_git_top_level')
+
+
+    def test_registered_controller_fails_closed_on_package_and_control_variants(self):
+        for variant in ('symlink', 'workspace', 'vendor', 'duplicate_binding', 'assembly'):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as scratch:
+                runs, raw, _, _, _, _ = self.go_extract(scratch, variant)
+                sites = [item for item in runs['left']['facts']['sites'] if item['role'] == 'call']
+                self.assertEqual(len(sites), 1)
+                self.assertEqual((sites[0]['certainty'], sites[0]['targets']), ('unresolved', []))
+                self.assertNotIn(b'Canary', b''.join(raw.values()))
+                self.assertNotIn(scratch, json.dumps(runs))
+        with tempfile.TemporaryDirectory() as scratch:
+            _, _, _, roots, selected, registration = self.go_extract(scratch)
+            roots['right']['source'] = roots['left']['source']
+            with patch.object(real_calls, 'extract') as observed:
+                with self.assertRaisesRegex(ValueError, 'Duplicate physical'):
+                    real_calls.extract_selected(selected, roots, native.Budget(), [registration])
+                observed.assert_not_called()
+
+
+    def test_registered_controller_shared_filename_policy_and_exclusion_receipts(self):
+        for variant in ('ordinary_underscores', 'ignored'):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as scratch:
+                runs, raw, _, _, _, _ = self.go_extract(scratch, variant)
+                call = next(item for item in runs['left']['facts']['sites'] if item['role'] == 'call')
+                self.assertEqual(call['certainty'], 'resolved')
+                self.assertTrue(runs['right']['source_control']['qualified'])
+                definition = next(item for item in runs['right']['facts']['definitions'] if item['id'] == call['targets'][0])
+                self.assertEqual(definition['repository_id'], 'right')
+                if variant == 'ordinary_underscores':
+                    self.assertEqual(definition['path'], 'pkg/api_client.go')
+                    self.assertIn('pkg/api_op_GetItem.go', {item['path'] for item in runs['right']['inventory']})
+                else:
+                    excluded = {item['path']: item for item in runs['right']['filename_exclusions']}
+                    self.assertEqual(set(excluded), {'pkg/_ignored.go', 'pkg/.ignored.go', 'pkg/_ignored.s', 'pkg/extra_test.go'})
+                    self.assertTrue(all(item['status'] == 'go_filename_excluded' and
+                        item['filename_policy'] == 'go1.24.0-build-neutral-v1' for item in excluded.values()))
+                    self.assertFalse(any(path[1] in excluded for path in raw))
+                    self.assertNotIn(b'Canary', b''.join(raw.values()))
+                self.assertNotIn(scratch, json.dumps(runs))
+
+
+    def test_registered_controller_platform_filename_stays_unknown(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            runs, _, _, _, _, _ = self.go_extract(scratch, 'platform_filename')
+            call = next(item for item in runs['left']['facts']['sites'] if item['role'] == 'call')
+            self.assertEqual((call['certainty'], call['targets']), ('unresolved', []))
+            self.assertIn('GOOS/GOARCH', call['reason'])
 
 
 if __name__ == '__main__':

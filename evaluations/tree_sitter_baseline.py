@@ -4,6 +4,7 @@ Optional native wheels are confined to the analysis extra. This is deliberately
 not a type checker, points-to engine, framework model or runtime call graph.
 """
 from dataclasses import dataclass, field
+import copy
 import hashlib
 import importlib
 from importlib import metadata
@@ -11,6 +12,7 @@ import json
 import math
 from pathlib import Path, PurePosixPath
 import posixpath
+import re
 import time
 
 from repo_graph.source import SourceRoot
@@ -23,6 +25,276 @@ PINS = {
 LANGUAGES = ('python', 'go', 'javascript', 'typescript')
 RULE_VERSION = 'syntax-direct-v1'
 _LOADED_SOURCE_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+# Filename constraints are classified against a fixed Go source revision, not
+# this host's build environment. Ordinary underscores are not build tags.
+# https://github.com/golang/go/blob/3901409b5d0fb7c85a3e6730a59943cc93b2835c/src/go/build/build.go
+# https://github.com/golang/go/blob/3901409b5d0fb7c85a3e6730a59943cc93b2835c/src/internal/syslist/syslist.go
+GO_FILENAME_POLICY = {
+    'version': 'go1.24.0-build-neutral-v1',
+    'source_revision': '3901409b5d0fb7c85a3e6730a59943cc93b2835c',
+    'build_sha256': 'e2c9d4056a147bce2b170cce9c9dff26ca9ef9ca8aa0af85c2ead342a3277bb8',
+    'syslist_sha256': '079a54068737d10e87aae714c07b6074e78b8c020edd696953ae01d3086a3010',
+    'platform_selection': 'unqualified; no GOOS, GOARCH, tags or active toolchain supplied',
+    'unknown_suffix': 'ordinary filename under pinned KnownOS/KnownArch tables; no future-platform inference',
+}
+GO_KNOWN_OS = frozenset(('aix', 'android', 'darwin', 'dragonfly', 'freebsd', 'hurd',
+    'illumos', 'ios', 'js', 'linux', 'nacl', 'netbsd', 'openbsd', 'plan9', 'solaris',
+    'wasip1', 'windows', 'zos'))
+GO_KNOWN_ARCH = frozenset(('386', 'amd64', 'amd64p32', 'arm', 'armbe', 'arm64',
+    'arm64be', 'loong64', 'mips', 'mipsle', 'mips64', 'mips64le', 'mips64p32',
+    'mips64p32le', 'ppc', 'ppc64', 'ppc64le', 'riscv', 'riscv64', 's390', 's390x',
+    'sparc', 'sparc64', 'wasm'))
+
+
+def go_filename_class(path):
+    """Shared finite membership policy; classify constraints, never select them."""
+    name = PurePosixPath(path).name
+    if name.startswith(('_', '.')):
+        return 'ignored_filename'
+    if not name.endswith('.go'):
+        return 'not_go_source'
+    if name.endswith('_test.go'):
+        return 'test_file'
+    # Go cuts at the first dot, then requires a nonempty prefix before '_'.
+    stem = name.split('.', 1)[0]
+    if '_' in stem:
+        suffix = stem.rsplit('_', 1)[1]
+        if suffix in GO_KNOWN_OS or suffix in GO_KNOWN_ARCH:
+            return 'platform_variant'
+    return 'neutral'
+
+
+def snapshot_path(repository_id, revision, physical_path):
+    """Internal namespace only; emitted paths remain original physical paths."""
+    if (not isinstance(repository_id, str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9._-]{0,95}', repository_id) or
+            not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision)):
+        raise ValueError('Invalid snapshot identity')
+    if (not isinstance(physical_path, str) or len(physical_path) > 4096 or '\0' in physical_path or '\\' in physical_path or
+            PurePosixPath(physical_path).as_posix() != physical_path):
+        raise ValueError('Physical source path must be canonical')
+    SourceRoot.parts(physical_path)
+    namespace = hashlib.sha256((repository_id + '\0' + revision).encode()).hexdigest()
+    return 'snapshots/' + namespace + '/' + physical_path
+
+
+def go_module(raw, work):
+    """Finite unquoted module/go/toolchain/require subset; variants stay unknown."""
+    module, requirements, block = None, {}, False
+    try:
+        lines = raw.decode('utf-8').splitlines()
+    except UnicodeError:
+        return None
+    for line in lines:
+        work.check()
+        tokens = line.split('//', 1)[0].strip().split()
+        if not tokens:
+            continue
+        if block and tokens == [')']:
+            block = False
+            continue
+        if block:
+            entry = tokens
+        elif tokens == ['require', '(']:
+            block = True
+            continue
+        elif tokens[0] == 'require':
+            entry = tokens[1:]
+        elif tokens[0] == 'module' and len(tokens) == 2 and module is None:
+            module = tokens[1]
+            continue
+        elif tokens[0] in ('go', 'toolchain') and len(tokens) == 2:
+            continue
+        else:
+            return None
+        if len(entry) != 2 or entry[0] in requirements:
+            return None
+        requirements[entry[0]] = entry[1]
+    if block or module is None or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,1023}', module):
+        return None
+    if any(part in ('', '.', '..') for part in module.split('/')):
+        return None
+    return {'module': module, 'requirements': requirements}
+
+
+def go_contexts(files, configurations, context, work):
+    """Registration bounds domains; raw declarations choose packages and symbols."""
+    if not isinstance(context, dict) or set(context) != {'policy', 'dependencies', 'packages', 'controls'} or context['policy'] != 'declared_snapshot_only':
+        raise ValueError('Explicit declared-snapshot source context required')
+    if any(not isinstance(context[key], list) or len(context[key]) > work.budget.max_files
+           for key in ('dependencies', 'packages', 'controls')):
+        raise ValueError('Source context inventory exceeds bound')
+    modules, packages, dependencies = {}, {}, []
+    manifest_files = 0
+    for control in context['controls']:
+        work.check()
+        if not isinstance(control, dict) or set(control) != {'repository_id', 'revision', 'qualified'} or type(control['qualified']) is not bool:
+            raise ValueError('Invalid source-control metadata')
+        owner = control['repository_id'], control['revision']
+        if owner in modules:
+            raise ValueError('Duplicate source-control identity')
+        config = configurations.get(snapshot_path(*owner, 'go.mod'))
+        parsed = go_module(config, work) if config is not None and control['qualified'] else None
+        modules[owner] = parsed
+    owners = snapshot_owners(list(files) + list(configurations), modules, work)
+    for manifest in context['packages']:
+        work.check()
+        if not isinstance(manifest, dict) or set(manifest) != {'repository_id', 'revision', 'directory', 'files'}:
+            raise ValueError('Invalid package inventory metadata')
+        owner = manifest['repository_id'], manifest['revision']
+        directory = manifest['directory']
+        if not isinstance(directory, str) or len(directory) > 4096:
+            raise ValueError('Invalid package directory')
+        snapshot_path(*owner, posixpath.join(directory, 'sentinel.go'))
+        if directory != posixpath.dirname(posixpath.join(directory, 'sentinel.go')):
+            raise ValueError('Package directory must be canonical')
+        key = owner, directory
+        if key in packages or not isinstance(manifest['files'], list) or len(manifest['files']) > work.budget.max_files:
+            raise ValueError('Duplicate or oversized package inventory')
+        manifest_files += len(manifest['files'])
+        if manifest_files > work.budget.max_files:
+            raise ValueError('Combined package inventory exceeds file bound')
+        expected = {}
+        for item in manifest['files']:
+            if (not isinstance(item, dict) or set(item) != {'path', 'sha256', 'bytes'} or
+                    not isinstance(item['path'], str) or item['path'] in expected or
+                    not isinstance(item['sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', item['sha256']) or
+                    type(item['bytes']) is not int or not 0 <= item['bytes'] <= work.budget.max_file_bytes):
+                raise ValueError('Invalid or duplicate package file metadata')
+            snapshot_path(*owner, item['path'])
+            if (posixpath.dirname(item['path']) != directory or
+                    go_filename_class(item['path']) not in ('neutral', 'platform_variant')):
+                raise ValueError('Package inventory must name eligible non-test Go files')
+            expected[item['path']] = item
+        actual = [file for file in files.values() if file.language == 'go' and
+                  (owners[file.path]['repository_id'], owners[file.path]['revision']) == owner and
+                  posixpath.dirname(owners[file.path]['physical_path']) == directory]
+        valid = bool(expected) and {owners[file.path]['physical_path'] for file in actual} == set(expected)
+        names, uncertainty = set(), set()
+        for file in actual:
+            work.check()
+            physical = owners[file.path]['physical_path']
+            metadata = expected.get(physical, {})
+            clauses = file.syntax_metadata['package_clauses']
+            name = clauses[0]['name'] if len(clauses) == 1 else ''
+            names.add(name)
+            # Recognized filename constraints and all compiler/build directives
+            # stay unknown. No platform, tag or CGO selection is inferred.
+            variant = go_filename_class(physical) == 'platform_variant'
+            if variant:
+                uncertainty.add('GOOS/GOARCH filename selection is unqualified')
+            if file.syntax_metadata['go_cgo_import']:
+                variant = True
+                uncertainty.add('CGO selection is unqualified')
+            if file.syntax_metadata['go_bodyless_function']:
+                variant = True
+                uncertainty.add('bodyless Go declaration is unqualified')
+            if file.syntax_metadata['go_control_directive']:
+                variant = True
+                uncertainty.add('Go build/compiler directive is unqualified')
+            valid = valid and not file.partial and not variant and bool(name) and (
+                metadata.get('sha256') == file.record['sha256'] and metadata.get('bytes') == file.record['bytes'])
+        packages[key] = {'paths': [file.path for file in actual], 'name': next(iter(names)) if len(names) == 1 else None,
+                         'qualified': bool(valid and len(names) == 1), 'uncertainty': sorted(uncertainty)}
+    required = {'consumer_repository_id', 'consumer_revision', 'dependency_repository_id',
+                'dependency_revision', 'module_path', 'version'}
+    identities = set()
+    for entry in context['dependencies']:
+        work.check()
+        if (not isinstance(entry, dict) or set(entry) != required or
+                not isinstance(entry['module_path'], str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,1023}', entry['module_path']) or
+                any(part in ('', '.', '..') for part in entry['module_path'].split('/')) or
+                not isinstance(entry['version'], str) or len(entry['version']) > 128):
+            raise ValueError('Dependency registration must contain source identity metadata only')
+        consumer = entry['consumer_repository_id'], entry['consumer_revision']
+        provider = entry['dependency_repository_id'], entry['dependency_revision']
+        snapshot_path(*consumer, 'go.mod')
+        snapshot_path(*provider, 'go.mod')
+        identity = consumer, entry['module_path'], entry['version'], provider
+        if identity in identities:
+            raise ValueError('Duplicate dependency registration')
+        identities.add(identity)
+        version = re.fullmatch(r'v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*))?', entry['version'])
+        prerelease = version[4] if version else None
+        ordinary_version = bool(version and not re.search(r'[.-]\d{14}-[0-9a-f]{12}$', entry['version']) and
+                                not any(part.isdecimal() and len(part) > 1 and part.startswith('0')
+                                        for part in (prerelease or '').split('.')))
+        major = int(version[1]) if version else -1
+        path_major = re.search(r'/v(\d+)$', entry['module_path'])
+        canonical_major = (major >= 2 and path_major and int(path_major[1]) == major) or (major in (0, 1) and path_major is None)
+        caller, dependency = modules.get(consumer), modules.get(provider)
+        qualified = bool(ordinary_version and canonical_major and caller and dependency and
+                         caller['requirements'].get(entry['module_path']) == entry['version'] and
+                         dependency['module'] == entry['module_path'])
+        dependencies.append(dict(entry, consumer=consumer, provider=provider, qualified=qualified))
+    return {'modules': modules, 'packages': packages, 'dependencies': dependencies, 'owners': owners}
+
+
+def snapshot_blobs(blobs, context, work):
+    """Validate the complete bounded namespace before collecting any source fact."""
+    if not isinstance(blobs, list) or len(blobs) > work.budget.max_files:
+        raise ValueError('Snapshot inventory exceeds file bound')
+    identities, paths, total = set(), set(), 0
+    required = {'path', 'physical_path', 'repository_id', 'revision', 'language', 'content', 'kind', 'sha256', 'bytes'}
+    for blob in blobs:
+        work.check()
+        if not isinstance(blob, dict) or set(blob) != required:
+            raise ValueError('Snapshot blobs require source metadata only')
+        expected = snapshot_path(blob['repository_id'], blob['revision'], blob['physical_path'])
+        identity = blob['repository_id'], blob['revision'], blob['physical_path']
+        if blob['path'] != expected or expected in paths or identity in identities:
+            raise ValueError('Noncanonical or duplicate snapshot identity')
+        paths.add(expected)
+        identities.add(identity)
+        raw = blob['content']
+        if (not isinstance(raw, bytes) or len(raw) > work.budget.max_file_bytes or
+                type(blob['bytes']) is not int or blob['bytes'] != len(raw) or
+                blob['sha256'] != hashlib.sha256(raw).hexdigest() or
+                blob['kind'] not in ('source', 'configuration') or blob['language'] not in (*LANGUAGES, 'unknown')):
+            raise ValueError('Snapshot full source identity or input bound mismatch')
+        total += len(raw)
+        if total > work.budget.max_total_bytes:
+            raise ValueError('Snapshot inventory exceeds byte bound')
+    # Validate all registrations/manifests and duplicate identities before parse.
+    validated = go_contexts({}, {}, context, work)
+    return snapshot_owners(paths, validated['modules'], work)
+
+
+
+def snapshot_owners(paths, modules, work):
+    """Bind source namespaces to declared controls without extending compact records."""
+    prefixes, owners = {}, {}
+    for owner in modules:
+        work.check()
+        prefix = snapshot_path(*owner, 'sentinel').rsplit('/', 1)[0] + '/'
+        if prefix in prefixes:
+            raise ValueError('Duplicate snapshot namespace')
+        prefixes[prefix] = owner
+    for path in paths:
+        work.check()
+        matches = [(prefix, owner) for prefix, owner in prefixes.items() if path.startswith(prefix)]
+        if len(matches) != 1:
+            raise ValueError('Source path outside registered snapshot namespace')
+        prefix, owner = matches[0]
+        physical = path[len(prefix):]
+        if snapshot_path(*owner, physical) != path:
+            raise ValueError('Noncanonical snapshot source identity')
+        owners[path] = dict(repository_id=owner[0], revision=owner[1], physical_path=physical)
+    return owners
+
+
+def project_snapshot(facts, inventory, errors, owners):
+    """Project copies after binding; collected JSON stays target-free and reusable."""
+    facts, inventory, errors = copy.deepcopy(facts), copy.deepcopy(inventory), copy.deepcopy(errors)
+    for fact in facts['definitions'] + facts['sites']:
+        owner = owners[fact['path']]
+        fact.update(path=owner['physical_path'], repository_id=owner['repository_id'], revision=owner['revision'])
+        fact['provenance'].update(owner)
+    for item in inventory + errors:
+        owner = owners[item['path']]
+        item.update(owner, path=owner['physical_path'])
+    return facts, inventory, errors
 
 
 class BackendUnavailable(RuntimeError):
@@ -452,13 +724,15 @@ def _decode_collected(payload, expected_record, work):
         if value is not None and (type(value) is not str or value not in by_id):
             raise ValueError('Foreign compact definition owner')
     def import_spec(item):
-        shape(item, 'name module symbol range')
+        shape(item, 'name module symbol range explicit_alias' if record['language'] == 'go' else 'name module symbol range')
+        if record['language'] == 'go':
+            boolean(item['explicit_alias'])
         string(item['name'])
         string(item['module'])
         if item['symbol'] is not None:
             string(item['symbol'])
         location(item['range'])
-        return item['name'], item['module'], item['symbol'], tuple(item['range'][k] for k in ('start_byte', 'end_byte', 'start_line', 'end_line'))
+        return item['name'], item['module'], item['symbol'], item.get('explicit_alias'), tuple(item['range'][k] for k in ('start_byte', 'end_byte', 'start_line', 'end_line'))
     sequence(payload['imports'], budget.max_nodes)
     import_keys = {import_spec(item) for item in payload['imports']}
     sequence(payload['scopes'], budget.max_nodes + 1)
@@ -806,6 +1080,8 @@ class FileFacts:
             specs.append((text(self.raw, alias) if alias else module.rsplit('/', 1)[-1], module, None, alias or node))
         for name, module, symbol, binding_node in specs:
             item = {'name': name, 'module': module, 'symbol': symbol, 'range': self.location(node)}
+            if self.language == 'go':
+                item['explicit_alias'] = binding_node.type != 'import_spec'
             self.imports.append(item)
             if self.language == 'go' and module == 'C':
                 self.syntax_metadata['go_cgo_import'] = True
@@ -881,7 +1157,7 @@ class FileFacts:
         self.raw = self.tree = None
 
 
-def module_paths(file, spec, files, configurations):
+def module_paths(file, spec, files, configurations, context=None):
     module, symbol = spec['module'], spec['symbol']
     parent = posixpath.dirname(file.path)
     if file.language == 'python':
@@ -899,6 +1175,30 @@ def module_paths(file, spec, files, configurations):
         paths = [stem] if PurePosixPath(stem).suffix else [stem + ext for ext in ('.ts', '.tsx', '.js', '.jsx')] + [posixpath.join(stem, 'index' + ext) for ext in ('.ts', '.js')]
     else:
         paths = []
+        if context is not None:
+            owner = context['owners'][file.path]['repository_id'], context['owners'][file.path]['revision']
+            caller = context['modules'].get(owner)
+            if caller is None:
+                return [], symbol, 'Go module/control variant is unqualified'
+            prefix = caller['module']
+            if module == prefix or module.startswith(prefix + '/'):
+                provider = owner
+            else:
+                matches = [entry for entry in context['dependencies'] if entry['consumer'] == owner and
+                           (module == entry['module_path'] or module.startswith(entry['module_path'] + '/'))]
+                if len(matches) != 1 or not matches[0]['qualified']:
+                    return [], symbol, 'No unique qualified dependency registration for this consumer snapshot'
+                provider, prefix = matches[0]['provider'], matches[0]['module_path']
+            directory = module[len(prefix):].lstrip('/')
+            if directory and (posixpath.normpath(directory) != directory or any(x in ('', '.', '..') for x in directory.split('/'))):
+                return [], symbol, 'Noncanonical Go import directory'
+            package = context['packages'].get((provider, directory))
+            if package is None or not package['qualified']:
+                reason = '; '.join(package.get('uncertainty', [])) if package else ''
+                return [], symbol, reason or 'Complete non-test package inventory is unavailable or a build variant is unqualified'
+            if spec['name'] in ('.', '_') or (not spec.get('explicit_alias') and spec['name'] != package['name']):
+                return [], symbol, 'Default package name, dot import or blank import is unsupported'
+            return package['paths'], symbol, ''
         for config_path, content in configurations.items():
             for line in content.decode('utf-8').splitlines():
                 if line.startswith('module '):
@@ -907,14 +1207,17 @@ def module_paths(file, spec, files, configurations):
                         directory = posixpath.normpath(posixpath.join(posixpath.dirname(config_path), module[len(prefix):].lstrip('/')))
                         paths.extend(path for path in files if posixpath.dirname(path) == directory and path.endswith('.go'))
     found = sorted(set(path for path in paths if path in files and files[path].language == file.language))
+    if context is not None:
+        owner = context['owners'][file.path]['repository_id'], context['owners'][file.path]['revision']
+        found = [path for path in found if (context['owners'][path]['repository_id'], context['owners'][path]['revision']) == owner]
     return found, symbol, '' if found else 'import target absent from guarded source inventory'
 
 
-def resolver(files, configurations):
+def resolver(files, configurations, context=None):
     definitions = {definition['id']: definition for file in files.values() for definition in file.definitions}
 
     def imported(file, item, member):
-        paths, symbol, reason = module_paths(file, item, files, configurations)
+        paths, symbol, reason = module_paths(file, item, files, configurations, context)
         # Export presence cannot choose an import module. An extension/search
         # policy must first identify one module independently of its symbols.
         # Go is the exception: one package directory can contain many files.
@@ -926,6 +1229,8 @@ def resolver(files, configurations):
         if not symbol:
             return [], 'module value has no callable target', 'import_alias'
         targets = []
+        if file.language == 'go' and context is not None and sum(len(files[path].module.bindings.get(symbol, [])) for path in paths) != 1:
+            return [], reason or 'Package binding is absent or ambiguous across the complete non-test inventory', 'import_alias'
         for path in paths:
             other = files[path]
             bindings = other.module.bindings.get(symbol, [])
@@ -935,14 +1240,23 @@ def resolver(files, configurations):
                 target = definitions[bindings[0].value]
                 exported = other.language not in ('javascript', 'typescript') or target['text'].startswith('export ')
                 go_exported = other.language != 'go' or symbol[0].isupper()
-                if target['callable'] and exported and go_exported:
+                ordinary = (other.language != 'go' or context is None or
+                            target['provenance']['syntax_kind'] == 'function_declaration')
+                if target['callable'] and exported and go_exported and ordinary:
                     targets.append(target['id'])
         if len(targets) == 1:
-            return targets, 'one source definition in an inventoried local module', 'import_alias'
+            return targets, ('one source definition in a qualified registered module snapshot' if context is not None else
+                             'one source definition in an inventoried local module'), 'import_alias'
         return [], reason or 'import target is missing, partial, ambiguous or unsupported', 'import_alias'
 
     def resolve(file, node, scope, offset, seen=None):
         seen = set() if seen is None else seen
+        if file.language == 'go' and context is not None:
+            owner = context['owners'][file.path]['repository_id'], context['owners'][file.path]['revision']
+            package = context['packages'].get((owner, posixpath.dirname(context['owners'][file.path]['physical_path'])))
+            if context['modules'].get(owner) is None or package is None or not package['qualified']:
+                reason = '; '.join(package.get('uncertainty', [])) if package else ''
+                return [], reason or 'Go module/control or complete non-test package variant is unqualified', 'unsupported_go_context'
         if node is None:
             return [], 'callee unavailable', 'unknown'
         if node.type in ('attribute', 'member_expression', 'selector_expression'):
@@ -958,6 +1272,12 @@ def resolver(files, configurations):
         if len(bindings) != 1:
             return [], 'binding absent or multiply assigned in this lexical scope', 'lexical_unknown'
         binding = bindings[0]
+        if file.language == 'go' and context is not None and binding.scope.kind == 'module' and binding.kind != 'import':
+            # Go package declarations share a namespace across physical files;
+            # imports stay file-scoped. Duplicate package values cannot be exact.
+            count = sum(1 for path in package['paths'] for entry in files[path].module.bindings.get(name, []) if entry.kind != 'import')
+            if count != 1:
+                return [], 'Package value binding is ambiguous across the complete non-test inventory', 'lexical_unknown'
         key = (id(binding.scope), name)
         if key in seen:
             return [], 'alias cycle; no exact target', 'alias_cycle'
@@ -1022,14 +1342,16 @@ def collect_file(supplied, budget=None, cancel=None):
     return _collect_file(record, raw, parsers[record['language']], work)
 
 
-def resolve_collected(collected, configurations=None, budget=None, cancel=None):
+def resolve_collected(collected, configurations=None, budget=None, cancel=None, go_context=None):
     """Bind complete compact files with the same resolver used by extract.
 
     Admission is aggregate and raises StopScan on limits; per-site resolution
     retains observable partial/error results. Configuration inputs are bounded
     immutable bytes from the caller's guarded source inventory. This function
     does not claim source freshness, query/update qualification or engine choice.
-    It never parses source or accepts expected target facts.
+    It never parses source or accepts expected target facts. Optional go_context
+    uses declared source controls/package manifests outside the compact record;
+    ownership is projected on copies only after the single global resolver.
     """
     work = Work(budget or Budget(), cancel)
     configurations = {} if configurations is None else configurations
@@ -1077,7 +1399,8 @@ def resolve_collected(collected, configurations=None, budget=None, cancel=None):
         files[file.path] = file
     if total > work.budget.max_total_bytes:
         raise StopScan('source_byte_budget_exceeded')
-    resolve = resolver(files, configurations)
+    context = go_contexts(files, configurations, go_context, work) if go_context is not None else None
+    resolve = resolver(files, configurations, context)
     stopped, errors = None, []
     for file in files.values():
         try:
@@ -1087,6 +1410,8 @@ def resolve_collected(collected, configurations=None, budget=None, cancel=None):
             errors.append({'path': file.path, 'kind': str(error)})
     facts = {'definitions': [d for file in files.values() for d in file.definitions],
              'sites': [s for file in files.values() for s in file.sites]}
+    if context is not None:
+        facts, _, errors = project_snapshot(facts, [], errors, context['owners'])
     return {'status': 'partial' if stopped or errors or any(f.partial for f in files.values()) else 'complete',
             'facts': facts, 'errors': errors, 'stop_reason': stopped,
             'resources': {'source_bytes': total, 'collected_nodes': work.nodes,
@@ -1094,14 +1419,17 @@ def resolve_collected(collected, configurations=None, budget=None, cancel=None):
                           'elapsed_seconds': time.perf_counter() - work.started}}
 
 
-def extract(blobs, budget=None, cancel=None):
+def extract(blobs, budget=None, cancel=None, go_context=None):
     """Parse supplied bounded bytes. No expected definitions/cases/targets input.
 
-    blob records contain only path, language, content and optional kind. This
-    entrypoint is useful for immutable snapshots and update comparisons.
+    Ordinary blobs use path, language, content and optional kind. With an
+    explicit go_context, full snapshot metadata and complete non-test package
+    inventories are required. Registration is a declared version/revision
+    binding; active Go build selection and MVS remain unqualified.
     """
     budget = budget or Budget()
     work = Work(budget, cancel)
+    owners = snapshot_blobs(blobs, go_context, work) if go_context is not None else None
     parsers, versions = backend()
     files, configurations, inventory, errors = {}, {}, [], []
     total, stopped, seen = 0, None, set()
@@ -1128,6 +1456,12 @@ def extract(blobs, budget=None, cancel=None):
             if len(raw) > budget.max_file_bytes or total + len(raw) > budget.max_total_bytes:
                 raise StopScan('source_byte_budget_exceeded')
             total += len(raw)
+            if go_context is not None and record['language'] == 'go' and record['kind'] == 'source':
+                membership = go_filename_class(owners[path]['physical_path'])
+                if membership in ('ignored_filename', 'test_file'):
+                    receipt.update(status='go_filename_excluded', reason=membership,
+                                   filename_policy=GO_FILENAME_POLICY['version'])
+                    continue
             raw.decode('utf-8')
             if record['kind'] == 'configuration':
                 configurations[path] = raw
@@ -1153,7 +1487,14 @@ def extract(blobs, budget=None, cancel=None):
     # Iterable callers and scan no longer leave the last input blob live during
     # binding. A caller-owned input list can still retain its own source bytes.
     raw = supplied = None
-    resolve = resolver(files, configurations)
+    context = None
+    if go_context is not None:
+        try:
+            context = go_contexts(files, configurations, go_context, work)
+        except StopScan as error:
+            stopped = stopped or str(error)
+            context = {'modules': {}, 'packages': {}, 'dependencies': [], 'owners': owners}
+    resolve = resolver(files, configurations, context)
     for file in files.values():
         try:
             file.emit_sites(resolve, work)
@@ -1163,15 +1504,19 @@ def extract(blobs, budget=None, cancel=None):
     facts = {'definitions': [d for file in files.values() for d in file.definitions],
              'sites': [s for file in files.values() for s in file.sites]}
     source_identity = hashlib.sha256('\n'.join(f'{x["path"]}:{x["sha256"]}' for x in sorted(inventory, key=lambda x: x['path'])).encode()).hexdigest()
+    if go_context is not None:
+        facts, inventory, errors = project_snapshot(facts, inventory, errors, owners)
     return {'schema_version': 1, 'engine': 'tree-sitter', 'rules': RULE_VERSION,
             'versions': versions, 'source_identity': source_identity,
-            'status': 'partial' if stopped or errors or any(x['status'] not in ('parsed', 'configuration') for x in inventory) else 'complete',
+            'status': 'partial' if stopped or errors or any(x['status'] not in ('parsed', 'configuration', 'go_filename_excluded') for x in inventory) else 'complete',
             'inventory': inventory, 'facts': facts, 'errors': errors, 'stop_reason': stopped,
             'resources': {'source_bytes': total, 'nodes_visited': work.nodes,
                           'facts_emitted': len(facts['definitions']) + len(facts['sites']),
                           'parse_seconds': work.parse_seconds, 'elapsed_seconds': time.perf_counter() - started},
             'limits': {'native_parse_cancellation': 'not implemented; bounded input bytes, checks before/after native parse',
                        'binding_scope': 'lexical definitions, guarded local named imports and stable identifier aliases only',
+                       **({'go_dependency_policy': 'declared_snapshot_only; explicit registration, ordinary module/require declarations, complete non-test package bytes; active build and MVS unqualified',
+                           'go_filename_policy': dict(GO_FILENAME_POLICY)} if go_context is not None else {}),
                        'unknowns': 'computed calls, callback parameters, receiver dispatch, mutable aliases, import/export environments and Go call/conversion ambiguity'}}
 
 
