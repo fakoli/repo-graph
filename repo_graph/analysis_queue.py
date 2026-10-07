@@ -28,7 +28,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 _LOADED_CONTROLLER_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 sys.path.insert(0, str(ROOT))
-from repo_graph.source import SourceRoot, DESCRIPTOR_OPENS
+from repo_graph.source import SourceRoot, DESCRIPTOR_OPENS, code_identity as source_code_identity
+from repo_graph import LOADED_CODE_SHA256
 
 CONTROL_BYTES = 16 * 1024
 CODE_BYTES = 2 * 1024 * 1024
@@ -225,12 +226,16 @@ def _new_directory(parent, name):
 
 
 def _identity():
-    """Recheck controller import snapshot; other helper hashes capture disk bytes."""
+    """Bind identity-bearing helpers to the code actually loaded."""
     with SourceRoot(ROOT) as source:
         hashes = {path: _read(source, path, CODE_BYTES)[1]
                   for path in IMPLEMENTATIONS}
     if hashes['repo_graph/analysis_queue.py'] != _LOADED_CONTROLLER_SHA256:
         raise ValueError('Queued controller implementation changed since module import')
+    if hashes['repo_graph/source.py'] != source_code_identity():
+        raise ValueError('Source guard identity differs from loaded implementation')
+    if hashes['repo_graph/__init__.py'] != LOADED_CODE_SHA256:
+        raise ValueError('Package implementation changed since module import')
     baseline = _baseline()
     return {'implementations': hashes, 'collector': baseline.collector_identity(),
             'loaded_controller_sha256': _LOADED_CONTROLLER_SHA256,
@@ -625,7 +630,7 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
                     else:
                         admitted_bytes += receipt['bytes']
                         nodes += file.counts['nodes']
-                        facts += file.counts['definitions']
+                        facts += file.counts['definitions'] + len(file.imports)
                         if (admitted_bytes > min(limits.max_admitted_bytes, budget.max_collected_bytes) or
                                 nodes > budget.max_nodes or facts > budget.max_facts):
                             result.failures.append({'index': pending['index'], 'record': pending['record'],

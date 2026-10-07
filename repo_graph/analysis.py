@@ -13,10 +13,10 @@ import time
 
 from . import analysis_native as native
 from .analysis_queue import QueueLimits, collect_files, _identity as queue_identity
-from .search import connect
-from .source import SourceRoot
+from .search import connect, code_identity as writer_code_identity
+from .source import SourceRoot, PublicationError
 
-SCHEMA = 'structural-v1'
+SCHEMA = 'structural-v2'
 _LOADED_INDEX_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 LANGUAGES = {'.py': 'python', '.go': 'go', '.js': 'javascript', '.jsx': 'javascript',
              '.ts': 'typescript', '.tsx': 'typescript'}
@@ -31,7 +31,7 @@ def analyzer_identity():
     if observed != _LOADED_INDEX_SHA256:
         raise RuntimeError('Index implementation changed since module import')
     return hashlib.sha256(encoded({'index': observed, 'collector': native.collector_identity(),
-                                   'queue': queue_identity(), 'schema': SCHEMA})).hexdigest()
+                                   'queue': queue_identity(), 'writer': writer_code_identity(), 'schema': SCHEMA})).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -94,7 +94,40 @@ class _Files(Mapping):
         return self.db.execute('SELECT 1 FROM structural_files WHERE path=? AND ir IS NOT NULL', (path,)).fetchone() is not None
 
     def in_directory(self, directory):
+        directory = str(PurePosixPath(directory))
         return (r[0] for r in self.db.execute("SELECT path FROM structural_files WHERE directory=? AND language='go' AND ir IS NOT NULL ORDER BY path", (directory,)))
+
+    def go_package(self, directory):
+        directory = str(PurePosixPath(directory))
+        row = self.db.execute('SELECT name,reason FROM structural_go_packages WHERE directory=?', (directory,)).fetchone()
+        return {'name': row[0] if row else None, 'qualified': row is not None and not row[1],
+                'reason': row[1] if row else 'Go source package is unavailable'}
+
+    def go_binding(self, directory, name):
+        directory = str(PurePosixPath(directory))
+        row = self.db.execute('SELECT count,path FROM structural_go_bindings WHERE directory=? AND name=?', (directory, name)).fetchone()
+        return tuple(row) if row else (0, None)
+
+    def index_go_packages(self):
+        self.db.execute('DELETE FROM structural_go_packages')
+        self.db.execute('DELETE FROM structural_go_bindings')
+        for row in self.db.execute("SELECT path,directory,ir FROM structural_files WHERE language='go' AND kind='source' ORDER BY path"):
+            self.check()
+            name, reason = None, 'Go package contains an unparsed or excluded source file'
+            if row['ir'] is not None:
+                file = self[row['path']]
+                name, reason = native.go_file_scope(file)
+                for symbol, entries in file.module.bindings.items():
+                    count = sum(b.kind != 'import' for b in entries)
+                    if count:
+                        self.db.execute('''INSERT INTO structural_go_bindings VALUES(?,?,?,?)
+                          ON CONFLICT(directory,name) DO UPDATE SET count=count+excluded.count''',
+                          (row['directory'], symbol, count, row['path']))
+            prior = self.db.execute('SELECT name,reason FROM structural_go_packages WHERE directory=?', (row['directory'],)).fetchone()
+            if prior:
+                reason = prior[1] or reason or ('Go package names differ in inventoried source' if prior[0] != name else '')
+                name = prior[0]
+            self.db.execute('INSERT OR REPLACE INTO structural_go_packages VALUES(?,?,?)', (row['directory'], name, reason))
 
     def __getitem__(self, path):
         self.check()
@@ -107,6 +140,7 @@ class _Files(Mapping):
         payload = json.loads(row['ir'])
         payload['definitions'] = [json.loads(r[0]) for r in self.db.execute('SELECT data FROM structural_symbols WHERE path=? ORDER BY ordinal', (path,))]
         payload['scopes'] = [json.loads(r[0]) for r in self.db.execute('SELECT data FROM structural_scopes WHERE path=? ORDER BY ordinal', (path,))]
+        payload['imports'] = [json.loads(r[0]) for r in self.db.execute('SELECT data FROM structural_imports WHERE path=? ORDER BY ordinal', (path,))]
         file = native.CollectedFile.from_json(encoded(payload), json.loads(row['record']), row['ir_sha'], self.budget, self.check)
         self.cache[path] = file
         if len(self.cache) > 2:
@@ -125,6 +159,11 @@ def _schema(db):
     CREATE INDEX IF NOT EXISTS structural_symbol_file ON structural_symbols(path,ordinal);
     CREATE TABLE IF NOT EXISTS structural_scopes(path TEXT NOT NULL, ordinal INTEGER NOT NULL,
       data TEXT NOT NULL, PRIMARY KEY(path,ordinal));
+    CREATE TABLE IF NOT EXISTS structural_imports(path TEXT NOT NULL, ordinal INTEGER NOT NULL,
+      data TEXT NOT NULL, PRIMARY KEY(path,ordinal));
+    CREATE TABLE IF NOT EXISTS structural_go_packages(directory TEXT PRIMARY KEY, name TEXT, reason TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS structural_go_bindings(directory TEXT NOT NULL, name TEXT NOT NULL,
+      count INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(directory,name));
     CREATE TABLE IF NOT EXISTS structural_sites(id TEXT PRIMARY KEY, path TEXT NOT NULL,
       ordinal INTEGER NOT NULL, role TEXT NOT NULL, data TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS structural_site_file ON structural_sites(path,ordinal);
@@ -152,6 +191,9 @@ class StructuralIndex:
         data = dict(db.execute("SELECT key,value FROM meta WHERE key LIKE 'structural_%'"))
         if data and data.get('structural_repository') != self.owner:
             raise RuntimeError('Structural index belongs to another repository')
+        ordinary = db.execute("SELECT value FROM meta WHERE key='repository'").fetchone()
+        if ordinary and ordinary[0] != self.owner:
+            raise RuntimeError('Shared index belongs to another repository')
         if data.get('structural_schema') not in (None, SCHEMA):
             raise RuntimeError('Incompatible structural index; use a new output directory')
         return data
@@ -167,7 +209,7 @@ class StructuralIndex:
 
     def read_facts(self, kind):
         tables = {'definitions': 'structural_symbols', 'sites': 'structural_sites',
-                  'scopes': 'structural_scopes', 'relationships': 'structural_relationships'}
+                  'scopes': 'structural_scopes', 'imports': 'structural_imports', 'relationships': 'structural_relationships'}
         if kind not in tables:
             raise ValueError('Unknown structural fact kind')
         with closing(connect(self.output, readonly=True, owner=self.output_owner)) as db:
@@ -219,9 +261,6 @@ class StructuralIndex:
                 if source.identity != self.owner:
                     raise RuntimeError('Repository ownership changed')
                 old = self._metadata(db)
-                ordinary_owner = db.execute("SELECT value FROM meta WHERE key='repository'").fetchone()
-                if ordinary_owner and ordinary_owner[0] != self.owner:
-                    raise RuntimeError('Index belongs to another repository')
                 previous = old.get('structural_generation')
                 _schema(db)
                 page_size = db.execute('PRAGMA page_size').fetchone()[0]
@@ -230,7 +269,7 @@ class StructuralIndex:
                     raise native.StopScan('index_byte_budget_exceeded')
                 db.set_progress_handler(lambda: int(check()), 1000)
                 if old.get('structural_analyzer') != analyzer or old.get('structural_config') != config:
-                    for table in ('structural_files', 'structural_symbols', 'structural_scopes'):
+                    for table in ('structural_files', 'structural_symbols', 'structural_scopes', 'structural_imports'):
                         db.execute('DELETE FROM ' + table)
                 for table in ('structural_sites', 'structural_relationships'):
                     db.execute('DELETE FROM ' + table)
@@ -258,13 +297,16 @@ class StructuralIndex:
                     for file in collected.collected:
                         payload = file.payload()
                         digest = hashlib.sha256(encoded(payload)).hexdigest()
-                        definitions, scopes = payload.pop('definitions'), payload.pop('scopes')
+                        definitions, scopes, imports = payload.pop('definitions'), payload.pop('scopes'), payload.pop('imports')
                         db.execute('DELETE FROM structural_symbols WHERE path=?', (file.path,))
                         db.execute('DELETE FROM structural_scopes WHERE path=?', (file.path,))
+                        db.execute('DELETE FROM structural_imports WHERE path=?', (file.path,))
                         db.executemany('INSERT INTO structural_symbols VALUES(?,?,?,?)',
                             ((d['id'], file.path, i, encoded(d)) for i, d in enumerate(definitions)))
                         db.executemany('INSERT INTO structural_scopes VALUES(?,?,?)',
                             ((file.path, i, encoded(s)) for i, s in enumerate(scopes)))
+                        db.executemany('INSERT INTO structural_imports VALUES(?,?,?)',
+                            ((file.path, i, encoded(s)) for i, s in enumerate(imports)))
                         db.execute('UPDATE structural_files SET ir=?,ir_sha=?,status=? WHERE path=?',
                             (encoded(payload), digest, 'partial_parse' if file.partial else 'parsed', file.path))
                         resources['changed_files_collected'] += 1
@@ -316,6 +358,7 @@ class StructuralIndex:
                     if status != 'pending':
                         db.execute('DELETE FROM structural_symbols WHERE path=?', (path,))
                         db.execute('DELETE FROM structural_scopes WHERE path=?', (path,))
+                        db.execute('DELETE FROM structural_imports WHERE path=?', (path,))
                         continue
                     if batch and (len(batch) >= min(limits.batch_files, budget.max_files) or batch_bytes + len(raw) > budget.max_total_bytes):
                         flush()
@@ -324,16 +367,17 @@ class StructuralIndex:
                     batch.append(dict(record, content=raw))
                     batch_bytes += len(raw)
                 flush()
-                for table in ('structural_files', 'structural_symbols', 'structural_scopes'):
+                for table in ('structural_files', 'structural_symbols', 'structural_scopes', 'structural_imports'):
                     db.execute('DELETE FROM ' + table + ' WHERE path NOT IN (SELECT path FROM structural_seen)')
                 files = _Files(db, budget, check)
+                files.index_go_packages()
                 # ponytail: re-resolve every binding until negative dependency closure is qualified in T011.
                 configurations = _Configurations(db)
                 resolve = native.resolver(files, configurations, definitions=_Definitions(db))
                 for path in files:
                     file = files[path]
                     work = native.Work(budget, check)
-                    work.facts = len(file.definitions)
+                    work.facts = len(file.definitions) + len(file.imports)
                     file.emit_sites(resolve, work)
                     for i, site in enumerate(file.sites):
                         db.execute('INSERT INTO structural_sites VALUES(?,?,?,?,?)', (site['id'], path, i, site['role'], encoded(site)))
@@ -350,7 +394,7 @@ class StructuralIndex:
                         raise native.StopScan('source_changed_before_publication')
                 source_identity = manifest.hexdigest()
                 generation = hashlib.sha256(source_identity.encode())
-                for table in ('structural_symbols', 'structural_sites', 'structural_scopes'):
+                for table in ('structural_symbols', 'structural_sites', 'structural_scopes', 'structural_imports'):
                     for row in db.execute('SELECT data FROM ' + table + ' ORDER BY path,ordinal'):
                         generation.update(row[0] if type(row[0]) is bytes else row[0].encode())
                 coverage = dict(db.execute('SELECT status,count(*) FROM structural_files GROUP BY status'))
@@ -374,7 +418,11 @@ class StructuralIndex:
             receipt['resources']['elapsed_seconds'] = time.monotonic() - started
         except (native.BackendUnavailable, metadata.PackageNotFoundError, OSError,
                 RuntimeError, sqlite3.Error, native.StopScan, MemoryError, RecursionError) as error:
-            receipt = {'status': 'interrupted' if isinstance(error, (native.StopScan, InterruptedError)) and
+            if isinstance(error, PublicationError) and error.owner == self.output_owner and error.artifact == 'search.db':
+                receipt.update(status='publication_uncertain', published=True, durability='unconfirmed',
+                               error_kind=type(error).__name__, reason=str(error))
+            else:
+                receipt = {'status': 'interrupted' if isinstance(error, (native.StopScan, InterruptedError)) and
                        str(error) in ('cancelled', 'deadline_exceeded', 'Source read cancelled') else 'failed',
                        'published': False, 'error_kind': type(error).__name__, 'reason': str(error),
                        'path': current_path, 'previous_generation': previous, 'resources': resources}

@@ -9,6 +9,21 @@ import stat
 import uuid
 
 DESCRIPTOR_OPENS = os.open in os.supports_dir_fd and hasattr(os, 'O_NOFOLLOW') and hasattr(os, 'O_DIRECTORY')
+_LOADED_SOURCE_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def code_identity():
+    observed = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    if observed != _LOADED_SOURCE_SHA256:
+        raise RuntimeError('Source guard implementation changed since module import')
+    return observed
+
+
+class PublicationError(RuntimeError):
+    """The artifact was replaced; its crash durability is unconfirmed."""
+    def __init__(self, owner, artifact):
+        super().__init__('Artifact was published, but directory synchronization failed; crash durability is uncertain')
+        self.owner, self.artifact = owner, artifact
 
 
 class SourceRoot:
@@ -117,7 +132,7 @@ class SourceRoot:
             try:
                 os.fsync(self.fd)
             except OSError as error:
-                raise RuntimeError('Artifact was published, but directory synchronization failed; crash durability is uncertain') from error
+                raise PublicationError(self.identity, name) from error
         finally:
             try: os.unlink(temporary, dir_fd=self.fd)
             except FileNotFoundError: pass

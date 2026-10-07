@@ -23,6 +23,14 @@ TEXT_EXTENSIONS = {".md", ".markdown", ".mdx", ".rst", ".txt", ".go", ".py", ".j
                    ".rs", ".java", ".kt", ".c", ".h", ".cpp", ".hpp", ".cs", ".rb", ".sh", ".tf", ".sql", ".vue", ".svelte"}
 SECRET = re.compile(r"(?:gh[pousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}|AKIA[A-Z0-9]{16})")
 SNAPSHOT_LOCK = Lock()
+_LOADED_SOURCE_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+
+
+def code_identity():
+    observed = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    if observed != _LOADED_SOURCE_SHA256:
+        raise RuntimeError('Index writer implementation changed since module import')
+    return observed
 
 
 def _token(info):
@@ -223,6 +231,9 @@ def connect(output: Path, *, readonly: bool = False, owner: str | None = None, c
                   COMMIT;""")
             if 'content_digest' not in {row['name'] for row in db.execute('PRAGMA table_info(docs)')}:
                 db.execute("ALTER TABLE docs ADD COLUMN content_digest TEXT NOT NULL DEFAULT ''")
+        identities = dict(db.execute("SELECT key,value FROM meta WHERE key IN ('repository','structural_repository')"))
+        if len(identities) == 2 and identities['repository'] != identities['structural_repository']:
+            raise RuntimeError('Shared index contains conflicting repository identities; use a new output directory')
         return db
     except BaseException:
         db.failed = True
@@ -238,6 +249,8 @@ def catalog(root: Path, files: list[str], output: Path) -> dict:
         identity = {'schema': '2', 'repository': source_root.identity, 'analyzer': 'synopsis-v2',
                     'config': hashlib.sha256(json.dumps([READ_LIMIT, sorted(TEXT_EXTENSIONS)]).encode()).hexdigest()}
         previous = dict(db.execute('SELECT key,value FROM meta'))
+        if previous.get('structural_repository') not in (None, source_root.identity):
+            raise RuntimeError('Shared index belongs to another structural repository; use a new output directory')
         if any(previous.get(key) != value for key, value in identity.items()):
             db.execute('DELETE FROM docs')
         db.execute("CREATE TEMP TABLE seen(path TEXT PRIMARY KEY)")

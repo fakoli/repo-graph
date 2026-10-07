@@ -669,6 +669,9 @@ class CollectedFile:
             if self.language == 'go' and getattr(resolve, 'declared_snapshot_scope', False):
                 site['provenance'] = dict(fact['provenance'], binding_scope='declared_snapshot_only',
                                           active_build_qualified=False, runtime_qualified=False, mvs_qualified=False)
+            elif self.language == 'go' and getattr(resolve, 'inventoried_package_scope', False):
+                site['provenance'] = dict(fact['provenance'], binding_scope='inventoried_package_only',
+                                          active_build_qualified=False, runtime_qualified=False, mvs_qualified=False)
             self.sites.append(site)
 
 
@@ -775,7 +778,10 @@ def _decode_collected(payload, expected_record, work):
         if value is not None and (type(value) is not str or value not in by_id):
             raise ValueError('Foreign compact definition owner')
     def import_spec(item):
-        shape(item, 'name module symbol range explicit_alias' if record['language'] == 'go' else 'name module symbol range')
+        shape(item, 'name module symbol range path language role text provenance explicit_alias' if record['language'] == 'go' else 'name module symbol range path language role text provenance')
+        source_fact(item)
+        if item['role'] != 'import':
+            raise ValueError('Invalid compact import role')
         if record['language'] == 'go':
             boolean(item['explicit_alias'])
         string(item['name'])
@@ -1087,21 +1093,14 @@ class FileFacts:
                 owner_scope.add(name, Binding('unknown', 'non-callable or unsupported assignment', target, owner_scope))
 
     def import_binding(self, node, scope):
-        if scope.kind != 'module':
-            # Local imports are left unknown rather than misclassified as globals.
-            if node.type in ('import_statement', 'import_from_statement') and self.language == 'python':
-                for child in node.named_children:
-                    if child.type == 'aliased_import':
-                        alias = child.child_by_field_name('alias') or child.child_by_field_name('name')
-                        scope.add(text(self.raw, alias), Binding('unknown', 'local import unsupported', alias, scope))
-                    elif child.type == 'dotted_name' and child != node.child_by_field_name('module_name'):
-                        scope.add(text(self.raw, child).split('.')[0], Binding('unknown', 'local import unsupported', child, scope))
+        if scope.kind != 'module' and self.language != 'python':
             return
         specs = []
         if self.language == 'python' and node.type == 'import_statement':
             for child in node.named_children:
-                name = child.child_by_field_name('alias') if child.type == 'aliased_import' else child
-                scope.add(text(self.raw, name).split('.')[0], Binding('unknown', 'absolute Python import environment is not modeled', name, scope))
+                module = child.child_by_field_name('name') if child.type == 'aliased_import' else child
+                name = child.child_by_field_name('alias') or module
+                specs.append((text(self.raw, name).split('.')[0], text(self.raw, module), None, name))
         if self.language == 'python' and node.type == 'import_from_statement':
             module = text(self.raw, node.child_by_field_name('module_name'))
             for child in node.named_children:
@@ -1126,20 +1125,28 @@ class FileFacts:
                     for alias in child.named_children:
                         if alias.type == 'identifier':
                             specs.append((text(self.raw, alias), module, 'default', alias))
+            if not specs:
+                specs.append(('', module, None, node))
         elif self.language == 'go' and node.type == 'import_spec':
             module = text(self.raw, node.child_by_field_name('path'))[1:-1]
             alias = node.child_by_field_name('name')
             specs.append((text(self.raw, alias) if alias else module.rsplit('/', 1)[-1], module, None, alias or node))
         for name, module, symbol, binding_node in specs:
-            item = {'name': name, 'module': module, 'symbol': symbol, 'range': self.location(node)}
+            self.work.fact()
+            item = {'name': name, 'module': module, 'symbol': symbol, 'range': self.location(node),
+                    'path': self.path, 'language': self.language, 'role': 'import',
+                    'text': text(self.raw, node), 'provenance': self.provenance(node.type)}
             if self.language == 'go':
                 item['explicit_alias'] = binding_node.type != 'import_spec'
             self.imports.append(item)
+            if not name:
+                continue
             if self.language == 'go' and module == 'C':
                 self.syntax_metadata['go_cgo_import'] = True
-            conditional = self.language == 'python' and self.conditional(node)
-            scope.add(name, Binding('unknown' if conditional else 'import',
-                                    'conditional import is not flow-resolved' if conditional else item,
+            unknown = ('local import unsupported' if scope.kind != 'module' else
+                       'absolute Python import environment is not modeled' if self.language == 'python' and node.type == 'import_statement' else
+                       'conditional import is not flow-resolved' if self.language == 'python' and self.conditional(node) else None)
+            scope.add(name, Binding('unknown' if unknown else 'import', unknown or item,
                                     binding_node, scope, True))
 
     def lower(self):
@@ -1191,7 +1198,7 @@ class FileFacts:
                                'provenance': self.provenance(node.type)}
             candidates.append((fact, Expression.lower(self.raw, callee), scopes[scope.ordinal]))
         counts = {'nodes': self.work.nodes - self.initial_counts[0],
-                  'definitions': self.work.facts - self.initial_counts[1]}
+                  'definitions': len(self.definitions)}
         result = CollectedFile(self.record, scopes, self.definitions, candidates,
                                self.imports, self.errors, self.partial, counts, self.syntax_metadata)
         # No JSON byte buffer is retained by extraction; counting also bounds
@@ -1207,6 +1214,40 @@ class FileFacts:
         self.callable_nodes.clear()
         self.scopes.clear()
         self.raw = self.tree = None
+
+
+def go_file_scope(file):
+    """Source membership only: never select a platform, tags, CGO or toolchain."""
+    clauses = file.syntax_metadata['package_clauses']
+    if file.partial or len(clauses) != 1 or not clauses[0]['name']:
+        return None, 'Go package declaration or parse is unqualified'
+    if go_filename_class(file.path) != 'neutral':
+        return None, 'Go filename/test/platform selection is unqualified'
+    if any(file.syntax_metadata[k] for k in ('go_control_directive', 'go_bodyless_function', 'go_cgo_import')):
+        return None, 'Go build/compiler directive, bodyless declaration or CGO selection is unqualified'
+    return clauses[0]['name'], ''
+
+
+def inventoried_go_package(directory, files):
+    if hasattr(files, 'go_package'):
+        return files.go_package(directory)
+    names, bindings, reason = set(), {}, ''
+    for path in files:
+        if posixpath.normpath(posixpath.dirname(path)) != posixpath.normpath(directory) or files[path].language != 'go':
+            continue
+        file = files[path]
+        name, failure = go_file_scope(file)
+        names.add(name)
+        reason = failure or reason
+        for symbol, entries in file.module.bindings.items():
+            count = sum(b.kind != 'import' for b in entries)
+            if count:
+                prior = bindings.get(symbol, (0, path))
+                bindings[symbol] = (prior[0] + count, prior[1])
+    if len(names) != 1 or None in names:
+        reason = reason or 'Go package names differ in inventoried source'
+    return {'name': next(iter(names)) if len(names) == 1 else None,
+            'reason': reason, 'qualified': bool(names) and not reason, 'bindings': bindings}
 
 
 def module_paths(file, spec, files, configurations, context=None):
@@ -1259,13 +1300,16 @@ def module_paths(file, spec, files, configurations, context=None):
                 return [], symbol, 'Default package name, dot import or blank import is unsupported'
             return package['paths'], symbol, ''
         for config_path, content in configurations.items():
-            for line in content.decode('utf-8').splitlines():
-                if line.startswith('module '):
-                    prefix = line.split()[1]
-                    if module == prefix or module.startswith(prefix + '/'):
-                        directory = posixpath.normpath(posixpath.join(posixpath.dirname(config_path), module[len(prefix):].lstrip('/')))
-                        paths.extend(files.in_directory(directory) if hasattr(files, 'in_directory') else
-                                     (path for path in files if posixpath.dirname(path) == directory and path.endswith('.go')))
+            parsed = go_module(content, Work(Budget(), None))
+            if parsed is None:
+                continue
+            prefix = parsed['module']
+            if module == prefix or module.startswith(prefix + '/'):
+                if any(module == domain or module.startswith(domain + '/') for domain in parsed['requirements']):
+                    return [], symbol, 'Overlapping required module leaves own-source import ambiguous'
+                directory = posixpath.normpath(posixpath.join(posixpath.dirname(config_path), module[len(prefix):].lstrip('/')))
+                paths.extend(files.in_directory(directory) if hasattr(files, 'in_directory') else
+                             (path for path in files if posixpath.normpath(posixpath.dirname(path)) == directory and path.endswith('.go')))
     found = sorted(set(path for path in paths if path in files and files[path].language == file.language))
     if context is not None:
         owner = context['owners'][file.path]['repository_id'], context['owners'][file.path]['revision']
@@ -1278,6 +1322,18 @@ def resolver(files, configurations, context=None, *, definitions=None):
     if definitions is None:
         definitions = {definition['id']: definition for file in files.values() for definition in file.definitions}
 
+    packages = {}
+
+    def local_package(directory):
+        if directory not in packages:
+            if len(packages) >= 2:
+                packages.pop(next(iter(packages)))
+            packages[directory] = inventoried_go_package(directory, files)
+        return packages[directory]
+
+    def package_binding(directory, name, package):
+        return files.go_binding(directory, name) if hasattr(files, 'go_binding') else package['bindings'].get(name, (0, None))
+
     def imported(file, item, member):
         paths, symbol, reason = module_paths(file, item, files, configurations, context)
         # Export presence cannot choose an import module. An extension/search
@@ -1287,10 +1343,19 @@ def resolver(files, configurations, context=None, *, definitions=None):
             return [], 'multiple inventoried module paths; extension/package selection policy is not modeled', 'import_alias'
         if file.language == 'go' and len({posixpath.dirname(path) for path in paths}) > 1:
             return [], 'multiple package directories match module configurations', 'import_alias'
+        if file.language == 'go' and context is None and paths:
+            directory = posixpath.dirname(paths[0])
+            package = local_package(directory)
+            if not package['qualified']:
+                return [], package['reason'], 'unsupported_go_context'
+            if item['name'] in ('.', '_') or not item.get('explicit_alias') and item['name'] != package['name']:
+                return [], 'Default Go package name, dot import or blank import is unsupported', 'import_alias'
         symbol = member if symbol is None else symbol
         if not symbol:
             return [], 'module value has no callable target', 'import_alias'
         targets = []
+        if file.language == 'go' and context is None and paths and package_binding(directory, symbol, package)[0] != 1:
+            return [], 'Package binding is absent or ambiguous in inventoried Go source', 'import_alias'
         if file.language == 'go' and context is not None and sum(len(files[path].module.bindings.get(symbol, [])) for path in paths) != 1:
             return [], reason or 'Package binding is absent or ambiguous across the complete non-test inventory', 'import_alias'
         for path in paths:
@@ -1302,7 +1367,7 @@ def resolver(files, configurations, context=None, *, definitions=None):
                 target = definitions[bindings[0].value]
                 exported = other.language not in ('javascript', 'typescript') or target['text'].startswith('export ')
                 go_exported = other.language != 'go' or symbol[0].isupper()
-                ordinary = (other.language != 'go' or context is None or
+                ordinary = (other.language != 'go' or
                             target['provenance']['syntax_kind'] == 'function_declaration')
                 if target['callable'] and exported and go_exported and ordinary:
                     targets.append(target['id'])
@@ -1313,6 +1378,11 @@ def resolver(files, configurations, context=None, *, definitions=None):
 
     def resolve(file, node, scope, offset, seen=None):
         seen = set() if seen is None else seen
+        if file.language == 'go' and context is None:
+            directory = posixpath.dirname(file.path)
+            package = local_package(directory)
+            if not package['qualified']:
+                return [], package['reason'], 'unsupported_go_context'
         if file.language == 'go' and context is not None:
             owner = context['owners'][file.path]['repository_id'], context['owners'][file.path]['revision']
             package = context['packages'].get((owner, posixpath.dirname(context['owners'][file.path]['physical_path'])))
@@ -1331,6 +1401,13 @@ def resolver(files, configurations, context=None, *, definitions=None):
             return [], 'computed or unsupported callee; possible targets not enumerated', 'unsupported_dynamic'
         name = node.spelling
         bindings = scope.lookup(name)
+        if file.language == 'go' and context is None:
+            count, path = package_binding(directory, name, package)
+            if bindings and bindings[0].scope.kind == 'module' and bindings[0].kind != 'import' and count != 1:
+                return [], 'Package value binding is ambiguous in inventoried Go source', 'lexical_unknown'
+            if not bindings and count == 1:
+                other = files[path]
+                return resolve(other, node, other.module, offset, seen)
         if len(bindings) != 1:
             return [], 'binding absent or multiply assigned in this lexical scope', 'lexical_unknown'
         binding = bindings[0]
@@ -1358,6 +1435,7 @@ def resolver(files, configurations, context=None, *, definitions=None):
             return targets, reason, 'stable_value_alias'
         return [], str(binding.value), 'lexical_unknown'
     resolve.declared_snapshot_scope = context is not None
+    resolve.inventoried_package_scope = context is None
     return resolve
 
 
@@ -1482,7 +1560,7 @@ def resolve_collected(collected, configurations=None, budget=None, cancel=None, 
         if total > work.budget.max_total_bytes:
             raise StopScan('source_byte_budget_exceeded')
         work.nodes += file.counts['nodes']
-        work.facts += file.counts['definitions']
+        work.facts += file.counts['definitions'] + len(file.imports)
         if work.nodes > work.budget.max_nodes:
             raise StopScan('node_budget_exceeded')
         if work.facts > work.budget.max_facts:

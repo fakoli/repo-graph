@@ -3,6 +3,7 @@
 
 uv sync --python 3.12 --extra analysis
 uv run python evaluations/analysis.py --engine tree-sitter --suite component
+uv run python evaluations/analysis.py --suite constructs
 
 No provider calls, real-corpus download, daemon, dynamic imports of source code,
 or runtime product installation occurs. Experimental selection requires all component and finite-cost proofs.
@@ -20,16 +21,18 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from repo_graph.source import SourceRoot
-from evaluations.tree_sitter_baseline import BackendUnavailable, Budget, PINS, scan
+from evaluations.tree_sitter_baseline import BackendUnavailable, Budget, LANGUAGES, PINS, scan
 
 INPUTS = 'evaluations/code-understanding/'
 DEFAULT_OUTPUT = 'evaluations/results/code-understanding/native-component.json'
+FACTS_OUTPUT = 'evaluations/results/code-understanding/facts.json'
 
 
 def read_json(source, path):
@@ -259,6 +262,123 @@ def component(root=ROOT, budget=None):
                                      'Receiver alternatives remain unresolved; preserving uncertainty does not establish candidate recall.',
                                      'Resolved means one source binding under the stated lexical/local-module rules, assuming no external runtime mutation.',
                                      'Native parser interruption is not implemented; source bytes and traversal are bounded.']}
+
+
+def constructs(root=ROOT, budget=None):
+    """Grade the locked synthetic key after both persisted-owner scans finish."""
+    from repo_graph.analysis import IndexLimits, StructuralIndex
+    root = Path(root)
+    budget = budget or Budget()
+    fixture, identity = frozen_inputs(root)
+    inventory = [{key: item[key] for key in ('path', 'language', 'kind', 'sha256', 'bytes')}
+                 for item in fixture['files']]
+    code_paths = ('evaluations/analysis.py', 'repo_graph/analysis.py', 'repo_graph/analysis_native.py',
+                  'repo_graph/analysis_queue.py', 'repo_graph/source.py', 'repo_graph/search.py', 'repo_graph/__init__.py',
+                  'tests/test_analysis.py', 'pyproject.toml', 'uv.lock')
+    with SourceRoot(ROOT) as owner:
+        before = {path: owner.read(path, 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=20).strip()
+    checks, coverage_failures, modes, fact_hashes = [], [], [], []
+    with tempfile.TemporaryDirectory(prefix='repo-graph-constructs-') as scratch:
+        for mode, concurrency in (('serial', 1), ('queued', 2)):
+            label = mode + str(concurrency)
+            index = StructuralIndex(root, Path(scratch) / label, budget=budget,
+                limits=IndexLimits(max_files=budget.max_files, max_source_bytes=budget.max_total_bytes,
+                                   total_wall_seconds=budget.timeout_seconds))
+            receipt = index.refresh(iter(inventory), mode=mode, concurrency=concurrency)
+            extracted = {kind: list(index.read_facts(kind)) if receipt['status'] == 'ready' else []
+                         for kind in ('definitions', 'sites', 'imports')}
+            definitions, cases = grade(extracted, fixture)
+            for case, expected in zip(cases, fixture['cases']):
+                actual = case['actual'][0] if len(case['actual']) == 1 else {}
+                case['coverage'] = {
+                    'inventory': 'validated_source_inventory' if receipt['status'] == 'ready' and
+                        any(item['path'] == expected['path'] and item['kind'] == 'source'
+                            for item in inventory) else 'scan_not_ready',
+                    'syntax': 'site_retained' if actual else 'site_missing_or_duplicated',
+                    'binding': actual.get('certainty', 'unavailable'),
+                    'call': actual.get('certainty', 'unavailable') if expected['role'] == 'call' else 'not_a_call',
+                    'framework': 'not_evaluated',
+                    'targets_exhaustive': actual.get('targets_exhaustive', False),
+                }
+                if case.get('target_enumeration', {}).get('status') == 'failed':
+                    coverage_failures.append({'id': label + ':' + case['id'], 'mode': label,
+                        'construct': case['construct'], 'dimension': 'receiver_target_enumeration',
+                        **case['target_enumeration']})
+            # Imports are native records from the same owner, not a second parser.
+            invalid, import_languages = [], set()
+            with SourceRoot(root) as source:
+                for kind, rows in extracted.items():
+                    for row in rows:
+                        raw, digest, info = source.read(row['path'], budget.max_file_bytes + 1)
+                        location = row['range']
+                        start, end = location['start_byte'], location['end_byte']
+                        valid = (0 <= start <= end <= len(raw) == info.st_size and
+                            raw[start:end].decode('utf-8') == row['text'] and
+                            location['start_line'] == raw[:start].count(b'\n') + 1 and
+                            location['end_line'] == raw[:max(start, end - 1)].count(b'\n') + 1 and
+                            row['provenance']['source_sha256'] == digest and
+                            row['provenance']['evidence_kind'] == 'static_syntax')
+                        if kind == 'sites':
+                            valid = valid and row['role'] in ('call', 'reference')
+                        if kind == 'imports':
+                            import_languages.add(row['language'])
+                            valid = valid and row['role'] == 'import'
+                        if not valid:
+                            invalid.append({'kind': kind, 'path': row['path'], 'range': location})
+            checks.extend(dict(item, id=label + ':' + item['id'], mode=label)
+                          for item in definitions + cases)
+            checks.append({'id': label + ':distinct_facts_and_physical_provenance', 'mode': label,
+                'status': 'passed' if not invalid and import_languages == set(LANGUAGES) else 'failed',
+                'failures': invalid, 'import_languages': sorted(import_languages)})
+            checks.append({'id': label + ':coherent_complete_inventory', 'mode': label,
+                'status': 'passed' if receipt['status'] == 'ready' and
+                    receipt['coverage']['files_total'] == len(inventory) and
+                    receipt['coverage']['files_supported'] == sum(item['kind'] == 'source' for item in inventory) and
+                    receipt['coverage']['status_counts'].get('partial_parse', 0) == 0 else 'failed'})
+            digest = hashlib.sha256()
+            if receipt['status'] == 'ready':
+                for kind in ('definitions', 'sites', 'imports', 'scopes', 'relationships'):
+                    for row in index.read_facts(kind):
+                        digest.update(json.dumps([kind, row], sort_keys=True, ensure_ascii=True,
+                                                 separators=(',', ':')).encode() + b'\n')
+            fact_hashes.append(digest.hexdigest())
+            modes.append({'mode': mode, 'concurrency': concurrency,
+                'status': 'passed' if all(item['status'] == 'passed' for item in checks if item.get('mode') == label) else 'failed',
+                'index': receipt, 'metadata': index.metadata() if receipt['status'] == 'ready' else None,
+                'facts_sha256': digest.hexdigest(),
+                'counts': {kind: len(rows) for kind, rows in extracted.items()}, 'by': summaries(cases)})
+    checks.append({'id': 'serial_queued_fact_parity',
+                   'status': 'passed' if len(set(fact_hashes)) == 1 and
+                       all(mode['index']['status'] == 'ready' for mode in modes) else 'failed'})
+    with SourceRoot(ROOT) as owner:
+        after = {path: owner.read(path, 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    checks.append({'id': 'implementation_stable', 'status': 'passed' if before == after else 'failed'})
+    failures = [item for item in checks if item['status'] != 'passed']
+    return {'schema_version': 1, 'suite': 'constructs', 'engine': 'native-tree-sitter',
+        'status': 'failed' if failures else 'passed',
+        'source_identity': {'inputs': identity, 'files': {item['path']: item['sha256'] for item in inventory},
+                            'implementation': {'commit': revision, 'sha256': before}},
+        'implementation_after': {'commit': revision, 'sha256': after},
+        'case_results': checks, 'failures': failures, 'coverage_failures': coverage_failures, 'modes': modes,
+        'counts': {'selected_definitions_per_mode': len(fixture['definitions']),
+                   'selected_sites_per_mode': len(fixture['cases']), 'checks': len(checks),
+                   'passed': len(checks) - len(failures), 'receiver_enumeration_failures': len(coverage_failures)},
+        'environment': environment(), 'qualification_complete': False, 'limits_qualified': False,
+        'scope': 'Locked selected synthetic constructs through the shared persisted owner in serial1 and queued2; '
+                 'receiver alternatives are conservatively unresolved and enumeration misses remain coverage failures; '
+                 'framework, corpus, scale, query, platform, agent, human and release qualification is unmeasured'}
+
+
+def record_constructs(root, result, maximum):
+    """Replace only T010, retaining the previously recorded structural proof."""
+    with SourceRoot(root) as source:
+        report, _ = read_json(source, FACTS_OUTPUT)
+    if (type(report) is not dict or type(report.get('schema_version')) is not int or
+            report['schema_version'] != 1 or type(report.get('tasks')) is not dict or 'T009' not in report['tasks']):
+        raise ValueError('Existing T009 facts evidence required')
+    report['tasks']['T010'] = result
+    return write_result(root, FACTS_OUTPUT, report, maximum)
 
 
 def screen_engines(root=ROOT):
@@ -1044,7 +1164,7 @@ def profile_component(source_map, work_root=None, freeze_budgets=False, recorded
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    modes = parser.add_mutually_exclusive_group(required=True)
+    modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--engine', choices=['tree-sitter'])
     modes.add_argument('--screen-engines', action='store_true')
     modes.add_argument('--compare', action='store_true')
@@ -1056,7 +1176,7 @@ def main(argv=None):
                         help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
-    parser.add_argument('--suite', choices=['component'], default='component')
+    parser.add_argument('--suite', choices=['component', 'constructs'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
                         help='finite report cap: 2 MiB for comparison, 1 MiB otherwise')
@@ -1064,6 +1184,10 @@ def main(argv=None):
     parser.add_argument('--max-source-bytes', type=int, default=4 * 1024 * 1024)
     parser.add_argument('--max-nodes', type=int, default=200_000)
     args = parser.parse_args(argv)
+    if not (args.engine or args.screen_engines or args.compare or args.profile) and args.suite != 'constructs':
+        parser.error('an engine, screening, comparison or profiling mode is required for component')
+    if args.suite == 'constructs' and (args.screen_engines or args.compare or args.profile):
+        parser.error('constructs uses the shared structural owner directly')
     if args.max_result_bytes is None:
         args.max_result_bytes = (2 if args.compare else 1) * 1024 * 1024
     if args.freeze_budgets and not args.profile:
@@ -1074,12 +1198,23 @@ def main(argv=None):
         parser.error('--profile-report requires --profile')
     default = ('evaluations/results/code-understanding/engine-comparison.json' if args.compare else
                'evaluations/results/code-understanding/capacity-profile.json' if args.profile else
-               'evaluations/results/code-understanding/reusable-screen.json' if args.screen_engines else DEFAULT_OUTPUT)
+               'evaluations/results/code-understanding/reusable-screen.json' if args.screen_engines else
+               FACTS_OUTPUT if args.suite == 'constructs' else DEFAULT_OUTPUT)
     args.output = args.output or default
     started = time.perf_counter()
     try:
         if args.max_result_bytes <= 0:
             raise ValueError('Output budget must be positive')
+        if args.suite == 'constructs':
+            result = constructs(ROOT, Budget(max_files=args.max_files,
+                max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes))
+            result['resources'] = {'constructs_elapsed_seconds': time.perf_counter() - started}
+            size = (record_constructs(ROOT, result, args.max_result_bytes) if args.output == FACTS_OUTPUT else
+                    write_result(ROOT, args.output, result, args.max_result_bytes))
+            print(json.dumps({'status': result['status'], 'counts': result['counts'],
+                'failures': len(result['failures']), 'coverage_failures': len(result['coverage_failures']),
+                'result': args.output, 'result_bytes': size}, separators=(',', ':')))
+            return 0 if result['status'] == 'passed' else 1
         if args.compare or args.profile:
             if args.source_map is None:
                 result = {'schema_version': 1, 'status': 'blocked', 'source_identity': None,
@@ -1120,7 +1255,10 @@ def main(argv=None):
                   'status': 'blocked', 'reason': str(error), 'engine_selected': False,
                   'setup': 'uv sync --python 3.12 --extra analysis'}
         try:
-            write_result(ROOT, args.output, result, args.max_result_bytes)
+            if args.suite == 'constructs' and args.output == FACTS_OUTPUT:
+                record_constructs(ROOT, result, args.max_result_bytes)
+            else:
+                write_result(ROOT, args.output, result, args.max_result_bytes)
             if args.output == DEFAULT_OUTPUT:
                 record_task(ROOT, 'T005', result, args.output, args.max_result_bytes)
             elif (args.compare or args.profile) and args.output == default:
@@ -1129,7 +1267,15 @@ def main(argv=None):
             pass
         print(json.dumps(result, separators=(',', ':')))
         return 2
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except Exception as error:
+        if args.suite == 'constructs' and args.output == FACTS_OUTPUT:
+            result = {'schema_version': 1, 'suite': 'constructs', 'status': 'failed',
+                'error_kind': type(error).__name__, 'source_identity': None, 'case_results': [],
+                'coverage_failures': [], 'qualification_complete': False, 'limits_qualified': False}
+            try:
+                record_constructs(ROOT, result, args.max_result_bytes)
+            except (OSError, ValueError):
+                pass
         if args.compare or args.profile:
             result = {'schema_version': 1, 'status': 'blocked', 'error_kind': type(error).__name__,
                       'source_identity': None, 'case_results': [], 'engine_selected': False, 'qualification_complete': False}

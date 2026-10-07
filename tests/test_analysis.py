@@ -1,22 +1,29 @@
 """Synthetic source/ownership regressions for the optional structural index."""
 import hashlib
 import importlib.util
+import io
 import json
 import os
+from contextlib import redirect_stdout
 from pathlib import Path
+import shutil
+import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from repo_graph.analysis import IndexLimits, StructuralIndex
 from repo_graph import analysis_native as native
+from repo_graph import search, source as source_module
 from repo_graph.source import SourceRoot
 
 
 AVAILABLE = all(importlib.util.find_spec(name) is not None for name in (
     'tree_sitter', 'tree_sitter_python', 'tree_sitter_go',
     'tree_sitter_javascript', 'tree_sitter_typescript'))
-FACT_KINDS = ('definitions', 'sites', 'scopes', 'relationships')
+FACT_KINDS = ('definitions', 'sites', 'imports', 'scopes', 'relationships')
 
 
 def canonical(rows):
@@ -162,6 +169,45 @@ class StructuralIndexTests(unittest.TestCase):
         self.assertEqual(second['generation'], first['generation'])
         self.assertEqual(facts(reopened), retained)
 
+    def test_imports_references_calls_and_unknowns_remain_distinct(self):
+        sources = {'package/provider.py': 'def finish(value): return value * 2\n',
+            'package/main.py': '# café λ\nfrom .provider import finish as imported\nfrom .missing import added\n'
+                'def local(value): return value + 1\n'
+                'def reference(): return local\n'
+                'def alias():\n    next_step = local\n    return next_step(1)\n'
+                'def shadow():\n    def local(value): return value + 100\n    return local(2)\n'
+                'def callback(fn): return fn(3)\n'
+                'def dynamic(table, name): return table[name](4)\n'
+                'def imported_call(): return imported(5)\n'
+                'def missing_call(): return added(6)\n'}
+        write_sources(self.root, sources)
+        index = StructuralIndex(self.root, self.output)
+        self.ready(index, iter(sources), mode='queued', concurrency=2)
+        retained = facts(index)
+        imports = retained['imports']
+        self.assertEqual({row['name'] for row in imports}, {'imported', 'added'})
+        self.assertTrue(all(row['role'] == 'import' for row in imports))
+        self.assertTrue(all(row['role'] in ('call', 'reference') for row in retained['sites']))
+        reference = next(row for row in retained['definitions'] if row['name'] == 'reference')
+        self.assertTrue(any(row['role'] == 'reference' and row['text'] == 'local' and
+                            row['caller'] == reference['id'] for row in retained['sites']))
+        by_text = {row['text']: row for row in retained['sites'] if row['role'] == 'call'}
+        self.assertEqual(by_text['imported(5)']['certainty'], 'resolved')
+        self.assertEqual(by_text['next_step(1)']['certainty'], 'resolved')
+        shadow = next(row for row in retained['definitions'] if row['name'] == 'shadow.local')
+        self.assertEqual(by_text['local(2)']['targets'], [shadow['id']])
+        for text in ('fn(3)', 'table[name](4)', 'added(6)'):
+            with self.subTest(text=text):
+                self.assertEqual((by_text[text]['certainty'], by_text[text]['targets']), ('unresolved', []))
+                self.assertFalse(by_text[text]['targets_exhaustive'])
+                self.assertTrue(by_text[text]['reason'])
+        for row in imports + retained['definitions'] + retained['sites']:
+            raw = sources[row['path']].encode('utf-8')
+            location = row['range']
+            self.assertEqual(raw[location['start_byte']:location['end_byte']].decode(), row['text'])
+            self.assertEqual(row['provenance']['source_sha256'], hashlib.sha256(raw).hexdigest())
+        self.clean_parity(index, list(sources))
+
     def test_unsupported_inventory_remains_visible_without_source_facts(self):
         write_sources(self.root, {'main.py': 'def target(): return 1\n',
                                   'other.rs': 'fn undiscovered() {}\n'})
@@ -200,6 +246,133 @@ class StructuralIndexTests(unittest.TestCase):
         reopened = StructuralIndex(self.root, self.output)
         self.assertEqual(reopened.metadata(), metadata)
         self.assertEqual(facts(reopened), retained)
+
+    def test_shared_output_rejects_foreign_owners_in_both_writer_orders(self):
+        write_sources(self.root, {'main.py': 'def owned_target(): return 1\n'})
+        foreign = self.scratch / 'foreign'
+        foreign.mkdir()
+        write_sources(foreign, {'main.py': 'def foreign_target(): return 2\n'})
+        for first in ('structural', 'keyword'):
+            with self.subTest(first=first):
+                output = self.scratch / first
+                owned = StructuralIndex(self.root, output)
+                if first == 'structural':
+                    self.ready(owned, ['main.py'])
+                    before = (output / 'search.db').read_bytes()
+                    with self.assertRaises(RuntimeError):
+                        search.catalog(foreign, ['main.py'], output)
+                    self.assertEqual((output / 'search.db').read_bytes(), before)
+                    self.assertEqual(search.catalog(self.root, ['main.py'], output)['failed'], 0)
+                else:
+                    self.assertEqual(search.catalog(self.root, ['main.py'], output)['failed'], 0)
+                    before = (output / 'search.db').read_bytes()
+                    outsider = StructuralIndex(foreign, output)
+                    refused = outsider.refresh(['main.py'])
+                    self.assertEqual(refused['status'], 'failed')
+                    self.assertFalse(refused['published'])
+                    with self.assertRaises(RuntimeError):
+                        list(outsider.read_facts('definitions'))
+                    self.assertEqual((output / 'search.db').read_bytes(), before)
+                    self.ready(owned, ['main.py'])
+                self.assertEqual([row['name'] for row in owned.read_facts('definitions')], ['owned_target'])
+                self.assertEqual(search.Search(output).run('owned', mode='keyword')['results'][0]['path'], 'main.py')
+                self.assertEqual(search.Search(output).run('foreign', mode='keyword')['results'], [])
+
+    def test_post_replace_fsync_failure_reports_actual_published_generation(self):
+        write_sources(self.root, {'main.py': 'def before(): return 1\n'})
+        index = StructuralIndex(self.root, self.output)
+        original = self.ready(index, ['main.py'])
+        before = (self.output / 'search.db').read_bytes()
+        write_sources(self.root, {'main.py': 'def after(): return 2\n'})
+        output = self.output.stat()
+        sync = os.fsync
+        def fail_output_directory(fd):
+            info = os.fstat(fd)
+            if stat.S_ISDIR(info.st_mode) and (info.st_dev, info.st_ino) == (output.st_dev, output.st_ino):
+                raise OSError(5, 'synthetic directory synchronization failure')
+            return sync(fd)
+        with patch.object(source_module.os, 'fsync', fail_output_directory):
+            result = index.refresh(['main.py'])
+        self.assertEqual(result['status'], 'publication_uncertain')
+        self.assertTrue(result['published'])
+        self.assertEqual(result['durability'], 'unconfirmed')
+        self.assertNotEqual(result['generation'], original['generation'])
+        self.assertNotEqual((self.output / 'search.db').read_bytes(), before)
+        reopened = StructuralIndex(self.root, self.output)
+        self.assertEqual(reopened.metadata()['generation'], result['generation'])
+        self.assertEqual([row['name'] for row in reopened.read_facts('definitions')], ['after'])
+
+    def test_loaded_source_and_writer_drift_are_rejected_in_private_copy(self):
+        code = self.scratch / 'code'
+        shutil.copytree(Path(__file__).resolve().parents[1] / 'repo_graph', code / 'repo_graph',
+                        ignore=shutil.ignore_patterns('__pycache__'))
+        script = '''import json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from repo_graph import analysis, source, search
+code = Path(sys.argv[1])
+assert all(Path(module.__file__).is_relative_to(code) for module in (analysis, source, search))
+root = code / "repo"
+root.mkdir()
+(root / "main.py").write_text("def target(): return 1\\n")
+index = analysis.StructuralIndex(root, code / "out")
+first = index.refresh(["main.py"])
+assert first["status"] == "ready", first
+before = (code / "out/search.db").read_bytes()
+outcomes = {}
+for name in ("source.py", "search.py"):
+    helper = code / "repo_graph" / name
+    original = helper.read_bytes()
+    try:
+        helper.write_bytes(original + b"\\n# synthetic loaded-code drift\\n")
+        result = index.refresh(["main.py"])
+        assert result["status"] == "failed" and result["published"] is False, result
+        assert "implementation changed since module import" in result["reason"], result
+        assert (code / "out/search.db").read_bytes() == before
+        outcomes[name] = {"status": result["status"], "published": result["published"]}
+    finally:
+        helper.write_bytes(original)
+    assert index.metadata()["generation"] == first["generation"]
+print(json.dumps(outcomes))
+'''
+        result = subprocess.run([sys.executable, '-I', '-B', '-c', script, str(code)],
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(json.loads(result.stdout), {
+            'source.py': {'status': 'failed', 'published': False},
+            'search.py': {'status': 'failed', 'published': False}})
+
+    def test_duplicate_go_package_declarations_remain_unresolved(self):
+        write_sources(self.root, {'go.mod': 'module sample\n\ngo 1.23\n',
+            'main.go': 'package sample\nimport alias "sample/helpers"\n'
+                'func Target() {}\nfunc Caller() { Target() }\nfunc Imported() { alias.Finish() }\n',
+            'other.go': 'package sample\nfunc Other() {}\n',
+            'helpers/helpers.go': 'package helpers\nfunc Finish() {}\n'})
+        control = StructuralIndex(self.root, self.output)
+        self.ready(control, ['go.mod', 'main.go', 'other.go', 'helpers/helpers.go'])
+        unique = next(row for row in control.read_facts('sites') if row['role'] == 'call' and row['text'] == 'Target()')
+        self.assertEqual(unique['certainty'], 'resolved')
+        self.assertTrue(unique['targets_exhaustive'])
+        imported = next(row for row in control.read_facts('sites') if row['role'] == 'call' and row['text'] == 'alias.Finish()')
+        self.assertEqual(imported['certainty'], 'resolved')
+        self.assertEqual(imported['provenance']['binding_scope'], 'inventoried_package_only')
+        self.assertFalse(imported['provenance']['active_build_qualified'])
+        self.assertFalse(imported['provenance']['runtime_qualified'])
+        self.assertFalse(imported['provenance']['mvs_qualified'])
+        for declaration in ('func Target() {}\n', 'var Target = func() {}\n'):
+            write_sources(self.root, {'go.mod': 'module sample\n\ngo 1.23\n',
+                'main.go': 'package sample\nfunc Target() {}\nfunc Caller() { Target() }\n',
+                'other.go': 'package sample\n' + declaration})
+            for mode, concurrency in (('serial', 1), ('queued', 2)):
+                with self.subTest(declaration=declaration, mode=mode):
+                    output = self.scratch / ('go-' + mode + str(len(declaration)))
+                    index = StructuralIndex(self.root, output)
+                    self.ready(index, ['go.mod', 'main.go', 'other.go'], mode=mode, concurrency=concurrency)
+                    call = next(row for row in index.read_facts('sites')
+                                if row['path'] == 'main.go' and row['role'] == 'call' and row['text'] == 'Target()')
+                    self.assertEqual((call['certainty'], call['targets']), ('unresolved', []))
+                    self.assertFalse(call['targets_exhaustive'])
+                    self.assertIn('ambiguous', call['reason'])
 
     def test_failed_source_updates_and_cancel_preserve_published_artifact(self):
         write_sources(self.root, {'main.py': 'def target(): return 1\n'})
@@ -244,6 +417,35 @@ class StructuralIndexTests(unittest.TestCase):
 
 
 class StructuralValidationTests(unittest.TestCase):
+    def test_constructs_reporting_preserves_t009_and_replaces_stale_success(self):
+        from evaluations import analysis
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            path = root / analysis.FACTS_OUTPUT
+            path.parent.mkdir(parents=True)
+            retained = {'status': 'passed', 'source_identity': 'retained-owner-proof',
+                        'case_results': [{'id': 'schema', 'status': 'passed'}]}
+            path.write_text(json.dumps({'schema_version': 1, 'tasks': {'T009': retained}}))
+            result = {'status': 'passed', 'source_identity': 'synthetic-construct-key',
+                'counts': {'checks': 1}, 'case_results': [{'id': 'receiver', 'status': 'passed'}],
+                'failures': [], 'coverage_failures': [{'id': 'receiver', 'status': 'failed',
+                    'dimension': 'receiver_target_enumeration'}]}
+            with patch.object(analysis, 'ROOT', root), patch.object(analysis, 'constructs', return_value=result), \
+                    redirect_stdout(io.StringIO()):
+                self.assertEqual(analysis.main(['--suite', 'constructs']), 0)
+            report = json.loads(path.read_text())
+            self.assertEqual(report['tasks']['T009'], retained)
+            self.assertEqual(report['tasks']['T010']['coverage_failures'], result['coverage_failures'])
+            for error in (ValueError('invalid frozen source'), RuntimeError('unexpected producer failure')):
+                path.write_text(json.dumps({'schema_version': 1, 'tasks': {'T009': retained, 'T010': result}}))
+                with self.subTest(error=type(error).__name__), patch.object(analysis, 'ROOT', root), \
+                        patch.object(analysis, 'constructs', side_effect=error), redirect_stdout(io.StringIO()):
+                    self.assertEqual(analysis.main(['--suite', 'constructs']), 1)
+                report = json.loads(path.read_text())
+                self.assertEqual(report['tasks']['T009'], retained)
+                self.assertEqual(report['tasks']['T010']['status'], 'failed')
+                self.assertEqual(report['tasks']['T010']['error_kind'], type(error).__name__)
+
     def test_invalid_inventory_queue_and_limit_arguments_are_rejected(self):
         with tempfile.TemporaryDirectory() as scratch:
             root, output = Path(scratch) / 'repo', Path(scratch) / 'out'
