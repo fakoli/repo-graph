@@ -226,6 +226,67 @@ class ObservedProfile(unittest.TestCase):
             self.assertEqual(proof['semantic_facts_sha256'], hashlib.sha256(semantic).hexdigest())
             self.assertTrue(proof['snapshot']['sealed']); self.assertTrue(proof['snapshot']['metadata_verified'])
             self.assertGreater(proof['snapshot']['backup_progress_callbacks'], 1)
+            self.assertEqual(proof['retention']['kind'], 'independent_sealed')
+            self.assertEqual(proof['retention']['measured_artifact'], proof['artifact'])
+            alias = performance._persistent_snapshot(index, retained, 'alias', check=lambda: None,
+                limits=dict(snapshot_bytes=1024 * 1024), prior_proofs=(proof,))
+            self.assertEqual(alias['retention']['kind'], 'canonical_alias_v1')
+            self.assertEqual(alias['artifact'], proof['artifact'])
+            self.assertEqual(alias['retention']['alias_source_artifact'], proof['artifact'])
+            measured = alias['retention']['measured_artifact']
+            self.assertEqual(measured['path'], 'alias.facts.sqlite')
+            self.assertEqual(measured['bytes'], proof['artifact']['bytes'])
+            self.assertFalse((retained / measured['path']).exists())
+            self.assertTrue(alias['snapshot']['sealed']); self.assertTrue(alias['snapshot']['metadata_verified'])
+            self.assertGreater(alias['snapshot']['backup_progress_callbacks'], 1)
+            for key in ('identities', 'counts', 'semantic_facts_sha256'):
+                self.assertEqual(alias[key], proof[key])
+            with performance._persistent_snapshot_view(retained, alias, lambda: None) as view:
+                self.assertEqual(list(view.read_facts('definitions')), facts['definitions'])
+            # Independent observed differences must retain their own sealed proof.
+            identity_keys = dict(generation='structural_generation', source_identity='structural_source',
+                analyzer_identity='structural_analyzer', config_identity='structural_config',
+                repository_identity='structural_repository')
+            for change in ('count', 'digest', *identity_keys):
+                with self.subTest(snapshot_change=change):
+                    if change == 'count':
+                        writer.execute('INSERT INTO structural_symbols VALUES(?,?,?)',
+                            ('main.py', 1, json.dumps(dict(facts['definitions'][0], id='extra', name='extra'))))
+                    elif change == 'digest':
+                        writer.execute('UPDATE structural_symbols SET data=? WHERE ordinal=0',
+                            (json.dumps(dict(facts['definitions'][0], text='def h():')),))
+                    else:
+                        writer.execute('UPDATE meta SET value=? WHERE key=?', ('0' * 64, identity_keys[change]))
+                        if change == 'repository_identity':
+                            writer.execute("UPDATE meta SET value=? WHERE key='repository'", ('0' * 64,))
+                            index.owner = '0' * 64
+                    writer.commit()
+                    changed_proof = performance._persistent_snapshot(index, retained, 'changed-' + change.replace('_', '-'),
+                        check=lambda: None, limits=dict(snapshot_bytes=1024 * 1024), prior_proofs=(proof,))
+                    self.assertEqual(changed_proof['retention']['kind'], 'independent_sealed')
+                    self.assertNotEqual(changed_proof['artifact']['path'], proof['artifact']['path'])
+                    self.assertTrue((retained / changed_proof['artifact']['path']).exists())
+                    key = 'counts' if change == 'count' else 'semantic_facts_sha256' if change == 'digest' else 'identities'
+                    self.assertNotEqual(changed_proof[key], proof[key])
+                    if change == 'count': writer.execute('DELETE FROM structural_symbols WHERE ordinal=1')
+                    elif change == 'digest':
+                        writer.execute('UPDATE structural_symbols SET data=? WHERE ordinal=0',
+                            (json.dumps(facts['definitions'][0]),))
+                    else:
+                        writer.execute('UPDATE meta SET value=? WHERE key=?', (identities[change], identity_keys[change]))
+                        if change == 'repository_identity':
+                            writer.execute("UPDATE meta SET value=? WHERE key='repository'", (identities[change],))
+                            index.owner = identities[change]
+                    writer.commit()
+            corrupt = json.loads(json.dumps(proof))
+            corrupt['artifact']['path'] = 'corrupt-prior.facts.sqlite'
+            original_proof_bytes = (retained / proof['artifact']['path']).read_bytes()
+            (retained / corrupt['artifact']['path']).write_bytes(
+                original_proof_bytes.replace(b'c' * 64, b'f' * 64, 1))
+            with self.assertRaises(ValueError):
+                performance._persistent_snapshot(index, retained, 'corrupt-match', check=lambda: None,
+                    limits=dict(snapshot_bytes=1024 * 1024), prior_proofs=(corrupt,))
+            self.assertEqual((retained / proof['artifact']['path']).read_bytes(), original_proof_bytes)
             # Refresh is stubbed over the existing hand-built WAL owner; no parser runs.
             from repo_graph.analysis_native import Budget
             receipt = dict(identities, status='ready', published=True)
@@ -312,7 +373,7 @@ class ObservedProfile(unittest.TestCase):
                     connect(*args, **dict(kwargs, factory=InterruptedConnection))):
                 with self.assertRaisesRegex(InterruptedError, 'synthetic interrupted backup'):
                     performance._persistent_snapshot(index, retained, 'interrupted', check=cancel_backup,
-                                                     limits=dict(snapshot_bytes=1024 * 1024))
+                                                     limits=dict(snapshot_bytes=1024 * 1024), prior_proofs=(proof,))
             for label in ('foreign', 'schema', 'capped', 'interrupted'):
                 failure = json.loads((retained / (label + '-snapshot-failure.json')).read_bytes())
                 self.assertFalse(failure['sealed'])
@@ -334,6 +395,51 @@ class ObservedProfile(unittest.TestCase):
                     with performance._persistent_snapshot_view(retained, saved, lambda: None) as view:
                         list(view.read_facts('definitions'))
             writer.close()
+            sealed.write_bytes(initial)
+            # Only validated evidence permits removing a registered direct-child live index.
+            from evaluations import engine_checks as checks
+            live = retained / 'obsolete-index'; live.mkdir()
+            (live / 'search.db').write_bytes(initial)
+            with performance.SourceRoot(live) as owner: live_owner = owner.identity
+            obsolete = SimpleNamespace(owner=index.owner, output=live, output_owner=live_owner,
+                last_attempt=dict(identities, status='ready', published=True))
+            unrelated = retained / 'unrelated.log'; unrelated.write_bytes(b'keep')
+            bad_proof = dict(proof, artifact=dict(proof['artifact'], sha256='0' * 64))
+            with patch.object(checks, '_missing_remove_runtime') as remove:
+                with self.assertRaises(ValueError):
+                    performance._persistent_retire(obsolete, retained, bad_proof, 'bad-proof', lambda: None)
+                remove.assert_not_called()
+            self.assertEqual((live / 'search.db').read_bytes(), initial)
+            foreign_live = retained / 'foreign-index'; foreign_live.mkdir()
+            (foreign_live / 'canary').write_bytes(b'foreign')
+            linked = retained / 'linked-index'; linked.symlink_to(live, target_is_directory=True)
+            for label, path in (('foreign-output', foreign_live), ('linked-output', linked)):
+                with self.subTest(retire=label), self.assertRaises((OSError, ValueError)):
+                    performance._persistent_retire(SimpleNamespace(**dict(vars(obsolete), output=path)),
+                        retained, proof, label, lambda: None)
+                self.assertTrue(live.exists()); self.assertEqual((foreign_live / 'canary').read_bytes(), b'foreign')
+                self.assertFalse(json.loads((retained / (label + '-live-index-cleanup.json')).read_bytes())['removed'])
+            held = retained / 'held-index'; live.rename(held); live.mkdir()
+            (live / 'canary').write_bytes(b'replaced')
+            with self.assertRaises((OSError, ValueError)):
+                performance._persistent_retire(obsolete, retained, proof, 'replaced-output', lambda: None)
+            self.assertEqual((live / 'canary').read_bytes(), b'replaced')
+            self.assertTrue((held / 'search.db').exists())
+            replaced = retained / 'replaced-index'; live.rename(replaced); held.rename(live)
+            with performance.SourceRoot(live) as owner: self.assertEqual(owner.identity, live_owner)
+            events, validate, remove = [], performance._persistent_snapshot_view, checks._missing_remove_runtime
+            def validated(*args): events.append('validate-proof'); return validate(*args)
+            def removed(*args): events.append('remove-live'); return remove(*args)
+            with patch.object(performance, '_persistent_snapshot_view', side_effect=validated), \
+                    patch.object(checks, '_missing_remove_runtime', side_effect=removed):
+                cleanup = performance._persistent_retire(obsolete, retained, proof, 'retired', lambda: None)
+            self.assertEqual(events, ['validate-proof', 'remove-live'])
+            self.assertTrue(cleanup['removed']); self.assertFalse(live.exists())
+            self.assertEqual(cleanup['identities'], identities)
+            self.assertEqual(cleanup['proof_artifact'], proof['artifact'])
+            self.assertEqual(json.loads((retained / 'retired-live-index-cleanup.json').read_bytes()), cleanup)
+            self.assertEqual(sealed.read_bytes(), initial); self.assertEqual(unrelated.read_bytes(), b'keep')
+            self.assertEqual((replaced / 'canary').read_bytes(), b'replaced')
 
     @unittest.skipUnless(sys.platform == 'linux', 'Owned native process limits require Linux')
     def test_small_native_children_lower_inherited_cpu_and_file_envelopes(self):
@@ -630,7 +736,8 @@ class ObservedProfile(unittest.TestCase):
 
     def test_persistent_early_query_failure_retains_empty_progress_and_prior_phase(self):
         from repo_graph import analysis_queries as queries
-        spec = dict(id='synthetic-missing', operation='symbol', name='missing', path='main.py', span=(0, 10, 1, 1))
+        specs = tuple(dict(id='synthetic-missing-' + str(number), operation='symbol', name='missing' + str(number),
+            path='main.py', span=(0, 10, 1, 1)) for number in range(6))
         meta = dict(generation='g' * 64, source_identity='s' * 64, repository_identity='r' * 64,
                     analyzer_identity='a' * 64, config_identity='c' * 64)
         for failure in ('missing_selector', 'metadata'):
@@ -638,20 +745,30 @@ class ObservedProfile(unittest.TestCase):
                 def metadata(self):
                     if failure == 'metadata': raise RuntimeError('synthetic metadata unavailable')
                     return dict(meta)
-                def read_facts(self, kind): return iter(())
+                def read_facts(self, kind):
+                    if kind != 'definitions': raise AssertionError('Only selector facts required')
+                    return iter(dict(id=spec['id'] + ':' + str(end), path=spec['path'], name=spec['name'],
+                        range=dict(start_byte=0, end_byte=end, start_line=1, end_line=1))
+                        for spec in specs for end in (11, 12, 13))
             with self.subTest(failure=failure), tempfile.TemporaryDirectory(prefix='persistent-early-query-') as scratch:
                 directory, progress = Path(scratch), {}
                 error_kind, message = ((RuntimeError, 'synthetic metadata unavailable') if failure == 'metadata'
                     else (ValueError, 'Missing or changed frozen query selector'))
                 with patch.object(queries, 'Queries') as session:
                     with self.assertRaisesRegex(error_kind, message):
-                        performance._persistent_queries(Index(), directory, specs=(spec,), progress=progress)
+                        performance._persistent_queries(Index(), directory, specs=specs, progress=progress)
                 session.assert_not_called()
                 self.assertFalse(progress['passed'])
                 self.assertEqual(progress['workloads'], [])
                 self.assertIsNone(progress['cursor_control'])
                 self.assertEqual(progress['failure']['error_kind'], error_kind.__name__)
                 self.assertEqual(progress['failure']['stage'], 'metadata' if failure == 'metadata' else 'selectors')
+                mismatches = progress.get('selector_mismatches', [])
+                self.assertLessEqual(len(mismatches), 6)
+                if failure == 'missing_selector':
+                    self.assertEqual(mismatches, [dict(id=spec['id'], expected_span=[0, 10, 1, 1],
+                        matching_name_ranges=[[0, 11, 1, 1], [0, 12, 1, 1]], match_count=0) for spec in specs])
+                else: self.assertEqual(mismatches, [])
                 self.assertEqual(json.loads((directory / 'queries.json').read_bytes()), progress)
                 self.assertEqual(sorted(path.name for path in directory.iterdir()), ['queries.json'])
                 phase = dict(label='already-observed', status='ready', wall_seconds=.25,
@@ -793,22 +910,29 @@ class ObservedProfile(unittest.TestCase):
         """Stubbed worker admission only; no collector, process or measurement run."""
         from evaluations import engine_checks as checks
         raw = b'def f(): pass\n'
-        for code in (0, 7, -9):
+        selector_failure = dict(error_kind='ValueError', error='Missing or changed frozen query selector',
+            stage='selectors', traceback='synthetic selector diagnostic', diagnostic_truncated=False)
+        for code in (0, 7, -9, 1):
             observed, cleaned, source_roots = [], [], []
             class Child:
                 pid, returncode = 999999999, code
                 def __init__(self, command, **kwargs):
-                    job = Path('/proc/self/fd') / command[-3]
-                    source = Path('/proc/self/fd') / command[-2]
+                    marker = command.index('--persistent-worker')
+                    job = Path('/proc/self/fd') / command[marker + 1]
+                    source = Path('/proc/self/fd') / command[marker + 2]
                     with performance.SourceRoot(source) as owner:
                         content, sha, _ = owner.read('a.py', 128)
                         observed.append((owner.identity, sha, content))
                         source_roots.append(owner.root)
-                        produced = dict(status='complete', stub_only=True,
+                        produced = dict(status='failed' if code == 1 else 'complete', stub_only=True,
                             source_owner_identity=owner.identity, source_owner_identity_after=owner.identity,
                             phases=[dict(label=label, streamed_facts=dict(
                                 semantic_facts_sha256='a' * 64, stub_only=True))
                                 for label in performance.PERSISTENT_PHASES])
+                        if code == 1:
+                            produced.pop('source_owner_identity_after')
+                            produced.update(failure=selector_failure, queries=dict(passed=False, workloads=[],
+                                cursor_control=None, failure=selector_failure))
                         with owner.atomic_writer('a.py') as stream:
                             stream.write(b'def changed(): pass\n')
                     checks._adapter_dump(job, 'result.json', produced)
@@ -820,19 +944,31 @@ class ObservedProfile(unittest.TestCase):
                 return dict(leader_reaped=True, group_absent=True, stub_only=True)
             with self.subTest(exit_code=code), tempfile.TemporaryDirectory(prefix='persistent-admission-control-') as scratch:
                 destination = Path(scratch)
+                loaded, options = None, {}
+                if code == 1:
+                    original, protocol, destination = (destination / name for name in ('original', 'protocol', 'evidence'))
+                    for path in (original, protocol, destination): path.mkdir()
+                    with performance.SourceRoot(original) as original_owner, performance.SourceRoot(protocol) as inputs:
+                        loaded = dict(config=dict(ceilings=dict(performance.REPRESENTATIVE_CEILINGS)),
+                            original_owner=original_owner.identity, protocol_owner=inputs.identity, protocol_sha256='a' * 64)
+                    options = dict(protocol=protocol, original_source=original)
                 with patch.object(performance, '_dual_supervisor_limits', return_value={}), \
+                        patch.object(performance, '_persistent_protocol', return_value=loaded), \
+                        patch.object(performance, '_persistent_materialize', side_effect=lambda source, *args:
+                            checks._adapter_materialize(source, {'a.py': raw})), \
                         patch.object(performance, '_persistent_capture', return_value={}), \
                         patch.object(performance, '_persistent_recheck', return_value={}), \
                         patch.object(performance, '_dual_inputs', return_value=({'a.py': raw}, [], {})), \
                         patch.object(performance, '_persistent_validate', side_effect=lambda value, *args: value), \
                         patch.object(performance.subprocess, 'Popen', Child), \
                         patch.object(checks, '_stop_and_reap', side_effect=cleanup):
-                    result = performance.profile_persistent_fixture(PROFILE_ROOT, destination)
+                    result = performance.profile_persistent_fixture(PROFILE_ROOT, destination, **options)
                 report = result['full_private_report']
                 self.assertEqual(len(report['cases']), 2 if code == 0 else 1)
                 self.assertEqual(len(cleaned), len(report['cases']))
                 self.assertTrue(all(content == raw for _, _, content in observed))
                 self.assertTrue(all(not path.exists() for path in source_roots))
+                self.assertTrue(report['source_cleanup']['completed'])
                 self.assertFalse(result['qualification_complete'])
                 self.assertFalse(result['engine_selected'])
                 if code == 0:
@@ -840,6 +976,14 @@ class ObservedProfile(unittest.TestCase):
                     self.assertEqual(observed[0], observed[1])
                     self.assertTrue(report['same_source_owner_across_modes'])
                     self.assertTrue(report['source_cleanup']['completed'])
+                elif code == 1:
+                    self.assertEqual(report['status'], 'failed')
+                    self.assertEqual(report['cases'][0]['failure'], selector_failure)
+                    self.assertEqual(report['failure'], selector_failure)
+                    self.assertEqual(report['cases'][0]['source_owner_observation'], dict(
+                        before_matches=True, after_knowledge='missing', after_matches=None))
+                    self.assertEqual(report['cases'][0]['descendant_cleanup']['status'], 'unknown')
+                    self.assertIsNone(report['cases'][0]['descendant_cleanup']['collector_sessions_reaped'])
                 else:
                     self.assertEqual(report['status'], 'failed')
                     self.assertEqual(report['cases'][0]['failure']['error_kind'], 'ChildProcessError')
@@ -847,7 +991,7 @@ class ObservedProfile(unittest.TestCase):
                 for case in report['cases']:
                     self.assertEqual(case['returncode'], code)
                     self.assertEqual(case['status'], 'complete' if code == 0 else 'failed')
-                    self.assertEqual(case['report']['status'], 'complete')
+                    self.assertEqual(case['report']['status'], 'failed' if code == 1 else 'complete')
                     self.assertTrue(case['report']['stub_only'])
                     self.assertTrue(case['cleanup']['leader_reaped'] and case['cleanup']['group_absent'])
                     stored = archive / case['report_artifact']['path']
