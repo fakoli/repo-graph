@@ -492,6 +492,39 @@ def _adapter_materialize(root, blobs, removed=()):
                 os.close(parent)
 
 
+def _adapter_operations(base, metadata, update):
+    """Apply the existing finite frozen source operations, without gold facts."""
+    changed = dict(base)
+    inventory = {path: dict(record) for path, record in metadata.items()}
+    for operation in update['operations']:
+        path = operation['path']
+        if operation['op'] == 'add':
+            assert path not in changed
+            changed[path] = operation['content'].encode()
+            inventory[path] = {'path': path, 'language': update['language'], 'kind': 'source'}
+        else:
+            assert path in changed
+            if 'sha256_before' in operation:
+                assert hashlib.sha256(changed[path]).hexdigest() == operation['sha256_before']
+            if operation['op'] == 'delete':
+                del changed[path]; del inventory[path]
+            elif operation['op'] == 'rename':
+                assert operation['to'] not in changed
+                changed[operation['to']] = changed.pop(path)
+                inventory[operation['to']] = dict(inventory.pop(path), path=operation['to'])
+                path = operation['to']
+            elif operation['op'] == 'replace':
+                assert changed[path].count(operation['old'].encode()) == operation['occurrences']
+                changed[path] = changed[path].replace(operation['old'].encode(), operation['new'].encode())
+            else:
+                raise ValueError('Unfrozen operation')
+        if 'sha256_after' in operation:
+            assert hashlib.sha256(changed[path]).hexdigest() == operation['sha256_after']
+    for path, raw in changed.items():
+        inventory[path].update(sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw))
+    return changed, inventory
+
+
 @contextmanager
 def _adapter_source(parent):
     """Hold a unique source directory through collection and fd-relative cleanup."""
@@ -653,24 +686,7 @@ def _run_updates(*, root, evidence_directory, bound):
      attempts = {}
      result = {'id': update['id'], 'language': update['language'], 'status': 'running', 'attempts': attempts}
      try:
-      changed=dict(base);inventory={p:dict(v) for p,v in metadata.items()}
-      for op in update['operations']:
-       path=op['path']
-       if op['op']=='add':
-        assert path not in changed
-        changed[path]=op['content'].encode();inventory[path]={'path':path,'language':update['language'],'kind':'source'}
-       else:
-        assert path in changed
-        if 'sha256_before' in op:assert hashlib.sha256(changed[path]).hexdigest()==op['sha256_before']
-        if op['op']=='delete':del changed[path];del inventory[path]
-        elif op['op']=='rename':
-         assert op['to'] not in changed
-         changed[op['to']]=changed.pop(path);inventory[op['to']]=dict(inventory.pop(path),path=op['to']);path=op['to']
-        elif op['op']=='replace':
-         assert changed[path].count(op['old'].encode())==op['occurrences']
-         changed[path]=changed[path].replace(op['old'].encode(),op['new'].encode())
-        else:raise ValueError('Unfrozen operation')
-       if 'sha256_after' in op:assert hashlib.sha256(changed[path]).hexdigest()==op['sha256_after']
+      changed,inventory=_adapter_operations(base,metadata,update)
       with _adapter_child(OUT, update['id']) as logs, _adapter_source(OUT) as source:
        with SourceRoot(source) as owned:result['source_owner_identity']=owned.identity
        def materialize(blobs):
@@ -696,8 +712,6 @@ def _run_updates(*, root, evidence_directory, bound):
        serial=Candidate(source,budget=Budget(timeout_seconds=20));queued=Candidate(source,budget=Budget(timeout_seconds=20))
        before_s=attempt('base_serial', serial, list(metadata.values()), 'serial', 1)
        before_q=attempt('base_queued', queued, list(metadata.values()), 'queued', 2)
-       for path, raw in changed.items():
-        inventory[path].update(sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw))
        materialize(changed)
        after_s=attempt('update_serial', serial, list(inventory.values()), 'serial', 1)
        after_q=attempt('update_queued', queued, list(inventory.values()), 'queued', 2)

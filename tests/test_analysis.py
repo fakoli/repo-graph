@@ -161,10 +161,13 @@ class StructuralIndexTests(unittest.TestCase):
         first = self.ready(original, ['main.py'])
         retained = facts(original)
         reopened = StructuralIndex(self.root, self.output)
-        with patch.object(native, 'collect_file', side_effect=AssertionError('Unchanged source reparsed')):
+        with patch.object(native, 'collect_file', side_effect=AssertionError('Unchanged source reparsed')), \
+                patch.object(native.CollectedFile, 'emit_sites', side_effect=AssertionError('Unchanged bindings rerun')):
             second = self.ready(reopened, ['main.py'])
         self.assertEqual(second['resources']['changed_files_collected'], 0)
         self.assertEqual(second['resources']['unchanged_source_collections_reused'], 1)
+        self.assertEqual(second['resources']['bindings_files_resolved'], 0)
+        self.assertEqual(second['resources']['bindings_files_reused'], 1)
         self.assertEqual(second['source_identity'], first['source_identity'])
         self.assertEqual(second['generation'], first['generation'])
         self.assertEqual(facts(reopened), retained)
@@ -207,6 +210,175 @@ class StructuralIndexTests(unittest.TestCase):
             self.assertEqual(raw[location['start_byte']:location['end_byte']].decode(), row['text'])
             self.assertEqual(row['provenance']['source_sha256'], hashlib.sha256(raw).hexdigest())
         self.clean_parity(index, list(sources))
+
+    def test_incremental_known_bindings_reuse_unrelated_files(self):
+        sources = {'first.py': 'def first(): return 1\ndef invoke(): return first()\n',
+                   'other.py': 'def other(): return 2\ndef invoke(): return other()\n'}
+        write_sources(self.root, sources)
+        index = StructuralIndex(self.root, self.output)
+        initial = self.ready(index, sources)
+        sources['first.py'] = sources['first.py'].replace('return 1', 'return 9')
+        write_sources(self.root, sources)
+        changed = self.ready(index, sources, mode='queued', concurrency=2)
+        self.assertEqual(changed['resources']['changed_files_collected'], 1)
+        self.assertEqual(changed['resources']['bindings_files_resolved'], 1)
+        self.assertEqual(changed['resources']['bindings_files_reused'], 1)
+        self.assertEqual(changed['resources']['unknown_closure_files_rebuilt'], 0)
+        self.assertNotEqual(initial['generation'], changed['generation'])
+        clean = StructuralIndex(self.root, self.scratch / 'clean-known')
+        rebuilt = self.ready(clean, sources)
+        self.assertEqual((changed['generation'], changed['source_identity']),
+                         (rebuilt['generation'], rebuilt['source_identity']))
+        self.assertEqual(facts(index), facts(clean))
+
+    def test_negative_import_add_delete_and_new_cycles_remain_fresh_in_both_modes(self):
+        for mode, concurrency in (('serial', 1), ('queued', 2)):
+            with self.subTest(mode=mode):
+                sources = {'package/caller.py': 'from .optional import target\ndef caller(): return target()\n',
+                           'known.py': 'def known(): return 1\n'}
+                write_sources(self.root, sources)
+                index = StructuralIndex(self.root, self.scratch / ('negative-' + mode))
+                self.ready(index, sources, mode=mode, concurrency=concurrency)
+                call = lambda: next(row for row in index.read_facts('sites') if row['role'] == 'call' and
+                                    row['path'] == 'package/caller.py')
+                self.assertEqual(call()['certainty'], 'unresolved')
+                sources['package/optional.py'] = 'def target(): return 2\n'
+                write_sources(self.root, sources)
+                added = self.ready(index, sources, mode=mode, concurrency=concurrency)
+                self.assertEqual(added['resources']['changed_files_collected'], 1)
+                self.assertEqual(call()['certainty'], 'resolved')
+                del sources['package/optional.py']
+                (self.root / 'package/optional.py').unlink()
+                deleted = self.ready(index, sources, mode=mode, concurrency=concurrency)
+                self.assertEqual(deleted['resources']['changed_files_collected'], 0)
+                self.assertEqual(call()['certainty'], 'unresolved')
+                self.assertFalse(call()['targets_exhaustive'])
+                self.assertFalse(any(row['path'] == 'package/optional.py' for row in index.read_facts('definitions')))
+                sources.update({'package/left.py': 'from . import right\ndef left(): return right.right()\n',
+                                'package/right.py': 'from . import left\ndef right(): return left.left()\n'})
+                write_sources(self.root, sources)
+                self.ready(index, sources, mode=mode, concurrency=concurrency)
+                definitions = {row['id']: row for row in index.read_facts('definitions')}
+                for path, target in (('package/left.py', 'package/right.py'), ('package/right.py', 'package/left.py')):
+                    site = next(row for row in index.read_facts('sites') if row['path'] == path and row['role'] == 'call')
+                    self.assertEqual(site['certainty'], 'resolved')
+                    self.assertEqual([definitions[identity]['path'] for identity in site['targets']], [target])
+                clean = StructuralIndex(self.root, self.scratch / ('clean-negative-' + mode))
+                self.ready(clean, sources)
+                self.assertEqual(facts(index), facts(clean))
+                sources['package/__init__.py'] = 'right = 1\n'
+                write_sources(self.root, sources)
+                self.ready(index, sources, mode=mode, concurrency=concurrency)
+                left = next(row for row in index.read_facts('sites') if row['path'] == 'package/left.py' and row['role'] == 'call')
+                self.assertEqual((left['certainty'], left['targets']), ('unresolved', []))
+                self.assertFalse(left['targets_exhaustive'])
+                excluded = self.ready(index, [path for path in sources if path != 'package/__init__.py'] +
+                    [{'path': 'package/__init__.py', 'language': 'unknown', 'kind': 'source'}],
+                    mode=mode, concurrency=concurrency)
+                self.assertEqual(excluded['coverage']['files_unsupported'], 1)
+                left = next(row for row in index.read_facts('sites') if row['path'] == 'package/left.py' and row['role'] == 'call')
+                self.assertEqual((left['certainty'], left['targets']), ('unresolved', []))
+                self.assertFalse(left['targets_exhaustive'])
+                del sources['package/__init__.py']
+                (self.root / 'package/__init__.py').unlink()
+                sources['package/right/__init__.py'] = 'def right(): return 3\n'
+                write_sources(self.root, sources)
+                self.ready(index, sources, mode=mode, concurrency=concurrency)
+                left = next(row for row in index.read_facts('sites') if row['path'] == 'package/left.py' and row['role'] == 'call')
+                self.assertEqual((left['certainty'], left['targets']), ('unresolved', []))
+                self.assertFalse(left['targets_exhaustive'])
+                ambiguous = StructuralIndex(self.root, self.scratch / ('clean-ambiguous-' + mode))
+                self.ready(ambiguous, sources)
+                self.assertEqual(facts(index), facts(ambiguous))
+                excluded_inventory = [path for path in sources if path != 'package/right/__init__.py'] + \
+                    [{'path': 'package/right/__init__.py', 'language': 'unknown', 'kind': 'source'}]
+                excluded_child = self.ready(index, excluded_inventory, mode=mode, concurrency=concurrency)
+                self.assertEqual(excluded_child['coverage']['files_unsupported'], 1)
+                left = next(row for row in index.read_facts('sites') if row['path'] == 'package/left.py' and row['role'] == 'call')
+                self.assertEqual((left['certainty'], left['targets']), ('unresolved', []))
+                self.assertFalse(left['targets_exhaustive'])
+                excluded_clean = StructuralIndex(self.root, self.scratch / ('clean-excluded-child-' + mode))
+                self.ready(excluded_clean, excluded_inventory)
+                self.assertEqual(facts(index), facts(excluded_clean))
+                sources['right.py'] = 'def right(): return 4\n'
+                for statement, invocation in (('from ... import right', 'right.right()'),
+                                              ('from ...right import right', 'right()')):
+                    sources['package/left.py'] = statement + '\ndef left(): return ' + invocation + '\n'
+                    write_sources(self.root, sources)
+                    self.ready(index, sources, mode=mode, concurrency=concurrency)
+                    left = next(row for row in index.read_facts('sites') if row['path'] == 'package/left.py' and row['role'] == 'call')
+                    self.assertEqual((left['certainty'], left['targets']), ('unresolved', []))
+                    self.assertFalse(left['targets_exhaustive'])
+                    self.assertTrue(left['reason'])
+                    escaped = StructuralIndex(self.root, self.scratch / ('clean-ascent-' + mode + str(len(statement))))
+                    self.ready(escaped, sources)
+                    self.assertEqual(facts(index), facts(escaped))
+
+    def test_configuration_invalidates_go_import_without_recollecting_source(self):
+        sources = {'go.mod': 'module sample\n\ngo 1.23\n',
+            'main.go': 'package sample\nimport alias "sample/helpers"\nfunc Caller() { alias.Finish() }\n',
+            'helpers/helpers.go': 'package helpers\nfunc Finish() {}\n'}
+        write_sources(self.root, sources)
+        index = StructuralIndex(self.root, self.output)
+        initial = self.ready(index, sources)
+        call = lambda: next(row for row in index.read_facts('sites') if row['role'] == 'call')
+        self.assertEqual(call()['certainty'], 'resolved')
+        sources['go.mod'] = sources['go.mod'].replace('module sample', 'module changed')
+        write_sources(self.root, sources)
+        changed = self.ready(index, sources, mode='queued', concurrency=2)
+        self.assertEqual(changed['resources']['changed_files_collected'], 0)
+        self.assertEqual(changed['resources']['unchanged_source_collections_reused'], 2)
+        self.assertGreaterEqual(changed['resources']['bindings_files_resolved'], 1)
+        self.assertEqual(call()['certainty'], 'unresolved')
+        self.assertFalse(call()['targets_exhaustive'])
+        self.assertNotEqual(initial['generation'], changed['generation'])
+        clean = StructuralIndex(self.root, self.scratch / 'clean-config')
+        rebuilt = self.ready(clean, sources)
+        self.assertEqual((changed['generation'], changed['source_identity']),
+                         (rebuilt['generation'], rebuilt['source_identity']))
+        self.assertEqual(facts(index), facts(clean))
+
+    def test_unknown_consumer_rebuilds_and_failed_publication_keeps_prior_generation(self):
+        sources = {'unknown.py': 'def callback(fn): return fn()\n',
+                   'known.py': 'def target(): return 1\ndef invoke(): return target()\n'}
+        write_sources(self.root, sources)
+        index = StructuralIndex(self.root, self.output)
+        self.ready(index, sources)
+        sources['known.py'] = sources['known.py'].replace('return 1', 'return 9')
+        write_sources(self.root, sources)
+        changed = self.ready(index, sources)
+        self.assertEqual(changed['resources']['bindings_files_resolved'], 2)
+        self.assertEqual(changed['resources']['bindings_files_reused'], 0)
+        self.assertEqual(changed['resources']['unknown_closure_files_rebuilt'], 1)
+        unknown = next(row for row in index.read_facts('sites') if row['role'] == 'call' and row['path'] == 'unknown.py')
+        self.assertEqual(unknown['certainty'], 'unresolved')
+        self.assertFalse(unknown['targets_exhaustive'])
+        clean = StructuralIndex(self.root, self.scratch / 'clean-unknown')
+        self.ready(clean, sources)
+        self.assertEqual(facts(index), facts(clean))
+        retained, metadata = facts(index), index.metadata()
+        before = (self.output / 'search.db').read_bytes()
+        sources['known.py'] = sources['known.py'].replace('return 9', 'return 11')
+        write_sources(self.root, sources)
+        atomic_writer = SourceRoot.atomic_writer
+        def fail_before_replace(owner, name, *, text=False, before_replace=None):
+            def fail():
+                if before_replace is not None:
+                    before_replace()
+                raise OSError('Synthetic publication failure')
+            return atomic_writer(owner, name, text=text,
+                before_replace=fail if name == 'search.db' else before_replace)
+        with patch.object(SourceRoot, 'atomic_writer', new=fail_before_replace):
+            failed = index.refresh(sources)
+        self.assertEqual((failed['status'], failed['published']), ('failed', False))
+        self.assertEqual(failed['previous_generation'], metadata['generation'])
+        self.assertEqual(failed['published_coverage_generation'], metadata['generation'])
+        self.assertEqual(failed['remaining_inventory_status'], 'not_evaluated_after_failure')
+        self.assertIsInstance(failed['collection_failures'], list)
+        self.assertEqual((self.output / 'search.db').read_bytes(), before)
+        reopened = StructuralIndex(self.root, self.output)
+        self.assertEqual(reopened.metadata(), metadata)
+        self.assertEqual(facts(reopened), retained)
 
     def test_unsupported_inventory_remains_visible_without_source_facts(self):
         write_sources(self.root, {'main.py': 'def target(): return 1\n',
@@ -417,7 +589,7 @@ print(json.dumps(outcomes))
 
 
 class StructuralValidationTests(unittest.TestCase):
-    def test_constructs_reporting_preserves_t009_and_replaces_stale_success(self):
+    def test_structural_reporting_preserves_other_tasks_and_replaces_stale_success(self):
         from evaluations import analysis
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
@@ -425,26 +597,32 @@ class StructuralValidationTests(unittest.TestCase):
             path.parent.mkdir(parents=True)
             retained = {'status': 'passed', 'source_identity': 'retained-owner-proof',
                         'case_results': [{'id': 'schema', 'status': 'passed'}]}
-            path.write_text(json.dumps({'schema_version': 1, 'tasks': {'T009': retained}}))
             result = {'status': 'passed', 'source_identity': 'synthetic-construct-key',
                 'counts': {'checks': 1}, 'case_results': [{'id': 'receiver', 'status': 'passed'}],
                 'failures': [], 'coverage_failures': [{'id': 'receiver', 'status': 'failed',
                     'dimension': 'receiver_target_enumeration'}]}
-            with patch.object(analysis, 'ROOT', root), patch.object(analysis, 'constructs', return_value=result), \
-                    redirect_stdout(io.StringIO()):
-                self.assertEqual(analysis.main(['--suite', 'constructs']), 0)
-            report = json.loads(path.read_text())
-            self.assertEqual(report['tasks']['T009'], retained)
-            self.assertEqual(report['tasks']['T010']['coverage_failures'], result['coverage_failures'])
-            for error in (ValueError('invalid frozen source'), RuntimeError('unexpected producer failure')):
-                path.write_text(json.dumps({'schema_version': 1, 'tasks': {'T009': retained, 'T010': result}}))
-                with self.subTest(error=type(error).__name__), patch.object(analysis, 'ROOT', root), \
-                        patch.object(analysis, 'constructs', side_effect=error), redirect_stdout(io.StringIO()):
-                    self.assertEqual(analysis.main(['--suite', 'constructs']), 1)
+            for suite, task in (('constructs', 'T010'), ('incremental', 'T011')):
+                prior = {'T009': retained, 'T010': {'status': 'passed', 'source_identity': 'retained-construct-proof'}}
+                path.write_text(json.dumps({'schema_version': 1, 'tasks': prior}))
+                with self.subTest(suite=suite), patch.object(analysis, 'ROOT', root), \
+                        patch.object(analysis, suite, return_value=dict(result)), redirect_stdout(io.StringIO()):
+                    self.assertEqual(analysis.main(['--suite', suite]), 0)
                 report = json.loads(path.read_text())
                 self.assertEqual(report['tasks']['T009'], retained)
-                self.assertEqual(report['tasks']['T010']['status'], 'failed')
-                self.assertEqual(report['tasks']['T010']['error_kind'], type(error).__name__)
+                self.assertEqual(report['tasks'][task]['coverage_failures'], result['coverage_failures'])
+                if task == 'T011':
+                    self.assertEqual(report['tasks']['T010'], prior['T010'])
+                for error in (ValueError('invalid frozen source'), RuntimeError('unexpected producer failure')):
+                    path.write_text(json.dumps({'schema_version': 1, 'tasks': dict(prior, **{task: result})}))
+                    with self.subTest(suite=suite, error=type(error).__name__), patch.object(analysis, 'ROOT', root), \
+                            patch.object(analysis, suite, side_effect=error), redirect_stdout(io.StringIO()):
+                        self.assertEqual(analysis.main(['--suite', suite]), 1)
+                    report = json.loads(path.read_text())
+                    self.assertEqual(report['tasks']['T009'], retained)
+                    self.assertEqual(report['tasks'][task]['status'], 'failed')
+                    self.assertEqual(report['tasks'][task]['error_kind'], type(error).__name__)
+                    if task == 'T011':
+                        self.assertEqual(report['tasks']['T010'], prior['T010'])
 
     def test_invalid_inventory_queue_and_limit_arguments_are_rejected(self):
         with tempfile.TemporaryDirectory() as scratch:

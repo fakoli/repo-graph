@@ -4,6 +4,7 @@
 uv sync --python 3.12 --extra analysis
 uv run python evaluations/analysis.py --engine tree-sitter --suite component
 uv run python evaluations/analysis.py --suite constructs
+uv run python evaluations/analysis.py --suite incremental
 
 No provider calls, real-corpus download, daemon, dynamic imports of source code,
 or runtime product installation occurs. Experimental selection requires all component and finite-cost proofs.
@@ -15,7 +16,7 @@ from importlib import metadata
 import json
 import math
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import platform
 import re
 import stat
@@ -35,9 +36,9 @@ DEFAULT_OUTPUT = 'evaluations/results/code-understanding/native-component.json'
 FACTS_OUTPUT = 'evaluations/results/code-understanding/facts.json'
 
 
-def read_json(source, path):
-    raw, sha, info = source.read(path, 1024 * 1024 + 1, hash_full=False)
-    if info.st_size != len(raw) or len(raw) > 1024 * 1024:
+def read_json(source, path, maximum=1024 * 1024):
+    raw, sha, info = source.read(path, maximum + 1, hash_full=False)
+    if info.st_size != len(raw) or len(raw) > maximum:
         raise ValueError('Oversized or partial evaluation input')
     return json.loads(raw), sha
 
@@ -370,15 +371,241 @@ def constructs(root=ROOT, budget=None):
                  'framework, corpus, scale, query, platform, agent, human and release qualification is unmeasured'}
 
 
-def record_constructs(root, result, maximum):
-    """Replace only T010, retaining the previously recorded structural proof."""
+def record_structural(root, task, result, maximum):
+    """Replace one structural task, retaining its earlier recorded proofs."""
     with SourceRoot(root) as source:
-        report, _ = read_json(source, FACTS_OUTPUT)
+        report, _ = read_json(source, FACTS_OUTPUT, maximum)
     if (type(report) is not dict or type(report.get('schema_version')) is not int or
             report['schema_version'] != 1 or type(report.get('tasks')) is not dict or 'T009' not in report['tasks']):
         raise ValueError('Existing T009 facts evidence required')
-    report['tasks']['T010'] = result
+    if task not in ('T010', 'T011') or task == 'T011' and 'T010' not in report['tasks']:
+        raise ValueError('Known structural task and its preceding proof required')
+    report['tasks'][task] = result
     return write_result(root, FACTS_OUTPUT, report, maximum)
+
+
+def record_constructs(root, result, maximum):
+    return record_structural(root, 'T010', result, maximum)
+
+
+def _incremental_original_impact(facts, expected, phase, fixture, sources):
+    """Grade the original add/delete/rename/cycle judgments after production."""
+    from evaluations.acceptance import _proof_require
+    declarations = {row['id']: row for row in facts['definitions']}
+    if 'case_id' not in expected:
+        paths = expected['new_paths']
+        _proof_require(expected['expected_relation'] == 'mutual_possible_calls' and
+                       expected['execution_order_proven'] is False, 'Declared source cycle boundary')
+        if phase == 'before':
+            _proof_require(not any(row['path'] in paths for row in facts['definitions']), 'Cycle files absent before addition')
+        else:
+            for path in paths:
+                _proof_require(any(site['path'] == path and site['role'] == 'call' and
+                    site['certainty'] in ('resolved', 'candidate') and
+                    site['targets_exhaustive'] is (site['certainty'] == 'resolved') and
+                    any(declarations[target]['path'] in set(paths) - {path} for target in site['targets'])
+                    for site in facts['sites']), 'Mutual inventoried source calls retained')
+        return
+    case = next(row for row in fixture['cases'] if row['id'] == expected['case_id'])
+    matches = [row for row in facts['sites'] if row['path'] == case['path'] and
+               row['range'] == case['range'] and row['role'] == case['role']]
+    _proof_require(len(matches) == 1, 'Unique frozen impacted callsite')
+    site = matches[0]
+    _proof_require(site['text'] == case['text'] and
+        site['provenance']['source_sha256'] == hashlib.sha256(sources[site['path']]).hexdigest() and
+        site['certainty'] == expected['certainty_' + phase], 'Expected source identity and binding certainty')
+    caller = next(row for row in fixture['definitions'] if row['id'] == case['caller'])
+    _proof_require(declarations[site['caller']]['name'] == caller['name'], 'Impacted lexical caller')
+    targets = [declarations[identity] for identity in site['targets']]
+    if site['certainty'] == 'unresolved':
+        _proof_require(not targets and site['reason'] and not site['targets_exhaustive'], 'Unresolved dependency survives')
+    else:
+        _proof_require(len(targets) == 1 and site['targets_exhaustive'], 'Unique supported source target')
+        target = targets[0]
+        if phase == 'after' and 'introduced_target_key' in expected:
+            _, module, name = expected['introduced_target_key'].split('.', 2)
+            _proof_require(PurePosixPath(target['path']).stem == module and target['name'] == name,
+                           'Added frozen module/declaration target')
+        else:
+            frozen = next(row for row in fixture['definitions'] if row['id'] == case['targets'][0])
+            path = expected.get('new_target_path', frozen['path']) if phase == 'after' else frozen['path']
+            _proof_require(target['path'] == path and target['name'] == frozen['name'], 'Frozen moved/surviving target')
+        raw = sources[target['path']]
+        _proof_require(target['provenance']['source_sha256'] == hashlib.sha256(raw).hexdigest() and
+            raw[target['range']['start_byte']:target['range']['end_byte']].decode() == target['text'],
+            'Fresh physical target declaration')
+    if phase == 'after' and 'removed_target_id' in expected:
+        removed = next(row for row in fixture['definitions'] if row['id'] == expected['removed_target_id'])
+        _proof_require(not any(row['path'] == removed['path'] for row in facts['definitions']), 'Deleted definitions removed')
+
+
+def _incremental_physical_impact(facts, expected, fixture, sources):
+    """Project the physical Go method token, preserving canonical logical names."""
+    from evaluations.acceptance import _proof_impact, _proof_physical, _proof_require
+    declarations = {row['id']: row for row in facts['definitions']}
+    projected, names = {}, []
+    records = [expected['caller_declaration'], *expected['target_declarations']]
+    records.extend(expected[key] for key in ('surviving_physical_declaration', 'non_target_physical_declaration')
+                   if key in expected)
+    for record in records:
+        actual = declarations[_proof_physical(record)]
+        if actual['name'] == record['name']:
+            continue
+        raw = sources[record['path']]
+        span, token = record['range'], record['name_range']
+        _proof_require(actual['path'] == record['path'] and actual['language'] == 'go' and actual['kind'] == 'method' and
+            actual['provenance']['syntax_kind'] == 'method_declaration' and actual['range'] == span and
+            actual['text'] == record['text'] == raw[span['start_byte']:span['end_byte']].decode() and
+            actual['provenance']['source_sha256'] == record['source_sha256'] == hashlib.sha256(raw).hexdigest(),
+            'Physical Go method declaration before name projection')
+        anchor = expected['site']
+        sites = [site for site in facts['sites'] if site['path'] == anchor['path'] and site['range'] == anchor['range']]
+        _proof_require(len(sites) == 1 and sites[0]['caller'] == _proof_physical(expected['caller_declaration']),
+                       'Physical caller identity before name projection')
+        frozen = [row for row in fixture['definitions'] if row['path'] == actual['path'] and row['range'] == span]
+        _proof_require(len(frozen) == 1 and frozen[0]['kind'] == 'method' and frozen[0]['name'] == actual['name'] and
+            span['start_byte'] <= token['start_byte'] < token['end_byte'] <= span['end_byte'] and
+            actual['name'].rsplit('.', 1)[-1] == record['name'] == raw[token['start_byte']:token['end_byte']].decode(),
+            'Frozen qualified method and exact physical name token')
+        projected[actual['id']] = dict(actual, name=record['name'])
+        names.append({'id': actual['id'], 'canonical_name': actual['name'], 'physical_name_token': record['name']})
+    _proof_impact(dict(facts, definitions=[projected.get(row['id'], row) for row in facts['definitions']]), expected)
+    return names
+
+
+def incremental(root=ROOT, budget=None):
+    """Run the locked36 source updates through the actual persisted owner."""
+    from repo_graph.analysis import IndexLimits, StructuralIndex
+    from evaluations.engine_checks import _adapter_error, _adapter_materialize, _adapter_operations
+    from evaluations.supplement_preparation import LOCK, ORACLE, SOURCE, prepare_check
+    from evaluations.acceptance import _proof_require
+    root = Path(root)
+    budget = budget or Budget(timeout_seconds=20)
+    prepared = prepare_check(root)
+    with SourceRoot(root) as owner:
+        manifest, _ = read_json(owner, SOURCE)
+        fixture, _ = read_json(owner, INPUTS + 'fixtures.json')
+        oracle, _ = read_json(owner, ORACLE)
+        lock, lock_sha = read_json(owner, LOCK)
+    base = {row['path']: row['content_utf8'].encode() for row in manifest['files']}
+    metadata = {row['path']: {key: row[key] for key in ('path', 'language', 'kind', 'sha256', 'bytes')}
+                for row in manifest['files']}
+    updates = fixture['updates'] + manifest['updates']
+    _proof_require(len(updates) == 36 and len({row['id'] for row in updates}) == 36, 'All36 frozen updates required')
+    code_paths = ('evaluations/analysis.py', 'evaluations/engine_checks.py', 'evaluations/acceptance.py',
+        'evaluations/supplement_preparation.py', 'repo_graph/analysis.py', 'repo_graph/analysis_native.py',
+        'repo_graph/analysis_queue.py', 'repo_graph/source.py', 'repo_graph/search.py', 'repo_graph/__init__.py',
+        'tests/test_analysis.py', 'pyproject.toml', 'uv.lock')
+    with SourceRoot(ROOT) as owner:
+        before = {path: owner.read(path, 2 * 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=20).strip()
+    results = []
+    with tempfile.TemporaryDirectory(prefix='repo-graph-incremental-') as scratch:
+        for update in updates:
+            attempts, produced, checks = {}, {}, []
+            row = {'id': update['id'], 'language': update['language'],
+                'category': update.get('category', update.get('kind')), 'attempts': attempts, 'checks': checks}
+            try:
+                # Only immutable source operations and metadata cross the owner boundary.
+                changed, inventory = _adapter_operations(base, metadata,
+                    {key: update[key] for key in ('id', 'language', 'operations')})
+                directory = Path(scratch) / update['id']
+                source = directory / 'source'
+                source.mkdir(parents=True)
+                _adapter_materialize(source, base)
+                limits = IndexLimits(max_files=budget.max_files, max_source_bytes=budget.max_total_bytes,
+                                     total_wall_seconds=budget.timeout_seconds)
+                serial = StructuralIndex(source, directory / 'serial', budget=budget, limits=limits)
+                queued = StructuralIndex(source, directory / 'queued', budget=budget, limits=limits)
+                def attempt(name, index, records, mode, concurrency):
+                    receipt = index.refresh(iter(records), mode=mode, concurrency=concurrency)
+                    attempts[name] = receipt
+                    digest = hashlib.sha256()
+                    facts = {'definitions': [], 'sites': []}
+                    if receipt['status'] == 'ready':
+                        for kind in ('definitions', 'sites', 'imports', 'scopes', 'relationships'):
+                            for fact in index.read_facts(kind):
+                                digest.update(json.dumps([kind, fact], sort_keys=True, ensure_ascii=True,
+                                                         separators=(',', ':')).encode() + b'\n')
+                                if kind in facts:
+                                    facts[kind].append(fact)
+                        receipt['metadata'] = index.metadata()
+                    receipt['normalized_facts_sha256'] = digest.hexdigest()
+                    receipt['counts'] = {kind: len(values) for kind, values in facts.items()}
+                    produced[name] = facts
+                attempt('base_serial', serial, metadata.values(), 'serial', 1)
+                attempt('base_queued', queued, metadata.values(), 'queued', 2)
+                _adapter_materialize(source, changed, base.keys() - changed.keys())
+                attempt('update_serial', serial, inventory.values(), 'serial', 1)
+                attempt('update_queued', queued, inventory.values(), 'queued', 2)
+                attempt('clean_serial', StructuralIndex(source, directory / 'clean', budget=budget, limits=limits),
+                        inventory.values(), 'serial', 1)
+                ready = all(value['status'] == 'ready' for value in attempts.values())
+                checks.append({'id': update['id'] + ':ready_attempts', 'status': 'passed' if ready else 'failed'})
+                for key in ('generation', 'source_identity', 'normalized_facts_sha256'):
+                    checks.append({'id': update['id'] + ':' + key + '_parity', 'status': 'passed' if ready and
+                        attempts['base_serial'][key] == attempts['base_queued'][key] and
+                        attempts['update_serial'][key] == attempts['update_queued'][key] == attempts['clean_serial'][key]
+                        else 'failed'})
+                checks.append({'id': update['id'] + ':fresh_generation', 'status': 'passed' if ready and
+                    attempts['base_serial']['generation'] != attempts['update_serial']['generation'] and
+                    attempts['base_serial']['source_identity'] != attempts['update_serial']['source_identity'] else 'failed'})
+                dirty = sum(record['kind'] == 'source' and record != metadata.get(path) for path, record in inventory.items())
+                for name in ('update_serial', 'update_queued'):
+                    resources = attempts[name]['resources']
+                    checks.append({'id': update['id'] + ':' + name + ':collection_reuse',
+                        'status': 'passed' if ready and resources['changed_files_collected'] == dirty and
+                            resources['unchanged_source_collections_reused'] == sum(r['kind'] == 'source' for r in inventory.values()) - dirty
+                            else 'failed'})
+                mutation = next((item for item in oracle['mutations'] if item['id'] == update['id']), None)
+                impacts = mutation['expected_source_bound_impacts'] if mutation else update['expected_impacts']
+                for phase, stages, blobs in (('before', ('base_serial', 'base_queued'), base),
+                                            ('after', ('update_serial', 'update_queued', 'clean_serial'), changed)):
+                    for stage in stages:
+                        for position, expected in enumerate(impacts):
+                            check = {'id': update['id'] + ':' + stage + ':impact:' + str(position), 'status': 'passed'}
+                            try:
+                                _proof_require(attempts[stage]['status'] == 'ready', 'Ready facts required before impact grading')
+                                if mutation is None:
+                                    _incremental_original_impact(produced[stage], expected, phase, fixture, blobs)
+                                elif 'site' in expected[phase]:
+                                    names = _incremental_physical_impact(produced[stage], expected[phase], fixture, blobs)
+                                    if names:
+                                        check['physical_method_name_projection'] = names
+                                else:
+                                    physical = expected[phase]
+                                    raw = blobs[physical['path']]
+                                    start, end = physical['range']['start_byte'], physical['range']['end_byte']
+                                    _proof_require(hashlib.sha256(raw).hexdigest() == physical['source_sha256'] and
+                                        raw[start:end].decode() == physical['text'], 'Frozen physical annotation/contract bytes')
+                                    if mutation['category'] == 'contract':
+                                        _proof_require(not any(fact['path'] == physical['path'] for values in produced[stage].values()
+                                                               for fact in values), 'No invented contract semantic facts')
+                                        check['coverage'] = expected['required_coverage']
+                            except Exception as error:
+                                check.update(status='failed', error_kind=type(error).__name__, reason=str(error))
+                            checks.append(check)
+            except Exception as error:
+                checks.append({'id': update['id'] + ':producer', 'status': 'failed',
+                               'error_kind': type(error).__name__, 'reason': 'Unexpected update producer failure'})
+                print(json.dumps({'id': update['id'], **_adapter_error(error)}), file=sys.stderr)
+            row['status'] = 'passed' if checks and all(check['status'] == 'passed' for check in checks) else 'failed'
+            results.append(row)
+    with SourceRoot(ROOT) as owner:
+        after = {path: owner.read(path, 2 * 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    checks = [check for row in results for check in row['checks']]
+    checks.append({'id': 'implementation_stable', 'status': 'passed' if before == after else 'failed'})
+    failures = [check for check in checks if check['status'] != 'passed']
+    return {'schema_version': 1, 'suite': 'incremental', 'status': 'failed' if failures else 'passed',
+        'source_identity': {'supplement_lock_sha256': lock_sha, 'locked_inputs_sha256': lock['sha256'],
+            'implementation': {'commit': revision, 'sha256': before}},
+        'implementation_after': {'commit': revision, 'sha256': after}, 'preparation': prepared,
+        'case_results': results, 'failures': failures, 'coverage_failures': [],
+        'counts': {'updates': len(results), 'passed_updates': sum(row['status'] == 'passed' for row in results),
+                   'checks': len(checks), 'passed': len(checks) - len(failures)},
+        'environment': environment(), 'qualification_complete': False, 'limits_qualified': False,
+        'scope': 'Frozen36 synthetic updates, persisted serial1/queued2 versus independent clean output on the same source owner; '
+                 'expected impacts graded after production; type flow, contract semantics, corpus, scale and human qualification unmeasured'}
 
 
 def screen_engines(root=ROOT):
@@ -1176,20 +1403,21 @@ def main(argv=None):
                         help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
-    parser.add_argument('--suite', choices=['component', 'constructs'], default='component')
+    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
-                        help='finite report cap: 2 MiB for comparison, 1 MiB otherwise')
+                        help='finite report cap: 2 MiB for comparison/incremental, 1 MiB otherwise')
     parser.add_argument('--max-files', type=int, default=128)
     parser.add_argument('--max-source-bytes', type=int, default=4 * 1024 * 1024)
     parser.add_argument('--max-nodes', type=int, default=200_000)
     args = parser.parse_args(argv)
-    if not (args.engine or args.screen_engines or args.compare or args.profile) and args.suite != 'constructs':
+    structural_task = {'constructs': 'T010', 'incremental': 'T011'}.get(args.suite)
+    if not (args.engine or args.screen_engines or args.compare or args.profile) and structural_task is None:
         parser.error('an engine, screening, comparison or profiling mode is required for component')
-    if args.suite == 'constructs' and (args.screen_engines or args.compare or args.profile):
-        parser.error('constructs uses the shared structural owner directly')
+    if structural_task and (args.screen_engines or args.compare or args.profile):
+        parser.error(args.suite + ' uses the shared structural owner directly')
     if args.max_result_bytes is None:
-        args.max_result_bytes = (2 if args.compare else 1) * 1024 * 1024
+        args.max_result_bytes = (2 if args.compare or args.suite == 'incremental' else 1) * 1024 * 1024
     if args.freeze_budgets and not args.profile:
         parser.error('--freeze-budgets requires --profile')
     if args.preselection_cost_report and not args.compare:
@@ -1199,17 +1427,17 @@ def main(argv=None):
     default = ('evaluations/results/code-understanding/engine-comparison.json' if args.compare else
                'evaluations/results/code-understanding/capacity-profile.json' if args.profile else
                'evaluations/results/code-understanding/reusable-screen.json' if args.screen_engines else
-               FACTS_OUTPUT if args.suite == 'constructs' else DEFAULT_OUTPUT)
+               FACTS_OUTPUT if structural_task else DEFAULT_OUTPUT)
     args.output = args.output or default
     started = time.perf_counter()
     try:
         if args.max_result_bytes <= 0:
             raise ValueError('Output budget must be positive')
-        if args.suite == 'constructs':
-            result = constructs(ROOT, Budget(max_files=args.max_files,
+        if structural_task:
+            result = (constructs if args.suite == 'constructs' else incremental)(ROOT, Budget(max_files=args.max_files,
                 max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes))
-            result['resources'] = {'constructs_elapsed_seconds': time.perf_counter() - started}
-            size = (record_constructs(ROOT, result, args.max_result_bytes) if args.output == FACTS_OUTPUT else
+            result['resources'] = {args.suite + '_elapsed_seconds': time.perf_counter() - started}
+            size = (record_structural(ROOT, structural_task, result, args.max_result_bytes) if args.output == FACTS_OUTPUT else
                     write_result(ROOT, args.output, result, args.max_result_bytes))
             print(json.dumps({'status': result['status'], 'counts': result['counts'],
                 'failures': len(result['failures']), 'coverage_failures': len(result['coverage_failures']),
@@ -1255,8 +1483,8 @@ def main(argv=None):
                   'status': 'blocked', 'reason': str(error), 'engine_selected': False,
                   'setup': 'uv sync --python 3.12 --extra analysis'}
         try:
-            if args.suite == 'constructs' and args.output == FACTS_OUTPUT:
-                record_constructs(ROOT, result, args.max_result_bytes)
+            if structural_task and args.output == FACTS_OUTPUT:
+                record_structural(ROOT, structural_task, result, args.max_result_bytes)
             else:
                 write_result(ROOT, args.output, result, args.max_result_bytes)
             if args.output == DEFAULT_OUTPUT:
@@ -1268,12 +1496,12 @@ def main(argv=None):
         print(json.dumps(result, separators=(',', ':')))
         return 2
     except Exception as error:
-        if args.suite == 'constructs' and args.output == FACTS_OUTPUT:
-            result = {'schema_version': 1, 'suite': 'constructs', 'status': 'failed',
+        if structural_task and args.output == FACTS_OUTPUT:
+            result = {'schema_version': 1, 'suite': args.suite, 'status': 'failed',
                 'error_kind': type(error).__name__, 'source_identity': None, 'case_results': [],
                 'coverage_failures': [], 'qualification_complete': False, 'limits_qualified': False}
             try:
-                record_constructs(ROOT, result, args.max_result_bytes)
+                record_structural(ROOT, structural_task, result, args.max_result_bytes)
             except (OSError, ValueError):
                 pass
         if args.compare or args.profile:

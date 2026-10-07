@@ -1250,6 +1250,15 @@ def inventoried_go_package(directory, files):
             'reason': reason, 'qualified': bool(names) and not reason, 'bindings': bindings}
 
 
+def _python_parent(path, module):
+    parent = posixpath.dirname(path)
+    for _ in range(len(module) - len(module.lstrip('.')) - 1):
+        if not parent:
+            return None
+        parent = posixpath.dirname(parent)
+    return parent
+
+
 def module_paths(file, spec, files, configurations, context=None):
     module, symbol = spec['module'], spec['symbol']
     parent = posixpath.dirname(file.path)
@@ -1257,8 +1266,9 @@ def module_paths(file, spec, files, configurations, context=None):
         if not module.startswith('.'):
             return [], symbol, 'absolute Python import environment is not modeled'
         count = len(module) - len(module.lstrip('.'))
-        for _ in range(count - 1):
-            parent = posixpath.dirname(parent)
+        parent = _python_parent(file.path, module)
+        if parent is None:
+            return [], symbol, 'relative Python import escapes the admitted source root'
         stem = posixpath.join(parent, module[count:].replace('.', '/'))
         paths = [stem + '.py', posixpath.join(stem, '__init__.py')]
     elif file.language in ('javascript', 'typescript'):
@@ -1310,7 +1320,11 @@ def module_paths(file, spec, files, configurations, context=None):
                 directory = posixpath.normpath(posixpath.join(posixpath.dirname(config_path), module[len(prefix):].lstrip('/')))
                 paths.extend(files.in_directory(directory) if hasattr(files, 'in_directory') else
                              (path for path in files if posixpath.normpath(posixpath.dirname(path)) == directory and path.endswith('.go')))
-    found = sorted(set(path for path in paths if path in files and files[path].language == file.language))
+    admitted = sorted(set(path for path in paths if
+        (files.inventoried(path) if hasattr(files, 'inventoried') else path in files)))
+    found = [path for path in admitted if path in files and files[path].language == file.language]
+    if admitted != found:
+        return [], symbol, 'import alternatives include unparsed, excluded or unsupported source'
     if context is not None:
         owner = context['owners'][file.path]['repository_id'], context['owners'][file.path]['revision']
         found = [path for path in found if (context['owners'][path]['repository_id'], context['owners'][path]['revision']) == owner]
@@ -1335,6 +1349,18 @@ def resolver(files, configurations, context=None, *, definitions=None):
         return files.go_binding(directory, name) if hasattr(files, 'go_binding') else package['bindings'].get(name, (0, None))
 
     def imported(file, item, member):
+        if (file.language == 'python' and member is not None and item['symbol'] is not None and
+                item['module'].startswith('.') and not item['module'].strip('.')):
+            parent = _python_parent(file.path, item['module'])
+            if parent is None:
+                return [], 'relative Python import escapes the admitted source root', 'import_alias'
+            # Package attributes can replace an imported child module; only the
+            # inventoried namespace form is supported, not initializer execution.
+            initializer = posixpath.join(parent, '__init__.py')
+            initializer_present = files.inventoried(initializer) if hasattr(files, 'inventoried') else initializer in files
+            if initializer_present:
+                return [], 'relative package attributes require initializer resolution', 'import_alias'
+            item = dict(item, module=item['module'] + item['symbol'], symbol=member)
         paths, symbol, reason = module_paths(file, item, files, configurations, context)
         # Export presence cannot choose an import module. An extension/search
         # policy must first identify one module independently of its symbols.
@@ -1394,7 +1420,9 @@ def resolver(files, configurations, context=None, *, definitions=None):
         if node.type in ('attribute', 'member_expression', 'selector_expression'):
             if node.base_identifier:
                 bindings = scope.lookup(node.base)
-                if len(bindings) == 1 and bindings[0].kind == 'import' and bindings[0].value['symbol'] is None:
+                if (len(bindings) == 1 and bindings[0].kind == 'import' and
+                        (bindings[0].value['symbol'] is None or file.language == 'python' and
+                         bindings[0].value['module'].startswith('.') and not bindings[0].value['module'].strip('.'))):
                     return imported(file, bindings[0].value, node.member)
             return [], 'receiver dispatch requires type/points-to analysis; candidates not enumerated', 'unsupported_receiver'
         if node.type != 'identifier':

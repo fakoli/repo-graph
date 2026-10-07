@@ -31,7 +31,7 @@ binding, call and framework coverage separately for every selected construct.
 | Direct declaration and call | Definitions, scopes and callsites retained | Unique visible ordinary callable declarations | Not evaluated; decorators, conditional declarations and unsupported types remain unknown |
 | Stable value alias | Alias binding and callable reference retained | Single source alias chain; cycles and multiple assignments unresolved | No flow or points-to analysis |
 | Shadowing | Physical declarations and sites retained | Lexical scope; parameter and unknown assignments cannot inherit an outer exact target | No dynamic scope or runtime values |
-| Import alias, Python | Module/local import syntax retained | Unique inventoried relative `from` module and callable declaration | Absolute import environment, local import binding, wildcard binding and reexports unresolved |
+| Import alias, Python | Module/local import syntax retained | Unique inventoried relative `from` module and callable declaration; relative namespace child modules when no inventoried initializer supplies package attributes | Absolute import environment, initializer attributes, local import binding, wildcard binding and reexports unresolved |
 | Import alias, JS/TS | Named, namespace, default and side-effect syntax retained | Unique relative module and ordinary exported callable; namespace member lookup | Package conditions, extension alternatives, default/reexports, overloads and computed exports unresolved |
 | Import alias, Go | Import specification, alias and package declarations retained | Own declared module and eligible inventoried package; unique ordinary exported function | External dependency selection, replacements, workspace/vendor/MVS and active toolchain unqualified |
 | Go package bindings | Same-directory source membership and binding counts indexed | Unique package values; known competing declarations withhold exact targets | Excluded/partial source, mixed package names, test/platform filenames, build/compiler directives, CGO and bodyless declarations withhold targets |
@@ -49,6 +49,20 @@ snapshot comparison has its separate `declared_snapshot_only` evidence scope;
 local directory resemblance cannot provide that registration.
 
 ## Observable exclusions and limits
+
+Incremental refresh stores separate declaration/export fingerprints and a
+conservative whole-file body/source fingerprint from the same collected facts.
+Positive and absent module paths, Go package membership and configuration
+lookups participate in invalidation. Unchanged supported consumers reuse their
+bindings. A consumer with unresolved sites or partial syntax records the full
+inventory fingerprint and rebuilds its bindings on any inventory change. This
+fallback does not qualify dynamic dispatch or finer dependency closure.
+Analyzer, grammar-version or index-limit changes rebuild collection and binding
+facts. Refresh receipts report actual collection, lookup and binding work.
+
+Interrupted or failed attempts retain the prior published coverage generation,
+the failing path and owned collector failures. An unconsumed input iterator is
+reported as not evaluated; it is not presented as a complete failed inventory.
 
 File coverage retains configuration, unsupported language, excluded size and
 partial parse statuses. Partial files retain syntax with withheld exact targets.

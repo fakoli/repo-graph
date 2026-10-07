@@ -83,6 +83,45 @@ class _Files(Mapping):
     """Only two decoded compact files are cached; definitions use indexed lookup."""
     def __init__(self, db, budget, check):
         self.db, self.budget, self.check, self.cache = db, budget, check, OrderedDict()
+        self.consumer = None
+        self.fingerprint_cache = OrderedDict()
+        self.scope_fingerprints = {}
+
+    def fingerprint(self, kind, key):
+        """Bounded lookup receipts include absent paths and whole package membership."""
+        self.check()
+        cache_key = kind, key
+        cache = self.scope_fingerprints if kind in ('inventory', 'configurations') else self.fingerprint_cache
+        if cache_key in cache:
+            if cache is self.fingerprint_cache:
+                cache.move_to_end(cache_key)
+            return cache[cache_key]
+        if kind == 'file':
+            rows = self.db.execute('SELECT path,record,status FROM structural_files WHERE path=?', (key,))
+        elif kind == 'directory':
+            rows = self.db.execute("SELECT path,record,status FROM structural_files WHERE directory=? AND language='go' AND kind='source' ORDER BY path", (key,))
+        elif kind == 'configurations':
+            rows = self.db.execute("SELECT path,record,status FROM structural_files WHERE kind='configuration' ORDER BY path")
+        elif kind == 'inventory':
+            rows = self.db.execute('SELECT path,record,status FROM structural_files ORDER BY path')
+        else:
+            raise RuntimeError('Unknown structural dependency kind')
+        digest, present = hashlib.sha256(kind.encode()), False
+        for row in rows:
+            self.check()
+            digest.update(encoded([row['path'], json.loads(row['record']), row['status']]))
+            present = True
+        result = digest.hexdigest(), present
+        cache[cache_key] = result
+        if len(self.fingerprint_cache) > 8:
+            self.fingerprint_cache.popitem(last=False)
+        return result
+
+    def observe(self, kind, key):
+        if self.consumer is not None:
+            digest, present = self.fingerprint(kind, key)
+            self.db.execute('INSERT OR REPLACE INTO structural_dependencies VALUES(?,?,?,?,?)',
+                            (self.consumer, kind, key, digest, int(present)))
 
     def __iter__(self):
         return (r[0] for r in self.db.execute('SELECT path FROM structural_files WHERE ir IS NOT NULL ORDER BY path'))
@@ -91,20 +130,28 @@ class _Files(Mapping):
         return self.db.execute('SELECT count(*) FROM structural_files WHERE ir IS NOT NULL').fetchone()[0]
 
     def __contains__(self, path):
+        self.observe('file', path)
         return self.db.execute('SELECT 1 FROM structural_files WHERE path=? AND ir IS NOT NULL', (path,)).fetchone() is not None
+
+    def inventoried(self, path):
+        self.observe('file', path)
+        return self.db.execute('SELECT 1 FROM structural_files WHERE path=?', (path,)).fetchone() is not None
 
     def in_directory(self, directory):
         directory = str(PurePosixPath(directory))
+        self.observe('directory', directory)
         return (r[0] for r in self.db.execute("SELECT path FROM structural_files WHERE directory=? AND language='go' AND ir IS NOT NULL ORDER BY path", (directory,)))
 
     def go_package(self, directory):
         directory = str(PurePosixPath(directory))
+        self.observe('directory', directory)
         row = self.db.execute('SELECT name,reason FROM structural_go_packages WHERE directory=?', (directory,)).fetchone()
         return {'name': row[0] if row else None, 'qualified': row is not None and not row[1],
                 'reason': row[1] if row else 'Go source package is unavailable'}
 
     def go_binding(self, directory, name):
         directory = str(PurePosixPath(directory))
+        self.observe('directory', directory)
         row = self.db.execute('SELECT count,path FROM structural_go_bindings WHERE directory=? AND name=?', (directory, name)).fetchone()
         return tuple(row) if row else (0, None)
 
@@ -131,6 +178,7 @@ class _Files(Mapping):
 
     def __getitem__(self, path):
         self.check()
+        self.observe('file', path)
         if path in self.cache:
             self.cache.move_to_end(path)
             return self.cache[path]
@@ -161,6 +209,11 @@ def _schema(db):
       data TEXT NOT NULL, PRIMARY KEY(path,ordinal));
     CREATE TABLE IF NOT EXISTS structural_imports(path TEXT NOT NULL, ordinal INTEGER NOT NULL,
       data TEXT NOT NULL, PRIMARY KEY(path,ordinal));
+    CREATE TABLE IF NOT EXISTS structural_summaries(path TEXT PRIMARY KEY,
+      declaration TEXT NOT NULL, export TEXT NOT NULL, body TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS structural_dependencies(path TEXT NOT NULL,
+      kind TEXT NOT NULL, key TEXT NOT NULL, fingerprint TEXT NOT NULL, present INTEGER NOT NULL,
+      PRIMARY KEY(path,kind,key));
     CREATE TABLE IF NOT EXISTS structural_go_packages(directory TEXT PRIMARY KEY, name TEXT, reason TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS structural_go_bindings(directory TEXT NOT NULL, name TEXT NOT NULL,
       count INTEGER NOT NULL, path TEXT NOT NULL, PRIMARY KEY(directory,name));
@@ -233,8 +286,10 @@ class StructuralIndex:
         resources = {'batches': 0, 'changed_files_collected': 0,
                      'unchanged_source_collections_reused': 0, 'source_bytes': 0,
                      'workers_started': 0, 'peak_batch_files': 0, 'peak_batch_source_bytes': 0,
-                     'peak_batch_handoff_bytes': 0, 'owned_workers_reaped': 0}
-        previous, current_path = None, None
+                     'peak_batch_handoff_bytes': 0, 'owned_workers_reaped': 0,
+                     'bindings_files_resolved': 0, 'bindings_files_reused': 0,
+                     'unknown_closure_files_rebuilt': 0, 'dependency_lookups_checked': 0}
+        previous, current_path, collection_failures = None, None, []
 
         def check():
             if cancel is not None and cancel():
@@ -269,11 +324,14 @@ class StructuralIndex:
                     raise native.StopScan('index_byte_budget_exceeded')
                 db.set_progress_handler(lambda: int(check()), 1000)
                 if old.get('structural_analyzer') != analyzer or old.get('structural_config') != config:
-                    for table in ('structural_files', 'structural_symbols', 'structural_scopes', 'structural_imports'):
+                    for table in ('structural_files', 'structural_symbols', 'structural_scopes', 'structural_imports',
+                                  'structural_summaries', 'structural_dependencies', 'structural_sites', 'structural_relationships'):
                         db.execute('DELETE FROM ' + table)
-                for table in ('structural_sites', 'structural_relationships'):
-                    db.execute('DELETE FROM ' + table)
+                    resources['invalidation_reason'] = 'analyzer_or_limits_changed_or_initial_index'
+                else:
+                    resources['invalidation_reason'] = 'source_and_positive_negative_lookup_dependencies'
                 db.execute('CREATE TEMP TABLE structural_seen(path TEXT PRIMARY KEY)')
+                db.execute('CREATE TEMP TABLE structural_dirty(path TEXT PRIMARY KEY)')
                 batch, batch_bytes, count = [], 0, 0
 
                 def flush():
@@ -290,6 +348,7 @@ class StructuralIndex:
                     resources['peak_batch_source_bytes'] = max(resources['peak_batch_source_bytes'], batch_bytes)
                     resources['peak_batch_handoff_bytes'] = max(resources['peak_batch_handoff_bytes'], collected.resources.get('collected_handoff_bytes', 0))
                     resources['owned_workers_reaped'] += sum(row['leader_reaped'] and row['group_absent'] and row['mailboxes_removed'] for row in collected.cleanup)
+                    collection_failures.extend(row for row in collected.failures if row.get('kind') != 'partial_file')
                     if collected.stop_reason or any(row.get('kind') != 'partial_file' for row in collected.failures):
                         raise native.StopScan(collected.stop_reason or 'collector_failed')
                     if len(collected.collected) != len(batch):
@@ -298,6 +357,14 @@ class StructuralIndex:
                         payload = file.payload()
                         digest = hashlib.sha256(encoded(payload)).hexdigest()
                         definitions, scopes, imports = payload.pop('definitions'), payload.pop('scopes'), payload.pop('imports')
+                        declaration = [{k: d[k] for k in ('id', 'name', 'kind', 'callable', 'range')} for d in definitions]
+                        exported = [d for d, source_definition in zip(declaration, definitions) if file.language not in ('javascript', 'typescript', 'go') or
+                            (file.language == 'go' and d['name'][:1].isupper()) or
+                            (file.language in ('javascript', 'typescript') and source_definition['text'].startswith('export '))]
+                        db.execute('INSERT OR REPLACE INTO structural_summaries VALUES(?,?,?,?)',
+                            (file.path, hashlib.sha256(encoded([declaration, scopes, imports])).hexdigest(),
+                             hashlib.sha256(encoded(exported)).hexdigest(),
+                             file.record['sha256']))
                         db.execute('DELETE FROM structural_symbols WHERE path=?', (file.path,))
                         db.execute('DELETE FROM structural_scopes WHERE path=?', (file.path,))
                         db.execute('DELETE FROM structural_imports WHERE path=?', (file.path,))
@@ -315,6 +382,7 @@ class StructuralIndex:
                 for supplied in paths:
                     check()
                     count += 1
+                    resources['inventory_entries_consumed'] = count
                     if count > limits.max_files:
                         raise native.StopScan('file_budget_exceeded')
                     item = {'path': supplied} if type(supplied) is str else supplied
@@ -352,6 +420,7 @@ class StructuralIndex:
                     if reusable:
                         resources['unchanged_source_collections_reused'] += 1
                         continue
+                    db.execute('INSERT OR IGNORE INTO structural_dirty VALUES(?)', (path,))
                     db.execute('INSERT OR REPLACE INTO structural_files VALUES(?,?,?,?,?,?,?,?,?)',
                         (path, str(PurePosixPath(path).parent), language, kind, encoded(record), status,
                          None, None, raw if status == 'configuration' else None))
@@ -359,6 +428,7 @@ class StructuralIndex:
                         db.execute('DELETE FROM structural_symbols WHERE path=?', (path,))
                         db.execute('DELETE FROM structural_scopes WHERE path=?', (path,))
                         db.execute('DELETE FROM structural_imports WHERE path=?', (path,))
+                        db.execute('DELETE FROM structural_summaries WHERE path=?', (path,))
                         continue
                     if batch and (len(batch) >= min(limits.batch_files, budget.max_files) or batch_bytes + len(raw) > budget.max_total_bytes):
                         flush()
@@ -367,22 +437,42 @@ class StructuralIndex:
                     batch.append(dict(record, content=raw))
                     batch_bytes += len(raw)
                 flush()
-                for table in ('structural_files', 'structural_symbols', 'structural_scopes', 'structural_imports'):
+                for table in ('structural_files', 'structural_symbols', 'structural_scopes', 'structural_imports',
+                              'structural_summaries', 'structural_dependencies', 'structural_sites', 'structural_relationships'):
                     db.execute('DELETE FROM ' + table + ' WHERE path NOT IN (SELECT path FROM structural_seen)')
                 files = _Files(db, budget, check)
                 files.index_go_packages()
-                # ponytail: re-resolve every binding until negative dependency closure is qualified in T011.
+                for row in db.execute('SELECT * FROM structural_dependencies ORDER BY kind,key,path'):
+                    check()
+                    resources['dependency_lookups_checked'] += 1
+                    if files.fingerprint(row['kind'], row['key'])[0] != row['fingerprint']:
+                        db.execute('INSERT OR IGNORE INTO structural_dirty VALUES(?)', (row['path'],))
+                for table in ('structural_sites', 'structural_relationships', 'structural_dependencies'):
+                    db.execute('DELETE FROM ' + table + ' WHERE path IN (SELECT path FROM structural_dirty) OR path IN (SELECT path FROM structural_files WHERE ir IS NULL)')
                 configurations = _Configurations(db)
-                resolve = native.resolver(files, configurations, definitions=_Definitions(db))
                 for path in files:
+                    if db.execute('SELECT 1 FROM structural_dirty WHERE path=?', (path,)).fetchone() is None:
+                        resources['bindings_files_reused'] += 1
+                        continue
+                    files.consumer = path
+                    files.observe('configurations', '*')
                     file = files[path]
+                    # Per-file resolver caches cannot conceal a dependency of the next consumer.
+                    resolve = native.resolver(files, configurations, definitions=_Definitions(db))
                     work = native.Work(budget, check)
                     work.facts = len(file.definitions) + len(file.imports)
                     file.emit_sites(resolve, work)
+                    if file.partial or any(site['certainty'] == 'unresolved' for site in file.sites):
+                        # ponytail: unknown closure rebuilds this consumer against the complete
+                        # admitted inventory on change; qualify finer dependency rules later.
+                        files.observe('inventory', '*')
+                        resources['unknown_closure_files_rebuilt'] += 1
+                    resources['bindings_files_resolved'] += 1
                     for i, site in enumerate(file.sites):
                         db.execute('INSERT INTO structural_sites VALUES(?,?,?,?,?)', (site['id'], path, i, site['role'], encoded(site)))
                         db.executemany('INSERT INTO structural_relationships VALUES(?,?,?,?,?)',
                             ((site['id'], target, path, site['role'], site['certainty']) for target in site['targets']))
+                files.consumer = None
                 check()
                 manifest = hashlib.sha256(encoded({'repository': self.owner, 'analyzer': analyzer, 'config': config}))
                 for row in db.execute('SELECT path,record,status FROM structural_files ORDER BY path'):
@@ -425,6 +515,9 @@ class StructuralIndex:
                 receipt = {'status': 'interrupted' if isinstance(error, (native.StopScan, InterruptedError)) and
                        str(error) in ('cancelled', 'deadline_exceeded', 'Source read cancelled') else 'failed',
                        'published': False, 'error_kind': type(error).__name__, 'reason': str(error),
-                       'path': current_path, 'previous_generation': previous, 'resources': resources}
+                       'path': current_path, 'previous_generation': previous, 'resources': resources,
+                       'collection_failures': collection_failures,
+                       'remaining_inventory_status': 'not_evaluated_after_failure',
+                       'published_coverage_generation': previous}
         self.last_attempt = receipt
         return receipt
