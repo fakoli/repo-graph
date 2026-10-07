@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from contextlib import closing, contextmanager
+from dataclasses import dataclass, asdict
 import hashlib
 import heapq
 import json
@@ -307,6 +308,7 @@ def connect(output: Path, *, readonly: bool = False, owner: str | None = None, c
 
 ATTEMPT_BYTES = 32 * 1024
 ATTEMPT_STATES = {'updating', 'ready', 'interrupted', 'failed', 'publication_uncertain'}
+ATTEMPT_COMPONENTS = {'structural', 'semantic', 'function_semantic'}
 
 
 class _LegacyReceipt(ValueError):
@@ -584,6 +586,16 @@ def _attempt_valid(record, component):
                 raise ValueError('Attempt and receipt failure attribution differ')
         if receipt.get('repository_identity') is not None and receipt['repository_identity'] != record.get('repository_identity'):
             raise ValueError('Attempt receipt belongs to another repository')
+        if component == 'function_semantic':
+            _required(receipt, 'embedded reused model seconds semantic_index')
+            _count(receipt['embedded']); _count(receipt['reused']); _string(receipt['model'], 256)
+            _number(receipt['seconds']); _function_semantic_valid(receipt['semantic_index'])
+            if (receipt['embedded'] + receipt['reused'] != receipt['semantic_index']['documents'] or
+                    receipt['model'] != receipt['semantic_index']['model'] or
+                    receipt['semantic_index']['identities']['repository_identity'] != record.get('repository_identity')):
+                raise ValueError('Function embedding receipt identity/counts differ')
+            if ('generation' in record and record['generation'] != receipt['semantic_index']['identities']['evidence_generation']):
+                raise ValueError('Function attempt published generation differs')
         if component == 'semantic':
             for key in ('identity', 'semantic_index'):
                 if key in receipt and type(receipt[key]) is not dict: raise ValueError('Attempt semantic identity object required')
@@ -612,7 +624,7 @@ def _attempt(boundary, component):
 
 def record_attempt(output, owner, component, record, expected=None):
     """Record a bounded producer receipt independently of the last published facts."""
-    if (type(component) is not str or component not in {'structural', 'semantic'} or type(record) is not dict or
+    if (type(component) is not str or component not in ATTEMPT_COMPONENTS or type(record) is not dict or
             type(record.get('attempt_id')) is not str or not 1 <= len(record['attempt_id']) <= 128 or
             type(record.get('status')) is not str or record['status'] not in ATTEMPT_STATES or
             expected is not None and (type(expected) is not str or not 1 <= len(expected) <= 128)):
@@ -648,7 +660,7 @@ def record_attempt(output, owner, component, record, expected=None):
 
 def begin_attempt(output, owner, component, record):
     """CAS-supersede the observed attempt without letting its later terminal win."""
-    if type(component) is not str or component not in {'structural', 'semantic'}:
+    if type(component) is not str or component not in ATTEMPT_COMPONENTS:
         raise ValueError('Unknown index lifecycle component')
     with SourceRoot(Path(output)) as boundary:
         if boundary.identity != owner:
@@ -671,28 +683,38 @@ def _attempt_attribution(record, component, meta):
     repository = meta.get('structural_repository') or meta.get('repository')
     if repository is None: return 'unpublished_repository'
     if record['repository_identity'] != repository: return 'foreign_repository'
-    generation = meta.get('structural_generation' if component == 'structural' else 'generation')
+    generation = meta.get('structural_generation' if component == 'structural' else
+                          'function_generation' if component == 'function_semantic' else 'generation')
     receipt = record.get('receipt') or {}
-    fence = ((record.get('generation') or receipt.get('generation'))
+    published = record.get('generation') or receipt.get('generation')
+    if component == 'function_semantic':
+        published = published or (receipt.get('semantic_index') or {}).get('identities', {}).get('evidence_generation')
+    fence = (published
              if record['status'] in ('ready', 'publication_uncertain') else record.get('previous_generation'))
     if generation is not None and fence != generation:
         return 'unrelated_generation'
     return 'captured_repository'
 
 
-def index_status(output, *, owner=None, expected_source=None, backend_available=None):
+def index_status(output, *, owner=None, expected_source=None, backend_available=None, backend_model=None):
     """Read one bounded captured index; never inspect live source, Git or a backend."""
     if expected_source is not None and (type(expected_source) is not str or
             not re.fullmatch('[0-9a-f]{64}', expected_source)):
         raise ValueError('Expected source must be a SHA256 identity')
     if backend_available is not None and type(backend_available) is not bool:
         raise ValueError('Backend availability must be an observed boolean or unknown')
+    if backend_model is not None: _string(backend_model, 256)
     started = time.monotonic()
     result = {'status': 'ok', 'output_owner': owner, 'structural': _status_component(),
               'semantic_index': _status_component(), 'storage': {'deadline_seconds': 0.5}}
     result['semantic_index'].update(model=None, backend_available=backend_available,
         compatibility='unknown_legacy', generation_basis='keyword-docs-v2', structural_generation_affinity='unknown',
         catalog_receipt=None, catalog_receipt_knowledge='missing')
+    result['function_evidence'] = _status_component()
+    result['function_evidence'].update(state='not_indexed', keyword_query_available=False,
+        semantic_artifact_ready=False, semantic_query_available=False, semantic_state='not_indexed',
+        semantic_receipt=None, model=None, backend_available=backend_available, backend_model=backend_model,
+        backend_compatibility='unknown_backend_model')
     meta = {}
     def check():
         if time.monotonic() - started >= 0.5:
@@ -709,7 +731,7 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
                 raise RuntimeError('Index output owner changed; reopen the original output directory')
             result['output_owner'] = boundary.identity
             with _index_lock(boundary, check=check, create=False):
-                for name, key in [('structural', 'structural'), ('semantic', 'semantic_index')]:
+                for name, key in [('structural', 'structural'), ('semantic', 'semantic_index'), ('function_semantic', 'function_evidence')]:
                     result[key]['last_attempt'] = _attempt(boundary, name)
                     check()
                 if _artifact_token(boundary) is not None:
@@ -718,7 +740,8 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
                         keys = ('structural_schema', 'structural_repository', 'structural_source',
                                 'structural_generation', 'structural_analyzer', 'structural_config',
                                 'structural_receipt', 'schema', 'repository', 'generation',
-                                'analyzer', 'config', 'model', 'semantic_receipt', 'catalog_receipt')
+                                'analyzer', 'config', 'model', 'semantic_receipt', 'catalog_receipt',
+                                'function_receipt', 'function_generation', 'function_config', 'function_model', 'function_semantic_receipt')
                         meta = dict(db.execute('SELECT key,substr(value,1,?) FROM meta WHERE key IN (' +
                             ','.join('?' for _ in keys) + ')', (ATTEMPT_BYTES + 1, *keys)))
                         check()
@@ -783,6 +806,23 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
                         elif meta.get('generation'):
                             semantic['state'] = 'unknown_legacy'
                         semantic['query_available'] = semantic['artifact_ready'] and backend_available is True
+                        function = result['function_evidence']
+                        if meta.get('function_receipt') and not structural['artifact_ready']:
+                            function.update(state='unavailable', semantic_state='unavailable')
+                        elif meta.get('function_receipt'):
+                            _function_foundation(meta)
+                            projection = _function_receipt(_json_record(meta['function_receipt']), meta)
+                            function.update(state='ready', artifact_ready=True, query_available=True,
+                                keyword_query_available=True, identities=projection['identities'], receipt=projection,
+                                receipt_knowledge='captured', model=meta.get('function_model'))
+                            if meta.get('function_semantic_receipt'):
+                                receipt = _function_semantic_valid(_json_record(meta['function_semantic_receipt']), projection)
+                                function['semantic_receipt'] = receipt; function['semantic_state'] = receipt['status']
+                                function['semantic_artifact_ready'] = (receipt['status'] == 'ready' and receipt['model'] == meta.get('function_model'))
+                            function['backend_compatibility'] = ('unknown_backend_model' if backend_model is None else
+                                'captured' if backend_model == function['model'] else 'different_model')
+                            function['semantic_query_available'] = (function['semantic_artifact_ready'] and
+                                backend_available is True and function['backend_compatibility'] == 'captured')
                         db.set_progress_handler(None, 0)
             check()
             with SourceRoot(Path(output)) as current:
@@ -794,8 +834,9 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
         result['status'] = 'bounded_stop' if stop is not None or isinstance(error, TimeoutError) else 'unavailable'
         result['reason'] = str(stop or error)
         # No partial metadata observation is advertised as ready after interrupted storage work.
-        for key in ('structural', 'semantic_index'):
+        for key in ('structural', 'semantic_index', 'function_evidence'):
             result[key].update(state='unknown', artifact_ready=False, query_available=False)
+        result['function_evidence'].update(keyword_query_available=False, semantic_artifact_ready=False, semantic_query_available=False)
     for key in ('structural', 'semantic_index'):
         component = result[key]
         attempt = component['last_attempt']
@@ -809,6 +850,14 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
                 component['freshness'] = 'stale'
                 component['freshness_basis'] = 'observed_attempt_failure'
     result['semantic_index'].setdefault('backend_available', backend_available)
+    function = result['function_evidence']; attempt = function['last_attempt']
+    if function['artifact_ready'] and function['receipt_knowledge'] == 'captured':
+        function['freshness'] = result['structural']['freshness']
+        function['freshness_basis'] = result['structural']['freshness_basis']
+    function['attempt_attribution'] = _attempt_attribution(attempt, 'function_semantic', meta)
+    if (attempt and attempt['status'] != 'ready' and result['status'] == 'ok' and
+            function['attempt_attribution'] in ('captured_repository', 'unpublished_repository')):
+        function['semantic_state'] = attempt['status']
     result['storage']['elapsed_seconds'] = time.monotonic() - started
     return result
 
@@ -964,7 +1013,9 @@ class Embeddings:
         return (vector / norm).astype('<f4').tobytes()
 
 
-def embed_index(output: Path, embedder: Embeddings) -> dict:
+def embed_index(output: Path, embedder: Embeddings, *, kind='files') -> dict:
+    if kind == 'functions': return _embed_functions(output, embedder)
+    if kind != 'files': raise ValueError('Unknown search evidence kind')
     return _run_semantic_writer(output, 'embed', lambda owner, attempt: _embed_index(output, embedder, owner, attempt))
 
 
@@ -1015,14 +1066,560 @@ def _embed_index(output, embedder, owner, attempt):
                     seconds=round(time.monotonic() - started, 3), semantic_index=semantic)
 
 
+FUNCTION_SCHEMA = 'function-evidence-v1'
+FUNCTION_KINDS = {'function', 'method', 'function_value'}
+FUNCTION_IDENTITY = ('repository_identity', 'source_identity', 'structural_generation',
+                     'analyzer_identity', 'config_identity')
+FUNCTION_META = dict(zip(FUNCTION_IDENTITY, ('structural_repository', 'structural_source',
+                    'structural_generation', 'structural_analyzer', 'structural_config')))
+
+
+@dataclass(frozen=True)
+class EvidenceLimits:
+    max_entities: int = 50
+    max_response_bytes: int = 32768
+    max_excerpt_bytes: int = 8192
+    timeout_seconds: float = 0.5
+
+    def __post_init__(self):
+        for key, minimum, maximum in (('max_entities', 1, 50), ('max_response_bytes', 1, 32768),
+                                      ('max_excerpt_bytes', 0, 8192)):
+            if type(getattr(self, key)) is not int or not minimum <= getattr(self, key) <= maximum:
+                raise ValueError('Invalid function evidence limit: ' + key)
+        _number(self.timeout_seconds)
+        if not 0 < self.timeout_seconds <= 0.5: raise ValueError('Invalid function evidence deadline')
+
+
+@dataclass(frozen=True)
+class FunctionProjectionLimits:
+    # Finite configuration ceilings; representative capacity remains unqualified.
+    max_window_bytes: int = 8192
+    max_windows: int = 100000
+    max_body_bytes: int = 256 * 1024 * 1024
+
+    def __post_init__(self):
+        for key, minimum, maximum in (('max_window_bytes', 4, 8192), ('max_windows', 1, 100000),
+                                      ('max_body_bytes', 1, 256 * 1024 * 1024)):
+            if type(getattr(self, key)) is not int or not minimum <= getattr(self, key) <= maximum:
+                raise ValueError('Invalid function projection limit: ' + key)
+
+
+def _evidence_encoded(value):
+    # Same canonical wire encoding as analysis_queries; avoid its circular import.
+    return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
+
+
+def _function_identities(identity):
+    if type(identity) is not dict: raise ValueError('Captured function identity required')
+    for key in FUNCTION_IDENTITY: _hash(identity.get(key))
+    if 'evidence_generation' in identity: _hash(identity['evidence_generation'])
+    return {key: identity[key] for key in (*FUNCTION_IDENTITY, 'evidence_generation') if key in identity}
+
+
+def _function_range(span):
+    _required(span, 'start_byte end_byte start_line end_line')
+    for key in ('start_byte', 'end_byte', 'start_line', 'end_line'): _count(span[key])
+    if span['end_byte'] < span['start_byte'] or not 1 <= span['start_line'] <= span['end_line']:
+        raise ValueError('Invalid function evidence range')
+
+
+def _function_end_line(start_line, raw):
+    # The range is half open; a trailing newline belongs to its preceding line.
+    return start_line + raw[:max(0, len(raw) - 1)].count(b'\n')
+
+
+def _function_foundation(meta):
+    if meta.get('structural_schema') != 'structural-v2' or not meta.get('structural_receipt'):
+        raise RuntimeError('Function structural foundation is unavailable; refresh the structural index')
+    try: _structural_receipt(_json_record(meta['structural_receipt']), meta)
+    except _LegacyReceipt as error:
+        raise RuntimeError('Function structural foundation is incomplete; refresh the structural index') from error
+
+
+def _function_receipt(record, meta=None):
+    _required(record, 'schema status identities projection_config_identity counts limits')
+    identities = _function_identities(record['identities']); _hash(identities.get('evidence_generation'))
+    _hash(record['projection_config_identity'])
+    if record['schema'] != FUNCTION_SCHEMA or record['status'] != 'ready': raise ValueError('Invalid function evidence receipt')
+    _required(record['counts'], 'symbols chunks body_bytes redacted_chunks excluded_private_keys excluded_kinds partial_symbols')
+    for key, value in record['counts'].items():
+        if key == 'excluded_kinds': _counts(value)
+        else: _count(value)
+    if (record['counts']['redacted_chunks'] > record['counts']['chunks'] or
+            record['counts']['partial_symbols'] > record['counts']['symbols']):
+        raise ValueError('Function coverage counts differ')
+    if type(record['limits']) is not dict or set(record['limits']) != set(asdict(FunctionProjectionLimits())):
+        raise ValueError('Typed function projection limits required')
+    FunctionProjectionLimits(**record['limits'])
+    if (record['counts']['chunks'] > record['limits']['max_windows'] or
+            record['counts']['body_bytes'] > record['limits']['max_body_bytes']):
+        raise ValueError('Function projection exceeds declared limits')
+    if meta is not None and (any(identities[key] != meta.get(FUNCTION_META[key]) for key in FUNCTION_IDENTITY) or
+            identities['evidence_generation'] != meta.get('function_generation') or
+            record['projection_config_identity'] != meta.get('function_config')):
+        raise ValueError('Function evidence affinity is stale or foreign')
+    return record
+
+
+def _function_semantic_valid(record, projection=None):
+    _required(record, 'schema generation_basis identities model documents vectors missing_vectors status')
+    _function_identities(record['identities']); _hash(record['identities'].get('evidence_generation'))
+    for key in ('documents', 'vectors', 'missing_vectors'): _count(record[key])
+    if record['model'] is not None: _string(record['model'], 256)
+    if (record['schema'] != FUNCTION_SCHEMA or record['generation_basis'] != FUNCTION_SCHEMA or
+            record['status'] not in ('ready', 'stale', 'not_indexed') or
+            record['documents'] != record['vectors'] + record['missing_vectors'] or
+            record['status'] == 'ready' and (not record['model'] or record['missing_vectors'])):
+        raise ValueError('Invalid function semantic receipt')
+    if projection is not None and (record['identities'] != projection['identities'] or
+            record['documents'] != projection['counts']['chunks']):
+        raise ValueError('Function semantic affinity differs')
+    return record
+
+
+def _function_metadata(db):
+    keys = (*FUNCTION_META.values(), 'structural_schema', 'structural_receipt', 'function_receipt', 'function_generation', 'function_config',
+            'function_model', 'function_semantic_receipt')
+    meta = dict(db.execute('SELECT key,substr(value,1,?) FROM meta WHERE key IN (' +
+        ','.join('?' for _ in keys) + ')', (ATTEMPT_BYTES + 1, *keys)))
+    if any(type(value) is not str or len(value.encode()) > ATTEMPT_BYTES for value in meta.values()):
+        raise ValueError('Function metadata exceeds its byte bound')
+    _function_foundation(meta)
+    if not meta.get('function_receipt'): raise RuntimeError('Function evidence is unavailable; refresh the structural index')
+    projection = _function_receipt(_json_record(meta['function_receipt']), meta)
+    return meta, projection
+
+
+def _function_schema(db):
+    # Individual statements preserve the caller's active structural transaction.
+    statements = [
+        '''CREATE TABLE IF NOT EXISTS function_docs(id INTEGER PRIMARY KEY, chunk_key TEXT UNIQUE NOT NULL,
+        symbol_id TEXT NOT NULL,path TEXT NOT NULL,language TEXT NOT NULL,kind TEXT NOT NULL,
+        name TEXT NOT NULL,local_name TEXT NOT NULL,file_sha256 TEXT NOT NULL,extraction_state TEXT NOT NULL,
+        declaration_range TEXT NOT NULL,start_byte INTEGER NOT NULL,end_byte INTEGER NOT NULL,
+        start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,raw_digest TEXT NOT NULL,body_digest TEXT NOT NULL,
+        body TEXT NOT NULL,redactions TEXT NOT NULL,terms TEXT NOT NULL,redacted INTEGER NOT NULL,vector BLOB)''',
+        'CREATE INDEX IF NOT EXISTS function_order ON function_docs(path,start_byte,end_byte,id)',
+        'CREATE INDEX IF NOT EXISTS function_name ON function_docs(name,path,start_byte,id)',
+        'CREATE INDEX IF NOT EXISTS function_local_name ON function_docs(local_name,path,start_byte,id)',
+        "CREATE VIRTUAL TABLE IF NOT EXISTS function_fts USING fts5(terms,content='function_docs',content_rowid='id',tokenize='porter unicode61')",
+        '''CREATE TRIGGER IF NOT EXISTS function_ai AFTER INSERT ON function_docs BEGIN
+        INSERT INTO function_fts(rowid,terms) VALUES(new.id,new.terms); END''',
+        '''CREATE TRIGGER IF NOT EXISTS function_ad AFTER DELETE ON function_docs BEGIN
+        INSERT INTO function_fts(function_fts,rowid,terms) VALUES('delete',old.id,old.terms); END''',
+        '''CREATE TRIGGER IF NOT EXISTS function_au AFTER UPDATE OF terms ON function_docs BEGIN
+        INSERT INTO function_fts(function_fts,rowid,terms) VALUES('delete',old.id,old.terms);
+        INSERT INTO function_fts(rowid,terms) VALUES(new.id,new.terms); END''']
+    for statement in statements: db.execute(statement)
+
+
+def _redaction_spans(text):
+    # Find on the entire captured declaration, so windows cannot expose fragments.
+    result, prior, byte_offset = [], 0, 0
+    for match in SECRET.finditer(text):
+        byte_offset += len(text[prior:match.start()].encode())
+        end = byte_offset + len(match.group().encode())
+        result.append((byte_offset, end)); prior, byte_offset = match.end(), end
+    return result
+
+
+def _redacted_window(raw, spans):
+    pieces, position = [], 0
+    for start, end in spans:
+        if not 0 <= start < end <= len(raw) or start < position: raise ValueError('Invalid function redaction span')
+        pieces.extend((raw[position:start], b'[redacted]')); position = end
+    pieces.append(raw[position:])
+    return b''.join(pieces).decode('utf-8')
+
+
+def project_function_evidence(db, identity, *, check, limits=None):
+    """Derive bounded evidence inside the structural owner's existing transaction."""
+    limits = limits or FunctionProjectionLimits()
+    if type(limits) is not FunctionProjectionLimits or not callable(check): raise ValueError('Typed projection limits/check required')
+    if not db.in_transaction: raise RuntimeError('Function projection requires the structural writer transaction')
+    identity = _function_identities(identity)
+    if 'evidence_generation' in identity: identity.pop('evidence_generation')
+    check()
+    config = hashlib.sha256(_evidence_encoded({'schema': FUNCTION_SCHEMA, 'implementation': code_identity(),
+            'limits': asdict(limits), 'redaction': 'shared-secret-v1'})).hexdigest()
+    old = db.execute("SELECT value FROM meta WHERE key='function_receipt'").fetchone()
+    if old:
+        previous = _function_receipt(_json_record(old[0]))
+        if (all(previous['identities'][key] == identity[key] for key in FUNCTION_IDENTITY) and
+                previous['projection_config_identity'] == config): return previous
+    db.execute('SAVEPOINT function_projection')
+    try:
+        _function_schema(db)
+        db.execute('DELETE FROM function_docs')
+        counts = dict(symbols=0, chunks=0, body_bytes=0, redacted_chunks=0,
+                      excluded_private_keys=0, excluded_kinds={}, partial_symbols=0)
+        generation = hashlib.sha256(_evidence_encoded({'identity': identity, 'config': config}))
+        rows = db.execute('''SELECT s.id,s.path,substr(s.data,1,8388609) AS data,
+            substr(f.record,1,32769) AS record,f.status FROM structural_symbols s
+            JOIN structural_files f ON f.path=s.path ORDER BY s.path,s.start_byte,s.end_byte,s.id''')
+        for row in rows:
+            check()
+            if len(row['data']) > 8388608: raise ValueError('Captured definition exceeds projection validation bound')
+            definition = json.loads(row['data']); record = _json_record(row['record'])
+            _required(definition, 'id path language name kind callable text range provenance')
+            if type(definition['callable']) is not bool or type(definition['text']) is not str or type(definition['provenance']) is not dict:
+                raise ValueError('Typed captured definition required')
+            if definition['kind'] not in FUNCTION_KINDS or definition['callable'] is not True:
+                kind = _string(definition['kind']); counts['excluded_kinds'][kind] = counts['excluded_kinds'].get(kind, 0) + 1
+                continue
+            span = definition['range']; _function_range(span)
+            _hash(record.get('sha256')); _count(record.get('bytes')); SourceRoot.parts(row['path'])
+            raw = definition['text'].encode('utf-8')
+            if (definition['id'] != row['id'] or definition['path'] != row['path'] or record.get('path') != row['path'] or
+                    definition['language'] != record.get('language') or definition['provenance'].get('source_sha256') != record['sha256'] or
+                    span['end_byte'] > record['bytes'] or len(raw) != span['end_byte'] - span['start_byte'] or
+                    row['id'] != f"{row['path']}:{span['start_byte']}:{span['end_byte']}"):
+                raise ValueError('Captured function/source provenance differs')
+            _string(definition['name'], 4096); _string(definition['language']); counts['symbols'] += 1
+            counts['partial_symbols'] += row['status'] == 'partial_parse'
+            if 'PRIVATE KEY-----' in definition['text']:
+                counts['excluded_private_keys'] += 1; continue
+            matches = _redaction_spans(definition['text'])
+            offset = 0
+            while offset < len(raw):
+                check()
+                end = min(len(raw), offset + limits.max_window_bytes)
+                while end < len(raw) and raw[end] & 0xc0 == 0x80: end -= 1
+                window = raw[offset:end]
+                if counts['chunks'] >= limits.max_windows or counts['body_bytes'] + len(window) > limits.max_body_bytes:
+                    raise RuntimeError('function_evidence_budget_exceeded')
+                redactions = [(max(start, offset) - offset, min(stop, end) - offset)
+                              for start, stop in matches if start < end and stop > offset]
+                body = _redacted_window(window, redactions)
+                raw_digest = hashlib.sha256(window).hexdigest(); body_digest = hashlib.sha256(body.encode()).hexdigest()
+                start_line = span['start_line'] + raw[:offset].count(b'\n')
+                chunk_range = dict(start_byte=span['start_byte'] + offset, end_byte=span['start_byte'] + end,
+                                   start_line=start_line, end_line=_function_end_line(start_line, window))
+                key = hashlib.sha256(_evidence_encoded({'schema': FUNCTION_SCHEMA, 'path': row['path'],
+                    'file': record['sha256'], 'symbol': row['id'], 'range': chunk_range, 'body': body_digest})).hexdigest()
+                terms = words(row['path'] + ' ' + definition['name']) + ' ' + words(body)
+                db.execute('''INSERT INTO function_docs(chunk_key,symbol_id,path,language,kind,name,local_name,
+                    file_sha256,extraction_state,declaration_range,start_byte,end_byte,start_line,end_line,
+                    raw_digest,body_digest,body,redactions,terms,redacted) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    (key, row['id'], row['path'], definition['language'], definition['kind'], definition['name'],
+                     definition['name'].rsplit('.', 1)[-1], record['sha256'], row['status'], _evidence_encoded(span).decode(),
+                     chunk_range['start_byte'], chunk_range['end_byte'], start_line, chunk_range['end_line'],
+                     raw_digest, body_digest, window.decode(), _evidence_encoded(redactions).decode(), terms, int(bool(redactions))))
+                generation.update(_evidence_encoded({'key': key, 'member': definition['name'], 'range': span}))
+                counts['chunks'] += 1; counts['body_bytes'] += len(window); counts['redacted_chunks'] += bool(redactions)
+                offset = end
+        receipt = dict(schema=FUNCTION_SCHEMA, status='ready', identities=dict(identity, evidence_generation=generation.hexdigest()),
+                       projection_config_identity=config, counts=counts, limits=asdict(limits))
+        _function_receipt(receipt)
+        model = db.execute("SELECT value FROM meta WHERE key='function_model'").fetchone()
+        semantic = dict(schema=FUNCTION_SCHEMA, generation_basis=FUNCTION_SCHEMA, identities=receipt['identities'],
+            model=model[0] if model else None, documents=counts['chunks'], vectors=0, missing_vectors=counts['chunks'],
+            status='stale' if model else 'not_indexed')
+        _function_semantic_valid(semantic, receipt)
+        db.executemany('INSERT OR REPLACE INTO meta VALUES(?,?)', [('function_receipt', _evidence_encoded(receipt).decode()),
+            ('function_generation', receipt['identities']['evidence_generation']), ('function_config', config),
+            ('function_semantic_receipt', _evidence_encoded(semantic).decode())])
+        check(); db.execute('RELEASE function_projection')
+        return receipt
+    except BaseException:
+        db.execute('ROLLBACK TO function_projection'); db.execute('RELEASE function_projection'); raise
+
+
+class _EvidenceStop(Exception):
+    pass
+
+
+def _function_row(db, key):
+    row = db.execute('''SELECT d.id,substr(d.chunk_key,1,65) chunk_key,substr(d.symbol_id,1,8193) symbol_id,
+        substr(d.path,1,4097) path,substr(d.language,1,129) language,substr(d.kind,1,129) kind,
+        substr(d.name,1,4097) name,substr(d.file_sha256,1,65) file_sha256,
+        substr(d.extraction_state,1,129) extraction_state,substr(d.declaration_range,1,1025) declaration_range,
+        d.start_byte,d.end_byte,d.start_line,d.end_line,substr(d.raw_digest,1,65) raw_digest,
+        substr(d.body_digest,1,65) body_digest,substr(d.body,1,8193) body,
+        substr(d.redactions,1,32769) redactions,d.redacted,
+        substr(f.record,1,32769) file_record,f.status file_status,substr(s.data,1,8388609) definition
+        FROM function_docs d JOIN structural_files f ON f.path=d.path
+        JOIN structural_symbols s ON s.id=d.symbol_id WHERE d.id=?''', (key,)).fetchone()
+    if row is None: raise ValueError('Function member is absent from captured facts')
+    row = dict(row)
+    span = {key: row[key] for key in ('start_byte', 'end_byte', 'start_line', 'end_line')}; _function_range(span)
+    declaration = _json_record(row['declaration_range']); _function_range(declaration)
+    file = _json_record(row['file_record'])
+    if len(row['definition']) > 8388608: raise ValueError('Function fact exceeds validation bound')
+    definition = json.loads(row['definition'])
+    _required(definition, 'id path language name kind callable text range provenance')
+    if type(definition['text']) is not str or type(definition['provenance']) is not dict:
+        raise ValueError('Typed captured function required')
+    _hash(row['chunk_key']); _hash(row['file_sha256']); _hash(row['raw_digest']); _hash(row['body_digest'])
+    _string(row['path'], 4096); SourceRoot.parts(row['path']); _string(row['language']); _string(row['name'], 4096)
+    raw = row['body'].encode(); spans = json.loads(row['redactions'])
+    if type(spans) is not list or len(spans) > 512: raise ValueError('Bounded function redactions required')
+    for interval in spans:
+        if type(interval) is not list or len(interval) != 2: raise ValueError('Typed function redaction required')
+        for bound in interval: _count(bound)
+    redacted = _redacted_window(raw, spans)
+    if (len(raw) > 8192 or len(raw) != span['end_byte'] - span['start_byte'] or
+            row['kind'] not in FUNCTION_KINDS or definition.get('callable') is not True or
+            definition.get('id') != row['symbol_id'] or definition.get('path') != row['path'] or
+            definition.get('language') != row['language'] or file.get('path') != row['path'] or file.get('language') != row['language'] or
+            row['extraction_state'] != row['file_status'] or row['file_status'] not in ('parsed', 'partial_parse') or
+            definition.get('name') != row['name'] or definition.get('kind') != row['kind'] or
+            definition.get('range') != declaration or file.get('sha256') != row['file_sha256'] or
+            definition.get('provenance', {}).get('source_sha256') != row['file_sha256'] or
+            not declaration['start_byte'] <= span['start_byte'] <= span['end_byte'] <= declaration['end_byte'] or
+            row['symbol_id'] != f"{row['path']}:{declaration['start_byte']}:{declaration['end_byte']}" or
+            hashlib.sha256(raw).hexdigest() != row['raw_digest'] or hashlib.sha256(redacted.encode()).hexdigest() != row['body_digest'] or
+            type(row['redacted']) is not int or row['redacted'] not in (0, 1) or bool(row['redacted']) != bool(spans)):
+        raise ValueError('Function evidence differs from captured member/source')
+    full = definition['text'].encode(); offset = span['start_byte'] - declaration['start_byte']
+    if raw != full[offset:offset + len(raw)]: raise ValueError('Function window differs from captured text')
+    if (len(full) != declaration['end_byte'] - declaration['start_byte'] or
+            span['start_line'] != declaration['start_line'] + full[:offset].count(b'\n') or
+            span['end_line'] != _function_end_line(span['start_line'], raw)):
+        raise ValueError('Function line range differs from captured text')
+    expected_spans = [(max(start, offset) - offset, min(end, offset + len(raw)) - offset)
+                      for start, end in _redaction_spans(definition['text']) if start < offset + len(raw) and end > offset]
+    if spans != [list(interval) for interval in expected_spans]: raise ValueError('Function redaction differs from captured policy')
+    row.update(raw=raw, spans=spans, member=dict(symbol_id=row['symbol_id'], name=row['name'], kind=row['kind'], range=declaration))
+    return row
+
+
+def _function_excerpt(raw, spans, maximum):
+    def clipped(size):
+        end = min(len(raw), size)
+        while end < len(raw) and raw[end] & 0xc0 == 0x80: end -= 1
+        intervals = [(start, min(stop, end)) for start, stop in spans if start < end]
+        return end, _redacted_window(raw[:end], intervals)
+    end, text = clipped(len(raw))
+    if len(text.encode()) <= maximum: return end, text
+    low, high = 0, len(raw)
+    while low < high:
+        middle = (low + high + 1) // 2
+        _, value = clipped(middle)
+        if len(value.encode()) <= maximum: low = middle
+        else: high = middle - 1
+    return clipped(low)
+
+
+def _function_results(rows, scores, check):
+    groups = []
+    for row in sorted(rows, key=lambda row: (row['path'], row['file_sha256'], row['start_byte'], -row['end_byte'], row['symbol_id'])):
+        check()
+        if (groups and groups[-1]['path'] == row['path'] and groups[-1]['file_sha256'] == row['file_sha256'] and
+                row['start_byte'] < groups[-1]['end_byte']): group = groups[-1]
+        else:
+            group = dict(path=row['path'], file_sha256=row['file_sha256'], language=row['language'],
+                extraction_state=row['extraction_state'], start_byte=row['start_byte'], end_byte=row['start_byte'],
+                start_line=row['start_line'], raw=b'', spans=[], members={}, score=0)
+            groups.append(group)
+        group['members'][row['symbol_id']] = row['member']
+        group['score'] = max(group['score'], scores[row['id']])
+        covered = group['end_byte'] - row['start_byte']
+        if covered > 0 and row['raw'][:min(covered, len(row['raw']))] != group['raw'][row['start_byte'] - group['start_byte']:row['start_byte'] - group['start_byte'] + min(covered, len(row['raw']))]:
+            raise ValueError('Overlapping captured function windows disagree')
+        if row['end_byte'] > group['end_byte']:
+            old_length = len(group['raw']); group['raw'] += row['raw'][max(0, covered):]
+            group['spans'].extend((old_length + max(start, covered) - max(0, covered), old_length + stop - max(0, covered))
+                for start, stop in row['spans'] if stop > max(0, covered))
+            group['end_byte'] = row['end_byte']
+        if row['extraction_state'] == 'partial_parse': group['extraction_state'] = 'partial_parse'
+    return sorted(groups, key=lambda group: (-group['score'], group['path'], group['start_byte'], group['end_byte']))
+
+
+def _run_function_search(engine, query, *, mode, limit, prefix, reranker, limits, cancel):
+    if type(limits) is dict and set(limits) - set(asdict(EvidenceLimits())): raise ValueError('Unknown function evidence limit')
+    limits = EvidenceLimits() if limits is None else EvidenceLimits(**limits) if type(limits) is dict else limits
+    if type(limits) is not EvidenceLimits or cancel is not None and not callable(cancel): raise ValueError('Typed function limits/cancellation required')
+    if type(query) is not str or not query.strip() or len(query) > 1000 or type(limit) is not int or not 1 <= limit <= 50:
+        raise ValueError('Query must have 1–1000 characters; limit must be 1–50')
+    if mode not in {'keyword', 'semantic', 'hybrid'} or type(prefix) is not str or len(prefix.encode()) > 4096:
+        raise ValueError('Invalid function search mode/prefix')
+    if prefix: SourceRoot.parts(prefix.rstrip('/'))
+    prefix = prefix.rstrip('/')
+    started = time.monotonic(); stopped = None; identities = {}; document_count = None; results = []; examined = 0; model_seconds = 0; rerank_seconds = 0
+    def check():
+        if cancel is not None and cancel(): raise _EvidenceStop('cancelled')
+        if time.monotonic() - started >= limits.timeout_seconds: raise _EvidenceStop('deadline_exceeded')
+    def progress():
+        nonlocal stopped
+        try: check(); return 0
+        except _EvidenceStop as error: stopped = str(error); return 1
+    def response():
+        handles = {member['symbol_id'] for row in results for member in row['members']}
+        return dict(kind='functions', query=query, mode=mode, identities=identities, budgets=asdict(limits),
+            counts=dict(documents=dict(value=document_count, knowledge='exact' if document_count is not None and not prefix else 'unknown'),
+                        returned_symbol_handles=len(handles), returned_passages=len(results), examined_candidates=examined),
+            truncated=stopped is not None, stop_reason=stopped, results=results,
+            storage=dict(elapsed_seconds=round(time.monotonic() - started, 6), model_encode_seconds=round(model_seconds, 6),
+                         rerank_seconds=round(rerank_seconds, 6), hard_model_deadline=False))
+    if len(_evidence_encoded(response())) > limits.max_response_bytes: raise ValueError('Function response budget cannot fit its minimum receipt')
+    try:
+        check()
+        with closing(engine.connect(check=check)) as db:
+            db.set_progress_handler(progress, 64); db.execute('BEGIN')
+            meta, projection = _function_metadata(db); check()
+            identities = projection['identities']; document_count = projection['counts']['chunks'] if not prefix else None
+            if len(_evidence_encoded(response())) > limits.max_response_bytes: raise ValueError('Function response budget cannot fit its captured identity receipt')
+            where = '(path=? OR (path>=? AND path<?))' if prefix else '1'
+            parameters = (prefix, prefix + '/', prefix + '0') if prefix else ()
+            candidate_count = max(50, limit * 5); ranks = []
+            if mode != 'semantic':
+                exact = db.execute(f'''SELECT id FROM function_docs WHERE (name=? OR local_name=?) AND {where}
+                    ORDER BY path,start_byte,end_byte,id LIMIT ?''', (query, query, *parameters, candidate_count + 1)).fetchall()
+                ranks.append([row['id'] for row in exact[:candidate_count]])
+                terms = [term for term in re.findall(r'\w+', words(query)) if term.lower() not in STOPWORDS][:32]
+                expression = ' OR '.join('"' + term + '"' for term in terms)
+                hits = db.execute(f'''SELECT function_docs.id FROM function_fts JOIN function_docs ON function_docs.id=function_fts.rowid
+                    WHERE function_fts MATCH ? AND {where} ORDER BY bm25(function_fts),path,start_byte,end_byte,id LIMIT ?''',
+                    (expression or '""', *parameters, candidate_count + 1)).fetchall()
+                ranks.append([row['id'] for row in hits[:candidate_count]])
+                if len(hits) > candidate_count or len(exact) > candidate_count: stopped = 'candidate_budget_exceeded'
+            if mode != 'keyword':
+                if engine.embedder is None: raise RuntimeError('Function semantic backend is unavailable; select keyword mode')
+                semantic = _function_semantic_valid(_json_record(meta.get('function_semantic_receipt', '{}')), projection)
+                if semantic['status'] != 'ready' or semantic['model'] != engine.embedder.name or meta.get('function_model') != engine.embedder.name:
+                    raise RuntimeError('Function semantic index is missing, stale, or uses a different model')
+                model_started = time.monotonic()
+                np = engine.embedder.np; q = np.frombuffer(engine.embedder.packed(engine.embedder.query(query)), dtype='<f4')
+                model_seconds = time.monotonic() - model_started; check(); best = []; vectors_examined = 0
+                cursor = db.execute(f'SELECT id,vector FROM function_docs WHERE {where} ORDER BY id', parameters)
+                while rows := cursor.fetchmany(512):
+                    check()
+                    if vectors_examined + len(rows) > 10000: stopped = 'vector_work_budget_exceeded'; break
+                    if any(row['vector'] is None or len(row['vector']) != len(q) * 4 for row in rows): raise RuntimeError('Function vectors are incomplete or invalid')
+                    matrix = np.frombuffer(b''.join(row['vector'] for row in rows), dtype='<f4').reshape(len(rows), -1)
+                    if not np.isfinite(matrix).all(): raise ValueError('Nonfinite function vectors')
+                    for score, row in zip(matrix @ q, rows):
+                        item = (float(score), row['id'])
+                        if len(best) < candidate_count: heapq.heappush(best, item)
+                        elif item > best[0]: heapq.heapreplace(best, item)
+                    vectors_examined += len(rows)
+                ranks.append([key for score, key in sorted(best, reverse=True)])
+            scores = {}
+            for rank in ranks:
+                for position, key in enumerate(rank, 1): scores[key] = scores.get(key, 0) + 1 / (60 + position)
+            selected = sorted(scores, key=lambda key: (-scores[key], key))[:candidate_count]
+            rows = []
+            for key in selected: check(); rows.append(_function_row(db, key)); examined += 1
+            groups = _function_results(rows, scores, check); excerpt_bytes = 0; handles = set()
+            for group in groups:
+                check()
+                if len(results) >= limit: stopped = stopped or 'result_budget_exceeded'; break
+                next_handles = handles | set(group['members'])
+                if len(next_handles) > limits.max_entities: stopped = 'entity_budget_exceeded'; break
+                end, text = _function_excerpt(group['raw'], group['spans'], limits.max_excerpt_bytes - excerpt_bytes)
+                clipped = end < len(group['raw'])
+                row = dict(path=group['path'], file_sha256=group['file_sha256'], language=group['language'],
+                    extraction_state=group['extraction_state'], evidence_kind='static_syntax', text=text,
+                    range=dict(start_byte=group['start_byte'], end_byte=group['start_byte'] + end,
+                        start_line=group['start_line'], end_line=_function_end_line(group['start_line'], group['raw'][:end])),
+                    raw_digest=hashlib.sha256(group['raw'][:end]).hexdigest(), redacted=bool(group['spans']), excerpt_truncated=clipped,
+                    members=sorted(group['members'].values(), key=lambda member: (member['range']['start_byte'], member['range']['end_byte'], member['symbol_id'])),
+                    score=round(group['score'], 6))
+                results.append(row)
+                if len(_evidence_encoded(response())) > limits.max_response_bytes:
+                    results.pop(); stopped = 'response_byte_budget_exceeded'; break
+                handles = next_handles; excerpt_bytes += len(text.encode())
+                if clipped: stopped = stopped or 'excerpt_budget_exceeded'
+            db.set_progress_handler(None, 0)
+    except _EvidenceStop as error: stopped = str(error)
+    except sqlite3.OperationalError:
+        if stopped not in ('cancelled', 'deadline_exceeded'): raise
+    if reranker and results and stopped not in ('cancelled', 'deadline_exceeded'):
+        originals = results
+        rerank_started = time.monotonic()
+        try:
+            offered = [dict(row, evidence=row['text'], _function_id=index) for index, row in enumerate(results)]
+            ranked, receipt = reranker.rank(query, offered)
+            order = [row['_function_id'] for row in ranked]
+            if (any(type(index) is not int for index in order) or sorted(order) != list(range(len(originals))) or
+                    any(type(row.get('rerank_score', 0)) not in (int, float) or not math.isfinite(row.get('rerank_score', 0)) for row in ranked)):
+                raise ValueError('Invalid function rerank membership/score')
+            results = [dict(originals[index], **({'rerank_score': float(row['rerank_score'])} if 'rerank_score' in row else {})) for index, row in zip(order, ranked)]
+        except (OSError, RuntimeError, ValueError, KeyError, TypeError): results = originals
+        rerank_seconds = time.monotonic() - rerank_started
+        try: check()
+        except _EvidenceStop as error: stopped = str(error)
+    final = response()
+    while len(_evidence_encoded(final)) > limits.max_response_bytes and results:
+        results.pop(); stopped = 'response_byte_budget_exceeded'; final = response()
+    if len(_evidence_encoded(final)) > limits.max_response_bytes: raise ValueError('Function response budget cannot fit its minimum receipt')
+    return final
+
+
+def _embed_functions(output, embedder):
+    with SourceRoot(Path(output)) as boundary: owner = boundary.identity
+    started = time.monotonic(); attempt = None; embedded = 0; reused = 0
+    try:
+        with closing(connect(output, owner=owner)) as db, db:
+            meta, projection = _function_metadata(db)
+            attempt = dict(attempt_id=uuid.uuid4().hex, status='updating', operation='embed',
+                started_at=time.time(), repository_identity=projection['identities']['repository_identity'],
+                previous_generation=projection['identities']['evidence_generation'], generation_basis=FUNCTION_SCHEMA)
+            begin_attempt(output, owner, 'function_semantic', attempt)
+            _string(embedder.name, 256)
+            if meta.get('function_model') not in (None, embedder.name):
+                raise ValueError('Function index uses another model; choose a separate output directory')
+            db.execute("INSERT OR REPLACE INTO meta VALUES('function_model',?)", (embedder.name,))
+        with closing(connect(output, owner=owner)) as db:
+            reused = db.execute('SELECT count(*) FROM function_docs WHERE vector IS NOT NULL').fetchone()[0]
+            while True:
+                with db:
+                    db.execute('BEGIN')
+                    meta, projection = _function_metadata(db)
+                    captured = projection['identities']
+                    keys = [row[0] for row in db.execute('SELECT id FROM function_docs WHERE vector IS NULL ORDER BY id LIMIT 256')]
+                    rows = [_function_row(db, key) for key in keys]
+                if not rows: break
+                passages = [_redacted_window(row['raw'], row['spans']) for row in rows]
+                vectors = list(embedder.passages(passages))
+                if len(vectors) != len(rows): raise ValueError('Function embedding batch has missing results')
+                conditions = ''.join(" AND (SELECT value FROM meta WHERE key=?)=?" for _ in FUNCTION_META)
+                affinity = [value for key in FUNCTION_IDENTITY for value in (FUNCTION_META[key], captured[key])]
+                with db:
+                    for row, vector in zip(rows, vectors):
+                        changed = db.execute('''UPDATE function_docs SET vector=? WHERE id=? AND chunk_key=?
+                            AND symbol_id=? AND path=? AND file_sha256=? AND raw_digest=? AND body_digest=?
+                            AND start_byte=? AND end_byte=? AND vector IS NULL
+                            AND (SELECT value FROM meta WHERE key='function_generation')=?
+                            AND (SELECT value FROM meta WHERE key='function_model')=?''' + conditions,
+                            (embedder.packed(vector), row['id'], row['chunk_key'], row['symbol_id'], row['path'], row['file_sha256'],
+                             row['raw_digest'], row['body_digest'], row['start_byte'], row['end_byte'],
+                             captured['evidence_generation'], embedder.name, *affinity)).rowcount
+                        if changed != 1: raise RuntimeError('Function embedding source/model snapshot is stale')
+                embedded += len(rows)
+            with db:
+                meta, projection = _function_metadata(db)
+                if projection['identities'] != captured or meta.get('function_model') != embedder.name:
+                    raise RuntimeError('Function embedding generation/model changed')
+                documents, vectors = db.execute('SELECT count(*),coalesce(sum(vector IS NOT NULL),0) FROM function_docs').fetchone()
+                semantic = dict(schema=FUNCTION_SCHEMA, generation_basis=FUNCTION_SCHEMA, identities=captured,
+                    model=embedder.name, documents=documents, vectors=vectors, missing_vectors=documents - vectors, status='ready')
+                _function_semantic_valid(semantic, projection)
+                db.execute("INSERT OR REPLACE INTO meta VALUES('function_semantic_receipt',?)", (_evidence_encoded(semantic).decode(),))
+        result = dict(embedded=embedded, reused=reused, model=embedder.name,
+            seconds=round(time.monotonic() - started, 6), semantic_index=semantic)
+        terminal = dict(attempt, status='ready', generation=captured['evidence_generation'], finished_at=time.time(), published=True, receipt=result)
+        record_attempt(output, owner, 'function_semantic', terminal, expected=attempt['attempt_id'])
+        return result
+    except BaseException as error:
+        if attempt is not None:
+            terminal = dict(attempt, status='publication_uncertain' if isinstance(error, PublicationError) else (
+                'interrupted' if isinstance(error, (InterruptedError, KeyboardInterrupt)) else 'failed'),
+                error_kind=type(error).__name__, reason=str(error)[:1024], finished_at=time.time(), published=isinstance(error, PublicationError))
+            try: record_attempt(output, owner, 'function_semantic', terminal, expected=attempt['attempt_id'])
+            except Exception: pass
+        raise
+
+
 class Search:
     def __init__(self, output: Path, embedder=None):
         self.output, self.embedder, self.snapshot = output, embedder, {}
         with SourceRoot(output) as boundary:
             self.owner = boundary.identity
 
-    def connect(self):
-        return connect(self.output, readonly=True, owner=self.owner, cache=self.snapshot)
+    def connect(self, *, check=None):
+        return connect(self.output, readonly=True, owner=self.owner, cache=self.snapshot, check=check)
 
     def close(self):
         with SNAPSHOT_LOCK:
@@ -1034,10 +1631,15 @@ class Search:
         try: self.close()
         except Exception: pass
 
-    def run(self, query: str, *, mode='hybrid', limit=10, prefix='', reranker=None) -> dict:
+    def run(self, query: str, *, mode='hybrid', limit=10, prefix='', reranker=None, kind='files', limits=None, cancel=None) -> dict:
+        if kind == 'functions': return _run_function_search(self, query, mode=mode, limit=limit, prefix=prefix,
+                                                            reranker=reranker, limits=limits, cancel=cancel)
+        if kind != 'files': raise ValueError('Unknown search evidence kind')
+        if limits is not None or cancel is not None: raise ValueError('Function work limits require kind=functions')
         if mode not in {'keyword', 'semantic', 'hybrid'}:
             raise ValueError('Unknown search mode')
-        if not query.strip() or len(query) > 1000 or not 1 <= limit <= 50:
+        if (type(query) is not str or not query.strip() or len(query) > 1000 or
+                type(limit) is not int or not 1 <= limit <= 50 or type(prefix) is not str):
             raise ValueError('Query must have 1–1000 characters; limit must be 1–50')
         started = time.monotonic()
         ranks, cosine = [], {}

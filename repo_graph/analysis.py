@@ -18,7 +18,8 @@ import uuid
 
 from . import analysis_native as native
 from .analysis_queue import QueueLimits, collect_files, _identity as queue_identity
-from .search import connect, code_identity as writer_code_identity, begin_attempt, record_attempt
+from .search import (connect, code_identity as writer_code_identity, begin_attempt,
+                     record_attempt, project_function_evidence)
 from .source import SourceRoot, PublicationError
 
 SCHEMA = 'structural-v2'
@@ -608,6 +609,10 @@ class StructuralIndex:
                     'versions': {'schema': SCHEMA, 'rules': native.RULE_VERSION, 'grammars': dict(native.PINS)},
                     'revision_dirty': dict(git_after, content_identity=source_identity),
                     'scope': 'Persistent bounded structural foundation; scale and query defaults unqualified'}
+                project_function_evidence(db, {
+                    'repository_identity': self.owner, 'source_identity': source_identity,
+                    'structural_generation': receipt['generation'],
+                    'analyzer_identity': analyzer, 'config_identity': config}, check=check)
                 values = {'schema': SCHEMA, 'repository': self.owner, 'analyzer': analyzer, 'config': config,
                           'source': source_identity, 'generation': receipt['generation'], 'receipt': encoded(receipt).decode()}
                 db.executemany('INSERT OR REPLACE INTO meta VALUES(?,?)',

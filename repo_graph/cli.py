@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import sqlite3
 import sys
+import time
 from urllib.parse import urlsplit
 
 from . import builder
@@ -108,6 +109,7 @@ def main(argv=None):
     init.add_argument('--dry-run', action='store_true', help='Print the native install plan after checking prerequisites')
     index = subs.add_parser('index', help='Embed the generated search corpus locally')
     index.add_argument('output', type=Path)
+    index.add_argument('--kind', choices=['files', 'functions'], default='files')
     index.add_argument('--semantic', action='store_true')
     index.add_argument('--reranker', action='store_true', help='Cache the optional local CPU reranker')
     index.add_argument('--offline', action='store_true', help='Use only cached embedding model files')
@@ -116,6 +118,8 @@ def main(argv=None):
         p.add_argument('output', type=Path)
         if name == 'search':
             p.add_argument('query'); p.add_argument('--limit', type=int, default=10)
+            p.add_argument('--kind', choices=['files', 'functions'], default='files')
+            p.add_argument('--limits', help='JSON object reducing function-evidence query budgets')
             p.add_argument('--prefix', default=''); p.add_argument('--mode', choices=['keyword','semantic','hybrid'], default='hybrid')
             p.add_argument('--rerank', choices=['none','local','jev'], default='none', help='Optional shortlist judgment; jev exports query and bounded source excerpts')
         else:
@@ -158,16 +162,47 @@ def main(argv=None):
             result = {}
             if parsed.semantic:
                 embedder = Embeddings(offline=parsed.offline)
-                result = embed_index(output, embedder)
+                result = embed_index(output, embedder, kind=parsed.kind)
             if parsed.reranker:
                 from .rerank import LocalReranker
                 reranker = LocalReranker(offline=parsed.offline)
                 result['reranker'] = dict(model=reranker.name, status='ready')
         else:
-            with closing(connect(output, readonly=True)) as db:
-                model = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()
-            if model and (parsed.command == 'serve' or parsed.mode != 'keyword'):
-                embedder = Embeddings(model[0], offline=True)
+            kind = getattr(parsed, 'kind', 'files')
+            if parsed.command == 'search' and parsed.limits is not None and kind != 'functions':
+                raise ValueError('--limits applies to --kind functions')
+            function_limits = None
+            if kind == 'functions':
+                from .search import EvidenceLimits
+                values = json.loads(parsed.limits) if parsed.limits is not None else {}
+                if type(values) is not dict:
+                    raise ValueError('Function limits must be a JSON object')
+                try:
+                    function_limits = EvidenceLimits(**values)
+                except TypeError:
+                    raise ValueError('Unknown function limit') from None
+            if parsed.command == 'serve' or parsed.mode != 'keyword':
+                storage_started = time.monotonic()
+                def check_model_storage():
+                    if function_limits is not None and time.monotonic() - storage_started >= function_limits.timeout_seconds:
+                        raise TimeoutError('Function search model metadata deadline exceeded')
+                with closing(connect(output, readonly=True, check=check_model_storage if function_limits is not None else None)) as db:
+                    model = db.execute('SELECT value FROM meta WHERE key=?',
+                                       ('function_model' if kind == 'functions' else 'model',)).fetchone()
+                    if parsed.command == 'serve' and model is None:
+                        model = db.execute("SELECT value FROM meta WHERE key='function_model'").fetchone()
+                    check_model_storage()
+                if function_limits is not None:
+                    from dataclasses import replace
+                    function_limits = replace(function_limits, timeout_seconds=function_limits.timeout_seconds -
+                                              (time.monotonic() - storage_started))
+                if model:
+                    try:
+                        embedder = Embeddings(model[0], offline=True)
+                    except (OSError, RuntimeError, ValueError):
+                        if parsed.command != 'serve':
+                            raise
+                        # A viewer with an unavailable optional backend still serves keyword evidence.
             engine = Search(output, embedder)
             if parsed.command == 'serve':
                 from .server import serve
@@ -176,7 +211,13 @@ def main(argv=None):
                 serve(engine, parsed.port, local_reranker=local, allow_jev=parsed.allow_jev); return 0
             from .rerank import LocalReranker, JevReranker
             reranker = LocalReranker() if parsed.rerank == 'local' else JevReranker(output) if parsed.rerank == 'jev' else None
-            result = engine.run(parsed.query, mode=parsed.mode, limit=parsed.limit, prefix=parsed.prefix, reranker=reranker)
+            options = dict(mode=parsed.mode, limit=parsed.limit, prefix=parsed.prefix, reranker=reranker)
+            if kind == 'functions':
+                options.update(kind=kind, limits=function_limits)
+            result = engine.run(parsed.query, **options)
+            if kind == 'functions':
+                from .analysis_queries import encoded
+                print(encoded(result).decode()); return 0
         print(json.dumps(result, ensure_ascii=False)); return 0
     except (OSError, RuntimeError, ValueError, sqlite3.Error, HTTPException) as error:
         print(f'repo-graph: {error}', file=sys.stderr); return 1

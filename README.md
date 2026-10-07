@@ -164,6 +164,43 @@ Git revision and admitted-source content identity are captured during indexing.
 The Git dirty boolean is unknown: repository-configured Git status can execute
 project filters, so this source-only analysis does not run it.
 
+### Function evidence in the development branch
+
+The same structural refresh derives searchable bodies for supported functions,
+methods and callable values. It retains source ranges, file digests, symbol
+membership and extraction status; bodyless signatures are excluded. Keyword
+search uses no embedding backend:
+
+```bash
+uv run repo-graph search ../repo-graph-output 'First.run' --kind functions --mode keyword
+uv run repo-graph index ../repo-graph-output --kind functions --semantic
+uv run repo-graph search ../repo-graph-output 'cache invalidation' --kind functions --mode hybrid
+```
+
+`--prefix` selects a source file or area. Overlapping retrieved bodies appear
+once while retaining each symbol member. Excerpts carry their actual source
+range and digest, plus explicit redaction or clipping flags. Search hits and
+model rankings do not create structural facts or prove a business path.
+
+Function queries cap distinct symbol handles and passages at 50, complete JSON
+at 32 KiB, excerpts at 8 KiB and cooperative storage work at 500 ms, including
+snapshot setup. `--limits` may reduce `max_entities`, `max_response_bytes`,
+`max_excerpt_bytes` and `timeout_seconds`. Blocking model encoding is measured
+separately and cannot be preempted by that storage deadline. These are finite
+configuration ceilings; large-repository capacity and ranking quality remain
+unqualified. The API accepts the same `kind: "functions"` and `limits` at
+`POST /api/search`.
+
+`status` separates function keyword readiness from vector artifacts and observed
+backend availability. A structural generation change clears function vectors;
+repeat function indexing before semantic search. Ordinary file keyword search
+and vectors retain their separate generation. Older outputs without function
+evidence require `analyze` before selecting this scope. A failed staged
+projection preserves the previous complete index. A missing cached backend
+leaves the server's keyword search available; requested semantic searches fail
+explicitly. The server loads one cached embedding model; scopes requiring a
+different model report unavailable and can be queried through the CLI.
+
 ## Views and search
 
 System groups up to 12 source areas and their observed imports. Explore offers

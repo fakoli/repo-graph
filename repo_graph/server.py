@@ -49,7 +49,8 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 from .search import index_status
                 result = index_status(self.server.engine.output, owner=self.server.engine.owner,
-                    backend_available=self.server.engine.embedder is not None)
+                    backend_available=self.server.engine.embedder is not None,
+                    backend_model=getattr(self.server.engine.embedder, 'name', None))
             except (OSError, RuntimeError, sqlite3.Error):
                 self.respond(409, {'error': 'Index owner unavailable; reopen the original output'}); return
             result['semantic'] = result['semantic_index']['query_available']
@@ -82,6 +83,11 @@ class Handler(BaseHTTPRequestHandler):
                 result = self.server.queries.run(payload)
                 self.respond(200, encoded(result)); return
             query = payload['query']; mode = payload.get('mode', 'hybrid')
+            kind = payload.get('kind', 'files')
+            if kind not in ('files', 'functions'):
+                raise ValueError('Unknown search kind')
+            if kind == 'files' and 'limits' in payload:
+                raise ValueError('Search limits apply to functions')
             if not isinstance(query, str) or not isinstance(payload.get('prefix', ''), str):
                 raise ValueError('Query and prefix must be text')
             method = payload.get('rerank', 'none')
@@ -99,10 +105,17 @@ class Handler(BaseHTTPRequestHandler):
             if expensive and not acquired:
                 self.respond(429, {'error':'A model search is running. Try again shortly or use keywords without reranking.'}); return
             try:
-                result = self.server.engine.run(query, mode=mode, limit=10, prefix=payload.get('prefix', ''), reranker=reranker)
+                options = dict(mode=mode, limit=payload.get('limit', 10), prefix=payload.get('prefix', ''), reranker=reranker)
+                if kind == 'functions':
+                    options.update(kind=kind, limits=payload.get('limits'))
+                result = self.server.engine.run(query, **options)
             finally:
                 if acquired: self.server.search_slot.release()
-            self.respond(200, result)
+            if kind == 'functions':
+                from .analysis_queries import encoded
+                self.respond(200, encoded(result))
+            else:
+                self.respond(200, result)
         except OSError:
             self.respond(409, {'error': 'Index owner unavailable; reopen the original output'})
         except (ValueError, KeyError, TypeError, RuntimeError, sqlite3.Error) as error:

@@ -20,6 +20,129 @@ from repo_graph import source as source_module
 
 
 class SearchTests(unittest.TestCase):
+    def test_function_evidence_preserves_multilanguage_ranges_and_nested_members(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        import hashlib
+        from repo_graph.analysis import StructuralIndex
+        fixture = json.loads((Path(__file__).resolve().parents[1] / 'evaluations/code-understanding/fixtures.json').read_text())
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir()
+            originals = Path(__file__).resolve().parents[1]
+            for row in fixture['files']:
+                target = root / row['path']; target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((originals / row['path']).read_bytes())
+            index = StructuralIndex(root, out)
+            receipt = index.refresh(fixture['files'])
+            self.assertEqual(receipt['status'], 'ready', receipt)
+            for language in ('python', 'go', 'javascript', 'typescript'):
+                path = next(row['path'] for row in fixture['files'] if row['language'] == language and '/main.' in row['path'])
+                response = search.Search(out).run('café', kind='functions', mode='keyword', prefix=path, limit=50)
+                self.assertEqual(response['identities']['structural_generation'], receipt['generation'])
+                self.assertTrue(any(member['name'] == 'café' for row in response['results'] for member in row['members']))
+                for row in response['results']:
+                    raw = (root / row['path']).read_bytes(); span = row['range']
+                    self.assertEqual(row['file_sha256'], hashlib.sha256(raw).hexdigest())
+                    self.assertEqual(row['text'].encode(), raw[span['start_byte']:span['end_byte']])
+                    self.assertEqual(row['raw_digest'], hashlib.sha256(row['text'].encode()).hexdigest())
+                    self.assertEqual(row['evidence_kind'], 'static_syntax')
+            prefix = 'tests/fixtures/code-understanding/python/main.py'
+            response = search.Search(out).run('shadow', kind='functions', mode='keyword', prefix=prefix, limit=50)
+            merged = [row for row in response['results'] if any(member['name'] == 'shadow' for member in row['members'])]
+            self.assertEqual(len(merged), 1)
+            self.assertEqual((merged[0]['range']['start_byte'], merged[0]['range']['end_byte']), (374, 456))
+            self.assertEqual({member['name'] for member in merged[0]['members']}, {'shadow', 'shadow.local'})
+            self.assertEqual(response['counts']['returned_symbol_handles'],
+                len({member['symbol_id'] for row in response['results'] for member in row['members']}))
+            tiny = search.Search(out).run('shadow', kind='functions', mode='keyword', prefix=prefix,
+                                         limits=search.EvidenceLimits(max_entities=1))
+            self.assertTrue(tiny['truncated'])
+            self.assertLessEqual(tiny['counts']['returned_symbol_handles'], 1)
+            for row in tiny['results']:
+                self.assertFalse('shadow' in {member['name'] for member in row['members']} and
+                                 'shadow.local' not in {member['name'] for member in row['members']})
+            unsupported = search.Search(out).run('Worker.run', kind='functions', mode='keyword',
+                prefix='tests/fixtures/code-understanding/typescript/main.ts')
+            self.assertFalse(any(member['name'] == 'Worker.run' for row in unsupported['results'] for member in row['members']))
+
+    def test_function_evidence_cli_api_caps_invalid_limits_and_cancellation(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph.cli import main
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir()
+            (root / 'main.py').write_text('def oldFunction(): pass\n')
+            self.assertEqual(StructuralIndex(root, out).refresh(['main.py'])['status'], 'ready')
+            limits = {'max_response_bytes': 4096, 'max_excerpt_bytes': 16, 'max_entities': 1}
+            forbidden = AssertionError('Keyword function evidence must not initialize a model')
+            with patch.object(search.Embeddings, '__init__', side_effect=forbidden):
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    self.assertEqual(main(['search', str(out), 'oldFunction', '--kind', 'functions',
+                        '--mode', 'keyword', '--limits', json.dumps(limits)]), 0)
+                command = json.loads(buffer.getvalue())
+                self.assertLessEqual(len(buffer.getvalue().strip().encode()), limits['max_response_bytes'])
+                self.assertTrue(command['truncated'])
+                self.assertLessEqual(sum(len(row['text'].encode()) for row in command['results']), 16)
+                with redirect_stdout(io.StringIO()), patch('sys.stderr', new=io.StringIO()):
+                    self.assertEqual(main(['search', str(out), 'oldFunction', '--kind', 'functions',
+                        '--mode', 'semantic', '--limits', '[]']), 1)
+                with create_server(search.Search(out)) as server:
+                    thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .01}); thread.start()
+                    url = 'http://127.0.0.1:' + str(server.server_port) + '/api/search'
+                    def post(values):
+                        return urlopen(Request(url, json.dumps(values).encode(), headers={'Content-Type': 'application/json'}))
+                    try:
+                        with post({'query': 'oldFunction', 'kind': 'functions', 'mode': 'keyword', 'limits': limits}) as response:
+                            raw = response.read(); endpoint = json.loads(raw)
+                        self.assertLessEqual(len(raw), limits['max_response_bytes'])
+                        self.assertEqual(endpoint['identities'], command['identities'])
+                        self.assertEqual(endpoint['results'], command['results'])
+                        for invalid in ({'max_entities': True}, {'max_excerpt_bytes': -1},
+                                        {'max_response_bytes': 1}, {'unknown_budget': 1}, []):
+                            with self.subTest(limits=invalid), self.assertRaises(HTTPError) as caught:
+                                post({'query': 'oldFunction', 'kind': 'functions', 'mode': 'keyword', 'limits': invalid})
+                            self.assertEqual(caught.exception.code, 400); caught.exception.close()
+                    finally: server.shutdown(); thread.join()
+            before = (out / 'search.db').read_bytes()
+            def cancel(): raise InterruptedError('synthetic function query cancellation')
+            with self.assertRaises(InterruptedError):
+                search.Search(out).run('oldFunction', kind='functions', mode='keyword', cancel=cancel)
+            self.assertEqual((out / 'search.db').read_bytes(), before)
+
+    def test_serve_missing_cached_backend_keeps_keyword_functions_available(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph.cli import main
+        class FakeEmbedding:
+            name = 'synthetic-evidence-v1'
+            packed = staticmethod(lambda value: value)
+            def passages(self, texts): return [b'fresh-vector' for _ in texts]
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir()
+            (root / 'main.py').write_text('def oldFunction(): pass\n')
+            self.assertEqual(StructuralIndex(root, out).refresh(['main.py'])['status'], 'ready')
+            search.embed_index(out, FakeEmbedding(), kind='functions')
+            served = []
+            def captured_serve(engine, *args, **kwargs):
+                self.assertIsNone(engine.embedder)
+                result = engine.run('oldFunction', kind='functions', mode='keyword')
+                self.assertTrue(result['results'])
+                observed = search.index_status(out, backend_available=False)
+                self.assertTrue(observed['function_evidence']['semantic_artifact_ready'])
+                self.assertFalse(observed['function_evidence']['semantic_query_available'])
+                served.append(observed)
+            for failure in (RuntimeError('synthetic backend absent'), ValueError('synthetic model cache absent')):
+                with self.subTest(error=type(failure).__name__), \
+                        patch.object(search.Embeddings, '__init__', side_effect=failure), \
+                        patch('repo_graph.server.serve', side_effect=captured_serve), \
+                        redirect_stdout(io.StringIO()), patch('sys.stderr', new=io.StringIO()):
+                    self.assertEqual(main(['serve', str(out)]), 0)
+                    self.assertEqual(main(['search', str(out), 'oldFunction', '--kind', 'functions', '--mode', 'semantic']), 1)
+            self.assertEqual(len(served), 2)
+
     def test_captured_status_is_shared_without_source_git_or_backend_scan(self):
         from tests.test_analysis import AVAILABLE
         if not AVAILABLE:

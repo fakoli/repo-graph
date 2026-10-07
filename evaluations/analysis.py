@@ -7,6 +7,7 @@ uv run python evaluations/analysis.py --suite constructs
 uv run python evaluations/analysis.py --suite incremental
 uv run python evaluations/analysis.py --suite queries
 uv run python evaluations/analysis.py --suite coverage
+uv run python evaluations/analysis.py --suite evidence
 
 No provider calls, real-corpus download, daemon, dynamic imports of source code,
 or runtime product installation occurs. Experimental selection requires all component and finite-cost proofs.
@@ -65,6 +66,47 @@ COVERAGE_CONTROLS = {
         'sha256': '94660716d9c881c4f03e7b76bb18fa91d3554b2e2020da05c3f1fdb6092003d0',
         'origin': 'Existing keyword synopsis/full-content-digest truncation regression'},
 }
+
+# Source question selectors frozen before implementation; original locks stay authoritative.
+EVIDENCE_PROJECTION_SHA = '07437f1b84e873027bc3d7cb7a18f6acbcf54bd013d8d97fe1e75870f9ffb309'
+EVIDENCE_QUESTION_CORE_SHA = '8bc112bc0bbcaeb895b804a9c23c2dabcb998235b1e2d719c3f073debe47b47a'
+EVIDENCE_SPECS = (
+    ('PY.main.local',), ('GO.main.Local',), ('JS.main.local',), ('TS.main.local',),
+    ('PY.main.café',), ('GO.main.café',), ('JS.main.café',), ('TS.main.café',),
+    ('PY.main.First.run',), ('GO.main.First.Run',), ('JS.main.shadow.local',),
+    ('TS.main.shadow.local',), ('PY.main.shadow', 'PY.main.shadow.local'),
+    ('PY.fanout.leaf_000',), (), ('TS.main.Worker.run',),
+)
+EVIDENCE_CONTROLS = {
+    'old': ('main.py', 'def oldFunction(): pass\n', '6011d3a1e0b9f9dc2bcab9d845bb2666e47fa5458e60567c092b6676facc72b0'),
+    'new': ('main.py', 'def newFunction(): pass\n', '06fd5c8f572ecdff3d48bc36f8d08bf94f0f32bc80d34fdbafad480b47017729'),
+    'guide': ('guide.markdown', '# Object storage\nRetain historical versions of objects.\n', '9bd9095a6883b411748c77a29522c9b99de234dca6202e1c4d650396ed0d232a'),
+    'redacted': ('redacted.py', 'def redacted():\n    token = "sk-' + 'x' * 30 + '"\n    return token\n', 'eb9afac303f39696b8e5570adfada46daec89590eb4d9480ec5984531eee9ffe'),
+}
+
+
+def _evidence_questions(fixture, oracle, records):
+    """Project the existing source key; no extraction or production input includes it."""
+    declarations = {row['id']: row for row in fixture['definitions']}
+    declarations.update({row['key']: row for row in oracle['query']['declarations']})
+    questions = []
+    for number, keys in enumerate(EVIDENCE_SPECS, 1):
+        rows = [declarations[key] for key in keys]
+        path = rows[0]['path'] if rows else 'tests/fixtures/code-understanding/python/main.py'
+        query = rows[0]['name'] if rows else 'tqfourteenabsentsentinelfunction'
+        grounding = [{'path': row['path'], 'file_sha256': records[row['path']]['sha256'],
+            'name': row['name'], 'definition_kind': row.get('kind', 'function'),
+            'declaration_range': row['range'], 'declaration_sha256': hashlib.sha256(row['text'].encode()).hexdigest()}
+            for row in rows] or [{'path': path, 'file_sha256': records[path]['sha256']}]
+        questions.append({'id': 'T014-Q%02d' % number,
+            'request': {'query': query, 'kind': 'functions', 'mode': 'keyword', 'limit': 50, 'prefix': path},
+            'source_grounding': grounding,
+            'required_member_keys': list(keys) if number != 16 else [],
+            'excluded_member_keys': list(keys) if number == 16 else [],
+            'function_result_count': 0 if number == 15 else None})
+    if hashlib.sha256(json.dumps(questions, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode()).hexdigest() != EVIDENCE_QUESTION_CORE_SHA:
+        raise ValueError('Frozen T014 question projection changed')
+    return questions
 
 
 def read_json(source, path, maximum=1024 * 1024):
@@ -402,6 +444,325 @@ def constructs(root=ROOT, budget=None):
                  'framework, corpus, scale, query, platform, agent, human and release qualification is unmeasured'}
 
 
+def evidence(root=ROOT, budget=None, evidence_directory=None):
+    """Grade frozen function questions against the actual shared persisted projection."""
+    from contextlib import closing, redirect_stdout
+    from dataclasses import replace
+    import io
+    import traceback
+    from unittest.mock import patch
+    from repo_graph import analysis as index_module, search
+    from repo_graph.analysis import StructuralIndex
+    from repo_graph.cli import main as cli_main
+    from evaluations.engine_checks import _adapter_materialize
+    from evaluations.supplement_preparation import SOURCE, ORACLE, prepare_check
+    root, budget = Path(root), budget or Budget()
+    fixture, frozen = frozen_inputs(root)
+    preparation = prepare_check(root)
+    with SourceRoot(root) as source:
+        manifest, source_manifest_sha = read_json(source, SOURCE)
+        oracle, oracle_sha = read_json(source, ORACLE)
+    records = {row['path']: {key: row[key] for key in ('path', 'language', 'kind', 'sha256', 'bytes')}
+               for row in manifest['files']}
+    source_bytes = {row['path']: row['content_utf8'].encode() for row in manifest['files']}
+    questions = _evidence_questions(fixture, oracle, records)
+    controls = {}
+    for label, (path, text, expected) in EVIDENCE_CONTROLS.items():
+        raw = text.encode()
+        if hashlib.sha256(raw).hexdigest() != expected: raise ValueError('Frozen evidence control changed')
+        controls[label] = {'path': path, 'sha256': expected, 'bytes': len(raw)}
+    code_paths = ('evaluations/analysis.py', 'evaluations/engine_checks.py',
+        'evaluations/supplement_preparation.py', 'repo_graph/analysis.py', 'repo_graph/analysis_native.py',
+        'repo_graph/analysis_queue.py', 'repo_graph/analysis_queries.py', 'repo_graph/search.py',
+        'repo_graph/source.py', 'repo_graph/cli.py', 'repo_graph/server.py', 'repo_graph/__init__.py',
+        'tests/test_analysis.py', 'tests/test_search.py', 'pyproject.toml', 'uv.lock')
+    with SourceRoot(ROOT) as owner:
+        before = {path: owner.read(path, 2 * 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=20).strip()
+    if evidence_directory is not None:
+        evidence_directory = Path(evidence_directory).resolve()
+        if evidence_directory == root or root in evidence_directory.parents:
+            raise ValueError('Evidence receipts must remain outside the source checkout')
+        evidence_directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    logs = Path(tempfile.mkdtemp(prefix='evidence-', dir=evidence_directory))
+    cases, mode_receipts, parity, artifacts = [], [], [], []
+    encoded = lambda value: json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':')).encode()
+    digest = lambda value: hashlib.sha256(encoded(value)).hexdigest()
+
+    def retain(entry, event, value):
+        name = entry['id'] + '-%02d-' % len(entry.get('artifacts', [])) + event + '.json'
+        write_result(logs, name, value, 2 * 1024 * 1024)
+        raw = (logs / name).read_bytes()
+        proof = {'name': name, 'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw)}
+        entry.setdefault('artifacts', []).append(proof); artifacts.append(proof)
+
+    def run(entry, operation):
+        begun = time.monotonic()
+        try:
+            operation()
+            entry['status'] = 'passed'
+        except Exception as error:
+            retain(entry, 'failure', {'error_kind': type(error).__name__, 'reason': str(error),
+                'traceback': traceback.format_exc()})
+            entry.update(status='failed', error_kind=type(error).__name__,
+                reason='Function evidence contract failed; full exception retained privately')
+        entry['elapsed_seconds'] = time.monotonic() - begun
+        cases.append(entry)
+
+    def refresh(index, entries, entry, mode, concurrency):
+        receipt = index.refresh(entries, mode=mode, concurrency=concurrency)
+        retain(entry, 'refresh', receipt)
+        entry.setdefault('attempts', []).append({'status': receipt['status'], 'published': receipt['published'],
+            'generation': receipt.get('generation'), 'source_identity': receipt.get('source_identity'),
+            'resources': {key: value for key, value in receipt['resources'].items()
+                if type(value) in (int, float, bool)}})
+        return receipt
+
+    def definitions(index):
+        return {row['id']: row for row in index.read_facts('definitions')}
+
+    def query(index, blobs, declarations, entry, request, limits=None):
+        begun = time.monotonic()
+        result = search.Search(index.output).run(**request, limits=limits)
+        elapsed = time.monotonic() - begun
+        retain(entry, 'response', result)
+        applied = result['budgets']
+        assert len(encoded(result)) <= applied['max_response_bytes']
+        meta = index.metadata()
+        identities = result['identities']
+        for key, expected in (('repository_identity', index.owner), ('source_identity', meta['source_identity']),
+                ('structural_generation', meta['generation']), ('analyzer_identity', meta['analyzer_identity']),
+                ('config_identity', meta['config_identity'])):
+            assert identities[key] == expected, (key, identities, meta)
+        assert re.fullmatch('[0-9a-f]{64}', identities['evidence_generation'])
+        members, intervals, normalized, excerpt_bytes = {}, {}, [], 0
+        for row in result['results']:
+            raw = blobs[row['path']]; span = row['range']; lo, hi = span['start_byte'], span['end_byte']
+            assert 0 <= lo <= hi <= len(raw)
+            assert row['file_sha256'] == hashlib.sha256(raw).hexdigest()
+            assert row['evidence_kind'] == 'static_syntax'
+            assert span['start_line'] == raw[:lo].count(b'\n') + 1
+            assert span['end_line'] == raw[:max(lo, hi - 1)].count(b'\n') + 1
+            assert row['raw_digest'] == hashlib.sha256(raw[lo:hi]).hexdigest()
+            assert type(row['redacted']) is bool and type(row['excerpt_truncated']) is bool
+            if not row['redacted']: assert row['text'].encode() == raw[lo:hi]
+            excerpt_bytes += len(row['text'].encode())
+            identity = row['path'], row['file_sha256']
+            if hi > lo:
+                assert all(hi <= start or end <= lo for start, end in intervals.setdefault(identity, []))
+                intervals[identity].append((lo, hi))
+            for member in row['members']:
+                definition = declarations[member['symbol_id']]
+                assert definition['callable'] is True and definition['kind'] in ('function', 'method', 'function_value')
+                assert member['name'] == definition['name'] and member['kind'] == definition['kind']
+                assert member['range'] == definition['range'] and definition['path'] == row['path']
+                assert definition['provenance']['source_sha256'] == row['file_sha256']
+                assert row['language'] == definition['language']
+                assert row['extraction_state'] == 'parsed'  # All frozen/control source files in this suite are parsed.
+                members[member['symbol_id']] = member
+            normalized.append({key: row[key] for key in ('path', 'file_sha256', 'range', 'raw_digest',
+                'redacted', 'excerpt_truncated', 'members')})
+        assert excerpt_bytes <= applied['max_excerpt_bytes']
+        assert len(members) <= applied['max_entities']
+        assert result['counts']['returned_symbol_handles'] == len(members)
+        entry.setdefault('observations', []).append({'identities': identities, 'budgets': applied,
+            'counts': result['counts'], 'truncated': result['truncated'], 'stop_reason': result['stop_reason'],
+            'response_sha256': digest(result), 'response_bytes': len(encoded(result)),
+            'normalized_rows_sha256': digest(normalized), 'excerpt_bytes': excerpt_bytes,
+            'elapsed_seconds': elapsed})
+        return result, normalized, members
+
+    class FakeEmbedding:
+        name = 'synthetic-evidence-v1'
+        packed = staticmethod(lambda value: value)
+        def passages(self, texts): return [b'fresh-vector' for _ in texts]
+
+    with tempfile.TemporaryDirectory(prefix='repo-graph-function-source-') as temporary:
+        directory = Path(temporary); source = directory / 'source'; control = directory / 'controls'
+        source.mkdir(); control.mkdir(); _adapter_materialize(source, source_bytes)
+        for mode, concurrency in (('serial', 1), ('queued', 2)):
+            label = mode + str(concurrency)
+            index = StructuralIndex(source, directory / (label + '-functions'), budget=budget)
+            setup = {'id': label + '-snapshot', 'mode': label}
+            receipt = refresh(index, list(records.values()), setup, mode, concurrency)
+            assert receipt['status'] == 'ready' and receipt['published'], receipt
+            declared = definitions(index)
+            fact_rows = {kind: list(index.read_facts(kind)) for kind in
+                         ('definitions', 'sites', 'imports', 'scopes', 'relationships')}
+            mode_receipts.append({'mode': mode, 'concurrency': concurrency, 'index': setup['attempts'][0],
+                'artifacts': setup['artifacts'], 'facts_sha256': digest(fact_rows),
+                'unresolved_sites': sum(row['certainty'] == 'unresolved' for row in fact_rows['sites']),
+                'reference_sites': sum(row['role'] == 'reference' for row in fact_rows['sites'])})
+            proofs = []
+            for question in questions:
+                entry = {'id': label + '-' + question['id'], 'mode': label, 'question_id': question['id']}
+                def grade_question(question=question, entry=entry):
+                    result, normalized, members = query(index, source_bytes, declared, entry, question['request'])
+                    actual = {(member['name'], json.dumps(member['range'], sort_keys=True)) for member in members.values()}
+                    for expected in question['source_grounding']:
+                        if 'name' not in expected: continue
+                        key = expected['name'], json.dumps(expected['declaration_range'], sort_keys=True)
+                        assert (key in actual) is bool(question['required_member_keys'])
+                    if question['function_result_count'] == 0:
+                        assert result['results'] == [] and not result['truncated'] and result['stop_reason'] is None
+                    if question['id'] == 'T014-Q13':
+                        blocks = [row for row in result['results'] if any(member['name'] == 'shadow' for member in row['members'])]
+                        assert len(blocks) == 1
+                        assert blocks[0]['range']['start_byte'] == 374 and blocks[0]['range']['end_byte'] == 456
+                        assert {'shadow', 'shadow.local'} <= {member['name'] for member in blocks[0]['members']}
+                    entry['required_member_keys'] = question['required_member_keys']
+                    entry['excluded_member_keys'] = question['excluded_member_keys']
+                    proofs.append({'id': question['id'], 'rows_sha256': digest(normalized)})
+                run(entry, grade_question)
+            parity.append({'mode': label, 'questions_sha256': digest(proofs), 'facts_sha256': digest(fact_rows)})
+            old = {EVIDENCE_CONTROLS[key][0]: EVIDENCE_CONTROLS[key][1].encode() for key in ('old', 'guide')}
+            _adapter_materialize(control, old)
+            controlled = StructuralIndex(control, directory / (label + '-control'), budget=budget)
+            def stage(entries, entry):
+                result = refresh(controlled, entries, entry, mode, concurrency)
+                assert result['status'] == 'ready' and result['published'], result
+                return result
+            state = {}
+            for number in range(1, 7):
+                entry = {'id': label + '-T014-C%02d' % number, 'mode': label, 'control': number}
+                def grade_control(number=number, entry=entry):
+                    if number == 1:
+                        with redirect_stdout(io.StringIO()):
+                            assert cli_main(['map', str(control), '--output', str(controlled.output)]) == 0
+                        graph = json.loads((controlled.output / 'graph.json').read_text())
+                        state['map'] = {key: graph[key] for key in ('files', 'file_count', 'tree', 'dependencies', 'scope_edges', 'system')}
+                        state['keyword'] = search.Search(controlled.output).run('oldFunction', mode='keyword')['results']
+                        search.embed_index(controlled.output, FakeEmbedding())
+                        with closing(search.connect(controlled.output, readonly=True)) as db:
+                            state['file_vectors'] = [tuple(row) for row in db.execute('SELECT path,vector FROM docs ORDER BY path')]
+                        stage(['main.py'], entry)
+                        assert search.Search(controlled.output).run('oldFunction', mode='keyword')['results'] == state['keyword']
+                        with redirect_stdout(io.StringIO()):
+                            assert cli_main(['map', str(control), '--output', str(controlled.output)]) == 0
+                        graph = json.loads((controlled.output / 'graph.json').read_text())
+                        assert {key: graph[key] for key in state['map']} == state['map']
+                        result, _, _ = query(controlled, old, definitions(controlled), entry,
+                            {'query': 'oldFunction', 'kind': 'functions', 'mode': 'keyword'})
+                        assert any(member['name'] == 'oldFunction' for row in result['results'] for member in row['members'])
+                    elif number == 2:
+                        previous = (controlled.output / 'search.db').read_bytes()
+                        projector = search.project_function_evidence
+                        _adapter_materialize(control, {'main.py': EVIDENCE_CONTROLS['new'][1].encode()})
+                        def exhausted(db, identity, *, check, limits=None):
+                            return projector(db, identity, check=check, limits=search.FunctionProjectionLimits(max_body_bytes=1))
+                        with patch.object(index_module, 'project_function_evidence', exhausted):
+                            failed = refresh(controlled, ['main.py'], entry, mode, concurrency)
+                        assert failed['status'] == 'failed' and not failed['published']
+                        assert (controlled.output / 'search.db').read_bytes() == previous
+                        _adapter_materialize(control, old); stage(['main.py'], entry)
+                        # The frozen pre-feature file reader ignores the additive projection tables.
+                        legacy = logs / (label + '-legacy'); (legacy / 'repo_graph').mkdir(parents=True)
+                        old_commit = '3d03ea19e504cc46a7e68f9964dcaf822c394c6f'
+                        source_hashes = {}
+                        for filename in ('search.py', 'source.py', '__init__.py'):
+                            raw = subprocess.check_output(['git', 'show', old_commit + ':repo_graph/' + filename], cwd=ROOT)
+                            (legacy / 'repo_graph' / filename).write_bytes(raw); source_hashes[filename] = hashlib.sha256(raw).hexdigest()
+                        script = 'import sys,json;sys.path.insert(0,sys.argv[1]);from repo_graph.search import Search;print(json.dumps(Search(__import__("pathlib").Path(sys.argv[2])).run("oldFunction",mode="keyword")))'
+                        child = subprocess.run([sys.executable, '-S', '-c', script, str(legacy), str(controlled.output)],
+                            text=True, capture_output=True, timeout=5, check=True)
+                        observed = json.loads(child.stdout)
+                        retain(entry, 'legacy-reader', {'commit': old_commit, 'sha256': source_hashes, 'response': observed})
+                        assert observed['results'] == state['keyword']
+                    elif number == 3:
+                        for mutation in ('content', 'evidence_config', 'model'):
+                            _adapter_materialize(control, old); stage(['main.py'], entry)
+                            with closing(search.connect(controlled.output)) as db, db:
+                                db.execute('UPDATE function_docs SET vector=NULL'); db.execute("DELETE FROM meta WHERE key='function_model'")
+                            class ConcurrentEmbedding(FakeEmbedding):
+                                def passages(self, texts):
+                                    if mutation == 'content':
+                                        _adapter_materialize(control, {'main.py': EVIDENCE_CONTROLS['new'][1].encode()})
+                                        stage(['main.py'], entry)
+                                    elif mutation == 'evidence_config':
+                                        projector = search.project_function_evidence
+                                        def configured(db, identity, *, check, limits=None):
+                                            return projector(db, identity, check=check,
+                                                limits=replace(search.FunctionProjectionLimits(), max_window_bytes=64))
+                                        with patch.object(index_module, 'project_function_evidence', configured): stage(['main.py'], entry)
+                                    else:
+                                        with closing(search.connect(controlled.output)) as db, db:
+                                            db.execute("INSERT OR REPLACE INTO meta VALUES('function_model','synthetic-evidence-v2')")
+                                    return [b'stale-vector' for _ in texts]
+                            try: search.embed_index(controlled.output, ConcurrentEmbedding(), kind='functions')
+                            except RuntimeError: pass
+                            else: raise AssertionError('Old function vectors were admitted after a remap/model/config change')
+                            with closing(search.connect(controlled.output, readonly=True)) as db:
+                                assert all(row[0] is None for row in db.execute('SELECT vector FROM function_docs'))
+                                assert [tuple(row) for row in db.execute('SELECT path,vector FROM docs ORDER BY path')] == state['file_vectors']
+                            entry.setdefault('CAS_mutations_rejected', []).append(mutation)
+                        _adapter_materialize(control, old); stage(['main.py'], entry)
+                        with closing(search.connect(controlled.output)) as db, db:
+                            db.execute("DELETE FROM meta WHERE key='function_model'")
+                        embedded = search.embed_index(controlled.output, FakeEmbedding(), kind='functions')
+                        retain(entry, 'matching-embedding', embedded); assert embedded['embedded'] > 0
+                        assert search.embed_index(controlled.output, FakeEmbedding(), kind='functions')['reused'] > 0
+                    elif number == 4:
+                        raw = EVIDENCE_CONTROLS['redacted'][1].encode(); _adapter_materialize(control, {'redacted.py': raw})
+                        stage(['redacted.py'], entry)
+                        result, _, _ = query(controlled, {'redacted.py': raw}, definitions(controlled), entry,
+                            {'query': 'redacted', 'kind': 'functions', 'mode': 'keyword'})
+                        assert result['results'] and all(row['redacted'] for row in result['results'])
+                        assert 'sk-' + 'x' * 30 not in json.dumps(result)
+                    elif number == 5:
+                        for cap in (128, 0):
+                            result, _, _ = query(index, source_bytes, declared, entry,
+                                {'query': 'hub', 'kind': 'functions', 'mode': 'keyword',
+                                 'prefix': oracle['query']['source_path']},
+                                search.EvidenceLimits(max_response_bytes=8192, max_excerpt_bytes=cap))
+                            assert result['truncated'] and result['results']
+                            assert all(row['excerpt_truncated'] for row in result['results'])
+                        try:
+                            search.Search(index.output).run('hub', kind='functions', mode='keyword',
+                                limits=search.EvidenceLimits(max_response_bytes=1))
+                        except ValueError: pass
+                        else: raise AssertionError('Response smaller than its minimum envelope was not rejected')
+                    else:
+                        script = ('import sys,json;from pathlib import Path;from repo_graph.search import Search,index_status;'
+                            'out=Path(sys.argv[1]);result=Search(out).run("café",kind="functions",mode="keyword",prefix=sys.argv[2]);'
+                            'print(json.dumps({"response":result,"status":index_status(out,backend_available=False),'
+                            '"optional_loaded":[key for key in ("numpy","fastembed","tree_sitter") if key in sys.modules]}))')
+                        child = subprocess.run([sys.executable, '-S', '-c', script, str(index.output),
+                            'tests/fixtures/code-understanding/python/main.py'], cwd=ROOT,
+                            text=True, capture_output=True, timeout=5, check=True)
+                        observed = json.loads(child.stdout); retain(entry, 'missing-backend', observed)
+                        assert observed['optional_loaded'] == [] and observed['response']['results']
+                        with patch.object(search.Embeddings, '__init__', side_effect=AssertionError('No implicit model initialization')):
+                            assert search.Search(index.output).run('café', kind='functions', mode='keyword')['results']
+                            try: search.Search(index.output).run('café', kind='functions', mode='semantic')
+                            except RuntimeError: pass
+                            else: raise AssertionError('Unindexed/no-backend function semantic query silently fell back')
+                run(entry, grade_control)
+    checks = [{'id': 'serial_queued_source_evidence_parity', 'status': 'passed' if len(parity) == 2 and
+        parity[0]['questions_sha256'] == parity[1]['questions_sha256'] and parity[0]['facts_sha256'] == parity[1]['facts_sha256'] else 'failed'}]
+    with SourceRoot(ROOT) as owner:
+        after = {path: owner.read(path, 2 * 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    checks.append({'id': 'implementation_stable', 'status': 'passed' if before == after else 'failed'})
+    failures = [entry for entry in cases + checks if entry['status'] != 'passed']
+    result = {'schema_version': 1, 'suite': 'evidence', 'status': 'failed' if failures else 'passed',
+        'source_identity': {'inputs': frozen, 'supplement_source_sha256': source_manifest_sha,
+            'supplement_oracle_sha256': oracle_sha, 'supplement_identity': preparation['base_source_identity'],
+            'frozen_projection_sha256': EVIDENCE_PROJECTION_SHA, 'portable_question_core_sha256': EVIDENCE_QUESTION_CORE_SHA,
+            'controls': controls, 'implementation': {'commit': revision, 'sha256': before}},
+        'implementation_after': {'commit': revision, 'sha256': after}, 'case_results': cases,
+        'checks': checks, 'failures': failures, 'coverage_failures': [], 'modes': mode_receipts,
+        'counts': {'questions': 16, 'question_mode_runs': 32, 'control_groups': 6, 'control_mode_runs': 12,
+            'checks': len(cases) + len(checks), 'passed': len(cases) + len(checks) - len(failures)},
+        'environment': environment(), 'private_artifacts': artifacts,
+        'zero_case_scope': {'model_ranking_quality': 0, 'human_UX': 0, 'frameworks': 0,
+            'real_corpora': 0, 'scale': 0, 'new_platform_installations': 0, 'runtime_target_enumeration': 0},
+        'qualification_complete': False, 'limits_qualified': False,
+        'scope': 'Frozen selected source evidence/membership/digest/dedup and storage controls only; '
+                 'AI source review is not human UX. Fake vectors qualify CAS/storage only, not semantic ranking.'}
+    if len(encoded(result)) > 192 * 1024:
+        raise ValueError('T014 receipt exceeds its frozen 192 KiB representation cap; raw observations retained privately')
+    return result
+
+
 def record_structural(root, task, result, maximum):
     """Replace one structural task, retaining its earlier recorded proofs."""
     with SourceRoot(root) as source:
@@ -409,7 +770,7 @@ def record_structural(root, task, result, maximum):
     if (type(report) is not dict or type(report.get('schema_version')) is not int or
             report['schema_version'] != 1 or type(report.get('tasks')) is not dict or 'T009' not in report['tasks']):
         raise ValueError('Existing T009 facts evidence required')
-    preceding = {'T010': 'T009', 'T011': 'T010', 'T012': 'T011', 'T013': 'T012'}
+    preceding = {'T010': 'T009', 'T011': 'T010', 'T012': 'T011', 'T013': 'T012', 'T014': 'T013'}
     if task not in preceding or preceding[task] not in report['tasks']:
         raise ValueError('Known structural task and its preceding proof required')
     report['tasks'][task] = result
@@ -2237,21 +2598,21 @@ def main(argv=None):
                         help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
-    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage'], default='component')
+    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
-                        help='finite report cap: 2 MiB for comparison/incremental/queries/coverage, 1 MiB otherwise')
+                        help='finite report cap: 2 MiB for comparison/incremental/queries/coverage/evidence, 1 MiB otherwise')
     parser.add_argument('--max-files', type=int, default=128)
     parser.add_argument('--max-source-bytes', type=int, default=4 * 1024 * 1024)
     parser.add_argument('--max-nodes', type=int, default=200_000)
     args = parser.parse_args(argv)
-    structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012', 'coverage': 'T013'}.get(args.suite)
+    structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012', 'coverage': 'T013', 'evidence': 'T014'}.get(args.suite)
     if not (args.engine or args.screen_engines or args.compare or args.profile) and structural_task is None:
         parser.error('an engine, screening, comparison or profiling mode is required for component')
     if structural_task and (args.screen_engines or args.compare or args.profile):
         parser.error(args.suite + ' uses the shared structural owner directly')
     if args.max_result_bytes is None:
-        args.max_result_bytes = (2 if args.compare or args.suite in ('incremental', 'queries', 'coverage') else 1) * 1024 * 1024
+        args.max_result_bytes = (2 if args.compare or args.suite in ('incremental', 'queries', 'coverage', 'evidence') else 1) * 1024 * 1024
     if args.freeze_budgets and not args.profile:
         parser.error('--freeze-budgets requires --profile')
     if args.preselection_cost_report and not args.compare:
@@ -2268,9 +2629,11 @@ def main(argv=None):
         if args.max_result_bytes <= 0:
             raise ValueError('Output budget must be positive')
         if structural_task:
-            producer = {'constructs': constructs, 'incremental': incremental, 'queries': queries, 'coverage': coverage}[args.suite]
+            producer = {'constructs': constructs, 'incremental': incremental, 'queries': queries, 'coverage': coverage,
+                        'evidence': evidence}[args.suite]
+            options = {'evidence_directory': args.work_root} if args.suite == 'evidence' else {}
             result = producer(ROOT, Budget(max_files=args.max_files,
-                max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes))
+                max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes), **options)
             result['resources'] = {args.suite + '_elapsed_seconds': time.perf_counter() - started}
             size = (record_structural(ROOT, structural_task, result, args.max_result_bytes) if args.output == FACTS_OUTPUT else
                     write_result(ROOT, args.output, result, args.max_result_bytes))

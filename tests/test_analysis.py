@@ -69,6 +69,47 @@ class StructuralIndexTests(unittest.TestCase):
         for kind in ('definitions', 'sites'):
             self.assertEqual(canonical(index.read_facts(kind)), canonical(clean['facts'][kind]))
 
+    def test_function_projection_uses_captured_text_and_rolls_back_with_structural_stage(self):
+        from repo_graph import analysis as index_module
+        write_sources(self.root, {'main.py': 'def oldFunction(): pass\n'})
+        index = StructuralIndex(self.root, self.output)
+        original_read, projector = SourceRoot.read, search.project_function_evidence
+        reads = []
+        def observed_read(boundary, *args, **kwargs):
+            if boundary.root == self.root: reads.append(args[0])
+            return original_read(boundary, *args, **kwargs)
+        def captured_only(db, identity, *, check, limits=None):
+            before = list(reads)
+            forbidden = AssertionError('Projection must consume captured facts/text')
+            with patch.object(native, 'collect_file', side_effect=forbidden), \
+                    patch.object(native, 'extract', side_effect=forbidden):
+                result = projector(db, identity, check=check, limits=limits)
+            self.assertEqual(reads, before)
+            return result
+        with patch.object(SourceRoot, 'read', observed_read), \
+                patch.object(index_module, 'project_function_evidence', captured_only):
+            previous = self.ready(index, ['main.py'])
+        before = (self.output / 'search.db').read_bytes()
+        old_facts = facts(index)
+        write_sources(self.root, {'main.py': 'def newFunction(): pass\n'})
+        def exhausted(db, identity, *, check, limits=None):
+            return projector(db, identity, check=check,
+                             limits=search.FunctionProjectionLimits(max_body_bytes=1))
+        with patch.object(index_module, 'project_function_evidence', exhausted):
+            failed = index.refresh(['main.py'])
+        self.assertEqual(failed['status'], 'failed')
+        self.assertFalse(failed['published'])
+        self.assertEqual((self.output / 'search.db').read_bytes(), before)
+        reopened = StructuralIndex(self.root, self.output)
+        self.assertEqual(reopened.metadata()['generation'], previous['generation'])
+        self.assertEqual(facts(reopened), old_facts)
+        ready = self.ready(reopened, ['main.py'])
+        self.assertNotEqual(ready['generation'], previous['generation'])
+        result = search.Search(self.output).run('newFunction', kind='functions', mode='keyword')
+        self.assertEqual(result['identities']['structural_generation'], ready['generation'])
+        self.assertTrue(any(member['name'] == 'newFunction' for row in result['results'] for member in row['members']))
+        self.assertFalse(any(member['name'] == 'oldFunction' for row in result['results'] for member in row['members']))
+
     def test_captured_partial_coverage_and_failed_attempt_survive_reopen(self):
         sources = {'main.py': 'def target(): return 1\n',
             'partial.py': 'def local():\n    return 1\ndef caller():\n    return local()\n! broken [\n',
@@ -929,10 +970,12 @@ class StructuralValidationTests(unittest.TestCase):
                 'counts': {'checks': 1}, 'case_results': [{'id': 'receiver', 'status': 'passed'}],
                 'failures': [], 'coverage_failures': [{'id': 'receiver', 'status': 'failed',
                     'dimension': 'receiver_target_enumeration'}]}
-            for suite, task in (('constructs', 'T010'), ('incremental', 'T011'), ('queries', 'T012'), ('coverage', 'T013')):
+            for suite, task in (('constructs', 'T010'), ('incremental', 'T011'), ('queries', 'T012'), ('coverage', 'T013'),
+                                ('evidence', 'T014')):
                 prior = {'T009': retained, 'T010': {'status': 'passed', 'source_identity': 'retained-construct-proof'},
                          'T011': {'status': 'passed', 'source_identity': 'retained-update-proof'},
-                         'T012': {'status': 'passed', 'source_identity': 'retained-query-proof'}}
+                         'T012': {'status': 'passed', 'source_identity': 'retained-query-proof'},
+                         'T013': {'status': 'passed', 'source_identity': 'retained-coverage-proof'}}
                 path.write_text(json.dumps({'schema_version': 1, 'tasks': prior}))
                 with self.subTest(suite=suite), patch.object(analysis, 'ROOT', root), \
                         patch.object(analysis, suite, return_value=dict(result)), redirect_stdout(io.StringIO()):
@@ -953,7 +996,7 @@ class StructuralValidationTests(unittest.TestCase):
                     self.assertEqual(report['tasks'][task]['error_kind'], type(error).__name__)
                     for other in prior.keys() - {task}:
                         self.assertEqual(report['tasks'][other], prior[other])
-                if task in ('T012', 'T013'):
+                if task in ('T012', 'T013', 'T014'):
                     alternate = root / 'query-check.json'
                     alternate.write_text(json.dumps(result))
                     saved = path.read_bytes()
