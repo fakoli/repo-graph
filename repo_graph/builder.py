@@ -553,8 +553,8 @@ def main(argv=None) -> int:
     search = {'documents': 0, 'scanned': 0, 'reused': 0, 'secure_reads': False,
               'status': 'unavailable', 'reason': 'Secure source reads unavailable; metadata-only offline map'}
     if captured:
-        search.update(status='captured', kind='functions',
-            reason='Shared structural function evidence available; file catalogue not rescanned')
+        search.update(documents=None, status='captured', kind='functions',
+            reason='Captured function evidence; see index coverage for availability. File catalogue not rescanned')
     elif scan['secure_reads']:
         try:
             search = catalog(root, files, output)
@@ -575,7 +575,8 @@ def main(argv=None) -> int:
     diagram = mermaid(tree, edges)
     write_text(output / "architecture.mmd", diagram)
     write_text(output / "architecture.md", "# Repository architecture\n\n```mermaid\n" + diagram + "```\n")
-    print(f"Search: {search['documents']} documents, {search['scanned']} indexed, {search['reused']} reused")
+    print('Search: captured function evidence; no source reindexing' if search.get('kind') == 'functions' else
+          f"Search: {search['documents']} documents, {search['scanned']} indexed, {search['reused']} reused")
     print(f"{len(files)} files, {len(tree) - 1} directories, {len(dependencies)} local import links; "
           f"{scan['scanned']} scanned, {scan['reused']} cached, {scan['truncated']} truncated; Jev: {jev_status}")
     for label, name in (("Diagram", "architecture.html"), ("Graph", "graph.html"),

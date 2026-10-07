@@ -354,6 +354,8 @@ __VIEW_HELPERS__
 
   let lastSearch = '', lastResults = null, searchRequest = 0, lastSearchMode = 'hybrid', lastRerank = 'none', lastPrefix = '';
   function renderSearch() {
+    const nativeSearch=data.scan?.basis==='shared_structural_index', captured=data.scan?.identities;
+    const setup=nativeSearch ? 'repo-graph index OUTPUT --kind functions --semantic' : 'repo-graph index OUTPUT --semantic';
     selected = null; parts = []; links = []; scopeEntries = [];
     renderInspector();
     document.getElementById('map-title').textContent = 'Search the repository';
@@ -393,39 +395,66 @@ __VIEW_HELPERS__
     const results = document.createElement('div'); panel.appendChild(results);
     const show = response => {
       results.replaceChildren();
-      status.textContent = response.results.length ? `${response.results.length} results · ${response.documents.toLocaleString()} indexed files · ${Math.round(response.seconds*1000)} ms` : 'No matching files. Try another description or use keywords.';
-      if (response.rerank) status.textContent += ` · Reranker: ${response.rerank.status}${response.rerank.status === 'fallback' ? ' (local order retained)' : ''}`;
+      if(nativeSearch) {
+        RepoViews.functionSearch(response,captured);
+        const documents=response.counts.documents;
+        status.textContent=`${response.counts.returned_passages} function passages · ${response.counts.returned_symbol_handles} declaration handles · ${documents.knowledge==='exact' ? documents.value.toLocaleString()+' captured passages (exact)' : 'captured passage count unknown for this scope'} · ${Math.round(response.storage.elapsed_seconds*1000)} ms`;
+        status.textContent+=response.truncated ? ` · Partial evidence: ${(response.stop_reason || 'bounded stop').replaceAll('_',' ')}` : ' · bounded search complete';
+        if(!response.results.length)status.textContent+=' · No matching captured functions.';
+        if(rerank.value!=='none')status.textContent+=` · Rerank work: ${Math.round(response.storage.rerank_seconds*1000)} ms (order may be retained)`;
+      } else {
+        status.textContent = response.results.length ? `${response.results.length} results · ${response.documents.toLocaleString()} indexed files · ${Math.round(response.seconds*1000)} ms` : 'No matching files. Try another description or use keywords.';
+        if (response.rerank) status.textContent += ` · Reranker: ${response.rerank.status}${response.rerank.status === 'fallback' ? ' (local order retained)' : ''}`;
+      }
       for (const hit of response.results) {
         const article = document.createElement('article'); article.className = 'search-result';
         const heading = document.createElement('h2'); heading.textContent = hit.path;
-        const evidence = document.createElement('pre'); evidence.textContent = hit.evidence;
+        const evidence = document.createElement('pre'); evidence.textContent = nativeSearch ? hit.text : hit.evidence;
+        if(nativeSearch) {
+          const detail=document.createElement('p');detail.textContent=`Static syntax · lines ${hit.range.start_line}–${hit.range.end_line} · bytes ${hit.range.start_byte}–${hit.range.end_byte} · ${hit.extraction_state.replaceAll('_',' ')} · ${hit.redacted ? 'redacted' : 'captured excerpt'}${hit.excerpt_truncated ? ' · excerpt truncated' : ''}`;
+          const members=document.createElement('p');members.textContent=hit.members.map(member=>`${member.name} (${member.kind}, lines ${member.range.start_line}–${member.range.end_line})`).join(' · ');
+          article.append(heading,detail,members,evidence);
+        } else article.append(heading,evidence);
         const open = document.createElement('button'); open.type = 'button'; open.textContent = 'Open in diagram →';
-        open.addEventListener('click',() => { searchRequest++; viewMode = 'atlas'; document.getElementById('view-mode').value = 'atlas'; document.getElementById('export-csv').disabled = false; enter(hit.path.split('/').slice(0,-1).join('/')); focusPath('file:'+hit.path); });
-        article.append(heading,evidence,open); results.appendChild(article);
+        open.addEventListener('click',() => {
+          try {
+            if(nativeSearch)RepoViews.functionSearch(response,captured);
+            const parent=hit.path.split('/').slice(0,-1).join('/');
+            if(nativeSearch && !data.tree[parent]?.direct.includes(hit.path))throw new Error('Function source is absent from this captured map');
+            searchRequest++; viewMode = 'atlas'; document.getElementById('view-mode').value = 'atlas'; document.getElementById('export-csv').disabled = false; enter(parent); focusPath('file:'+hit.path);
+          } catch(error) {lastResults=null;results.replaceChildren();status.textContent=error.message;}
+        });
+        article.append(open); results.appendChild(article);
       }
     };
     if (!online) {
       submit.disabled = true; input.disabled = true; prefix.disabled = true; mode.disabled = true; rerank.disabled = true;
-      status.textContent = 'To search this map, run repo-graph serve with the output directory shown by the scan, then open its local URL. Build meaning search once with repo-graph index OUTPUT --semantic. Offline diagrams remain available in the other tabs.';
+      status.textContent = `To search this map, run repo-graph serve with the output directory shown by the scan, then open its local URL. Build meaning search once with ${setup}. Offline diagrams remain available in the other tabs.`;
     } else {
       status.textContent = 'Search the whole repository. Meaning search needs a locally embedded index.';
       statusRequest.then(state => {
         if (!state) { status.textContent = 'Search service is unavailable. Restart repo-graph serve.'; return; }
+        if(nativeSearch && (data.search?.kind!=='functions' || state.function_evidence?.keyword_query_available!==true ||
+            !RepoViews.sameSnapshot(captured,RepoViews.capturedSnapshot(state)))) {
+          lastResults=null;results.replaceChildren();submit.disabled=true;status.textContent='Captured function evidence unavailable or index changed; refresh this map.';return;
+        }
         for (const option of rerank.options) option.disabled = !(state.rerankers || ['none']).includes(option.value);
         rerank.value = (state.rerankers || ['none']).includes(lastRerank) ? lastRerank : 'none'; explain();
-        if (!state.semantic) { mode.value = 'keyword'; mode.options[0].disabled = true; mode.options[1].disabled = true; if (!lastResults) status.textContent = 'Keyword index ready. Enable meaning search with repo-graph index OUTPUT --semantic, then restart this viewer.'; }
+        if (!(nativeSearch ? state.function_evidence.semantic_query_available===true : state.semantic)) { mode.value = 'keyword'; mode.options[0].disabled = true; mode.options[1].disabled = true; if (!lastResults) status.textContent = `Keyword index ready. Enable meaning search with ${setup}, then restart this viewer.`; }
       }).catch(() => { status.textContent = 'Search service is unavailable. Restart repo-graph serve.'; });
-      if (lastResults) show(lastResults);
+      if (lastResults)try {show(lastResults);}catch(error){lastResults=null;status.textContent=error.message;}
       form.addEventListener('submit',async event => {
         event.preventDefault(); const request = ++searchRequest;
         lastSearch = input.value.trim(); if (!lastSearch) return;
         lastSearchMode = mode.value; lastRerank = rerank.value;
-        submit.disabled = true; status.textContent = 'Searching…'; results.replaceChildren();
+        submit.disabled = true; status.textContent = 'Searching…'; results.replaceChildren();lastResults=null;
         try {
-          const response = await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:lastSearch,mode:mode.value,rerank:rerank.value,prefix:prefix.value.trim()})});
-          const body = await response.json(); if (request !== searchRequest || viewMode !== 'search') return;
-          if (!response.ok) throw new Error(body.error || 'Search failed');
-          lastResults = body; show(body);
+          const payload={query:lastSearch,mode:mode.value,rerank:rerank.value,prefix:prefix.value.trim()};
+          if(nativeSearch)Object.assign(payload,{kind:'functions',limit:10,limits:{max_entities:24,max_response_bytes:32768,max_excerpt_bytes:8192,timeout_seconds:.5}});
+          const response = await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+          const body = nativeSearch ? await callsJSON(response) : await response.json(); if (request !== searchRequest || viewMode !== 'search') return;
+          if (!response.ok) throw new Error('Search unavailable');
+          show(body);lastResults = body;
         } catch (error) { if (request === searchRequest && viewMode === 'search') status.textContent = error.message; }
         finally { submit.disabled = false; }
       });

@@ -186,6 +186,48 @@ const RepoViews = (() => {
     return {id:value.id,path:value.path,range:{start_byte:span.start_byte,end_byte:span.end_byte,start_line:span.start_line,end_line:span.end_line},source_sha256:value.source_sha256};
   }
   function sameHandle(a,b) { return JSON.stringify(sourceHandle(a))===JSON.stringify(sourceHandle(b)); }
+  function functionSearch(value,captured) {
+    const identities=value?.identities;
+    for(const key of snapshotKeys) {
+      const actual=identities?.[key==='generation' ? 'structural_generation' : key];
+      if(!/^[0-9a-f]{64}$/.test(captured?.[key] || '') || actual!==captured[key])
+        throw new Error('Function evidence snapshot mismatch; refresh this map');
+    }
+    const count=value.counts, budget=value.budgets, storage=value.storage;
+    const integer=n=>Number.isSafeInteger(n) && n>=0, seconds=n=>typeof n==='number' && Number.isFinite(n) && n>=0;
+    if(value.kind!=='functions' || !/^[0-9a-f]{64}$/.test(identities.evidence_generation || '') ||
+        !Array.isArray(value.results) || value.results.length>10 || typeof value.truncated!=='boolean' ||
+        value.stop_reason!==null && !/^[a-z_]{1,128}$/.test(value.stop_reason || '') ||
+        !['exact','unknown'].includes(count?.documents?.knowledge) ||
+        !(integer(count.documents.value) || count.documents.knowledge==='unknown' && count.documents.value===null) ||
+        count.returned_passages!==value.results.length || !integer(count.returned_symbol_handles) || !integer(count.examined_candidates) ||
+        !integer(budget?.max_entities) || budget.max_entities<1 || budget.max_entities>24 ||
+        !integer(budget.max_response_bytes) || budget.max_response_bytes<1 || budget.max_response_bytes>32768 ||
+        !integer(budget.max_excerpt_bytes) || budget.max_excerpt_bytes>8192 ||
+        !seconds(budget.timeout_seconds) || budget.timeout_seconds<=0 || budget.timeout_seconds>.5 ||
+        !seconds(storage?.elapsed_seconds) || !seconds(storage.model_encode_seconds) || !seconds(storage.rerank_seconds) || storage.hard_model_deadline!==false)
+      throw new Error('Invalid bounded function evidence');
+    const handles=new Set();let bytes=0;
+    for(const row of value.results) {
+      sourceHandle({id:'passage',path:row.path,source_sha256:row.file_sha256,range:row.range});
+      if(row.evidence_kind!=='static_syntax' || !['python','javascript','typescript','go'].includes(row.language) ||
+          !['parsed','partial_parse'].includes(row.extraction_state) || typeof row.text!=='string' ||
+          !/^[0-9a-f]{64}$/.test(row.raw_digest || '') || typeof row.redacted!=='boolean' || typeof row.excerpt_truncated!=='boolean' ||
+          !Array.isArray(row.members) || !row.members.length || row.members.length>24 ||
+          row.score!==undefined && !seconds(row.score))throw new Error('Invalid captured function passage');
+      bytes+=new TextEncoder().encode(row.text).length;
+      for(const member of row.members) {
+        sourceHandle({id:member.symbol_id,path:row.path,source_sha256:row.file_sha256,range:member.range});
+        if(member.symbol_id!==`${row.path}:${member.range.start_byte}:${member.range.end_byte}` ||
+            typeof member.name!=='string' || member.name.length>4096 || !['function','method','function_value'].includes(member.kind))
+          throw new Error('Invalid captured function member');
+        handles.add(member.symbol_id);
+      }
+    }
+    if(handles.size!==count.returned_symbol_handles || handles.size>budget.max_entities || bytes>budget.max_excerpt_bytes)
+      throw new Error('Function evidence budget mismatch');
+    return value;
+  }
   function queryPage(value,operation,seed=null,captured=null) {
     for(const key of ['generation','repository_identity','source_identity','analyzer_identity']) {
       if (!/^[0-9a-f]{64}$/.test(value?.[key] || '')) throw new Error('Query capture unavailable');
@@ -386,6 +428,6 @@ const RepoViews = (() => {
     if(!fragment.startsWith('#view='))throw new Error('invalid_bookmark');
     return savedView(JSON.parse(decodeURIComponent(fragment.slice(6))));
   }
-  return {metrics,ordered,layout,csv,systemOverview,indexStatus,sourceHandle,queryPage,callScene,sourceEvidence,impactSelector,impactPage,impactScene,capturedSnapshot,sameSnapshot,savedView,bookmarkFragment,bookmarkView};
+  return {metrics,ordered,layout,csv,systemOverview,indexStatus,sourceHandle,functionSearch,queryPage,callScene,sourceEvidence,impactSelector,impactPage,impactScene,capturedSnapshot,sameSnapshot,savedView,bookmarkFragment,bookmarkView};
 })();
 if (typeof module !== 'undefined') module.exports = RepoViews;

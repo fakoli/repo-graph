@@ -16,15 +16,13 @@ if (!process.env.REPO_GRAPH_UX_OUTPUT) {
   writeFileSync(resolve(repo,'src','component00','main.py'),'def process():\n    """Apply access control permissions to a request."""\n'+
     'def view_leaf():\n    return 1\ndef view_middle():\n    return view_leaf()\ndef view_entry():\n    view_middle()\n    unknown_handler()\n'+
     'def view_callback(fn):\n    return fn()\ndef view_fanout():\n'+Array(30).fill('    view_leaf()\n').join(''));
-  writeFileSync(resolve(repo,'src','component01','main.py'),'from src.component00.main import view_leaf\nimport unavailable_service\n\ndef impact_caller():\n    return view_leaf()\n');
+  writeFileSync(resolve(repo,'src','component01','main.py'),'from ..component00.main import view_leaf\nimport unavailable_service\n\ndef impact_caller():\n    return view_leaf()\n');
   const git=(...args)=>{const result=spawnSync('git',['-C',repo,'-c','core.hooksPath=/dev/null','-c','user.name=Fixture','-c','user.email=fixture@example.invalid',...args],{encoding:'utf8'});assert.equal(result.status,0,result.stderr);return result.stdout.trim();};
   git('init','-q');
   const changedPath=resolve(repo,'src','component00','main.py'),postimage=readFileSync(changedPath,'utf8');
   writeFileSync(resolve(repo,'obsolete.py'),'def removed():\n    return 1\n');
   writeFileSync(changedPath,postimage.replace('    return 1\n','    return 0\n'));git('add','.');git('commit','-qm','Synthetic base');gitBase=git('rev-parse','HEAD');
   writeFileSync(changedPath,postimage);rmSync(resolve(repo,'obsolete.py'));git('add','.');git('commit','-qm','Synthetic body change and deletion');
-  const scan=spawnSync(python,['scripts/repo_graph.py','map',repo,'--output',output],{encoding:'utf8'});
-  assert.equal(scan.status,0,scan.stderr);
   const analysis=spawnSync(python,['scripts/repo_graph.py','analyze',repo,'--output',output,'--mode','serial','--git-base',gitBase],{encoding:'utf8'});
   assert.equal(analysis.status,0,analysis.stderr);
   const captured=spawnSync(python,['scripts/repo_graph.py','map',repo,'--output',output],{encoding:'utf8'});
@@ -39,7 +37,8 @@ const browser=await chromium.launch({executablePath:process.env.REPO_GRAPH_CHROM
 const context=await browser.newContext({viewport:{width:1440,height:1000}});
 const page=await context.newPage(), errors=[];
 page.on('pageerror',error=>errors.push(error.message));
-const checks=[],callsResponses=[],responseReads=[],callsChecks=[],savedChecks=[],savedObservations=[],impactChecks=[],impactObservations=[];
+const checks=[],callsResponses=[],responseReads=[],callsChecks=[],savedChecks=[],savedObservations=[],impactChecks=[],impactObservations=[],searchChecks=[],searchResponses=[];
+page.on('response',response=>{if(new URL(response.url()).pathname==='/api/search' && response.status()===200)responseReads.push((async()=>{try{searchResponses.push({request:response.request().postDataJSON(),response:await response.json()});}catch{}})());});
 try {
   const start=Date.now(); await page.goto(url); await page.locator('.node').first().waitFor();
   const loadMs=Date.now()-start;
@@ -161,10 +160,43 @@ try {
     await page.getByLabel('Rerank results').selectOption(method);
     if(method==='jev') assert.ok((await page.locator('.search-status').first().innerText()).includes('TypeSafe'));
   }
+  if(!process.env.REPO_GRAPH_UX_OUTPUT) {
+    assert.equal(graph.search.kind,'functions');assert.equal(graph.search.documents,null);
+    assert.equal(liveStatus.semantic_index.catalog_receipt,null);
+    assert.equal(liveStatus.function_evidence.keyword_query_available,true);
+    assert.equal(await page.getByLabel('Search method').locator('option[value="semantic"]').evaluate(element=>element.disabled),!liveStatus.function_evidence.semantic_query_available);
+    if(!liveStatus.function_evidence.semantic_query_available)assert.match(await page.locator('.search-status[role="status"]').innerText(),/index OUTPUT --kind functions --semantic/);
+    const searchFunction=async()=>{await page.getByLabel('Repository search query').fill('view_leaf');await page.getByRole('button',{name:'Search',exact:true}).click();};
+    await searchFunction();await page.locator('.search-result').first().waitFor();await Promise.all(responseReads);
+    const current=searchResponses.at(-1);assert.equal(current.request.kind,'functions');assert.equal(current.response.kind,'functions');
+    for(const key of ['generation','repository_identity','source_identity','analyzer_identity','config_identity'])
+      assert.equal(current.response.identities[key==='generation' ? 'structural_generation' : key],graph.scan.identities[key]);
+    const hit=current.response.results.find(row=>row.members.some(member=>member.name==='view_leaf'));
+    assert.ok(hit);assert.equal(hit.path,'src/component00/main.py');assert.ok(!Object.hasOwn(hit,'evidence'));
+    const raw=readFileSync(resolve(repo,hit.path));assert.equal(hit.text,raw.subarray(hit.range.start_byte,hit.range.end_byte).toString('utf8'));
+    assert.match(await page.locator('.search-result').allInnerTexts().then(rows=>rows.join(' ')),/view_leaf.*Static syntax|Static syntax.*view_leaf/s);
+    searchChecks.push('fresh analyze then captured map without legacy catalogue uses current bounded function-only identifier evidence/ranges and all five identities');
+    // Each refusal wraps a real native response; forged transports must publish no excerpts or navigation.
+    for(const key of ['structural_generation','repository_identity','source_identity','analyzer_identity','config_identity','missing','legacy']) {
+      await page.route('**/api/search',async route=>{const response=await route.fetch();const body=await response.json();
+        if(key==='missing')delete body.identities;
+        else if(key==='legacy'){delete body.identities;body.kind='files';body.results=[{path:'src/component00/main.py',evidence:'OLD_CATALOG_EVIDENCE'}];body.documents=75;body.seconds=0;}
+        else body.identities[key]='f'.repeat(64);
+        await route.fulfill({response,body:JSON.stringify(body)});});
+      await searchFunction();await page.waitForFunction(()=>document.querySelector('.search-status[role="status"]').textContent.includes('Function evidence snapshot mismatch'));
+      assert.equal(await page.locator('.search-result').count(),0);assert.doesNotMatch(await page.locator('.search-panel').innerText(),/OLD_CATALOG_EVIDENCE/);
+      await page.unroute('**/api/search');
+    }
+    searchChecks.push('stale or foreign values for every captured identity, missing identity and transported old file evidence refuse excerpts/current navigation');
+    await page.route('**/api/search',async route=>{const request=route.request().postDataJSON();const response=await route.fetch({postData:JSON.stringify({...request,limits:{...request.limits,max_excerpt_bytes:16}})});await route.fulfill({response});});
+    await searchFunction();await page.locator('.search-result').first().waitFor();assert.match(await page.locator('.search-status[role="status"]').innerText(),/Partial evidence: excerpt budget exceeded/);
+    assert.match(await page.locator('.search-result').first().innerText(),/excerpt truncated/);await page.unroute('**/api/search');
+    searchChecks.push('actual native excerpt limit retains bounded partial passages and explicit stop reason');
+  }
   await page.getByLabel('Repository search query').fill(process.env.REPO_GRAPH_UX_QUERY || 'access control permissions');
   await page.getByRole('button',{name:'Search',exact:true}).click();
   await page.locator('.search-result').first().waitFor({timeout:30000});
-  if(method!=='none') assert.match(await page.locator('.search-status[role="status"]').innerText(),/Reranker: (used|cached)/);
+  if(method!=='none') assert.match(await page.locator('.search-status[role="status"]').innerText(),graph.scan?.basis==='shared_structural_index' ? /Rerank work:/ : /Reranker: (used|cached)/);
   const resultPath=await page.locator('.search-result h2').first().innerText();
   const navigateStart=Date.now();
   await page.getByRole('button',{name:'Open in diagram →'}).first().click();
@@ -189,6 +221,7 @@ try {
   await page.locator('.search-result').first().waitFor({timeout:30000});
   const scopedPaths=await page.locator('.search-result h2').allInnerTexts();
   assert.ok(scopedPaths.every(path=>path===prefix || path.startsWith(prefix+'/'))); checks.push('visible path scope restricts results');
+  if(graph.scan?.basis==='shared_structural_index')assert.match(await page.locator('.search-status[role="status"]').innerText(),/captured passage count unknown for this scope/);
   await page.setViewportSize({width:800,height:900});
   assert.ok(await page.getByRole('button',{name:'Search',exact:true}).isVisible()); checks.push('narrow viewport search');
   await page.setViewportSize({width:360,height:900});
@@ -468,7 +501,7 @@ try {
     assert.ok((await impactScene()).filter(value=>value.type==='site').every(value=>value.relation==='import'));
     await findImpact('src/component01/main.py','import','unresolved');await collectImpact();
     assert.match(await page.locator('.impact-element[data-type="site"]').innerText(),/Import · unresolved.*Unresolved target.*not exhaustive/s);
-    assert.equal(await page.getByLabel('Impact relation',{exact:true}).locator('option[value="contract"]').isDisabled(),true);
+    assert.equal(await page.getByLabel('Impact relation',{exact:true}).locator('option[value="contract"]').evaluate(element=>element.disabled),true);
     assert.match(await page.locator('.impact-panel').innerText(),/Contract filters unavailable/);
     assert.equal(callsResponses.some(value=>value.request.relations?.includes('contract')),false);
     impactChecks.push('relation/certainty filters use actual backend rows; unknown external import explicit; Contracts disabled without requests');
@@ -476,7 +509,7 @@ try {
     await findImpact('src/component00/main.py','import');
     await collectImpact();const physicalImport=page.locator('.impact-element[data-relation="import"]').filter({hasText:'src/component01/main.py'}).first();
     await physicalImport.getByRole('button',{name:'Inspect import',exact:true}).click();await page.locator('.impact-panel .call-evidence pre').waitFor();
-    assert.match(await page.locator('.impact-panel .call-evidence pre').innerText(),/from src\.component00\.main import view_leaf/);
+    assert.match(await page.locator('.impact-panel .call-evidence pre').innerText(),/from \.\.component00\.main import view_leaf/);
     assert.match(await page.locator('.impact-panel .call-evidence').innerText(),/excerpt digest verified/);await page.keyboard.press('Escape');
     assert.equal(await physicalImport.getByRole('button',{name:'Inspect import',exact:true}).evaluate(button=>button===document.activeElement),true);
     await page.route('**/api/source',async route=>{const response=await route.fetch();const body=await response.json();body.impact_identity='0'.repeat(64);await route.fulfill({response,body:JSON.stringify(body)});});
@@ -540,12 +573,12 @@ try {
   await Promise.all(responseReads);
   assert.deepEqual(errors,[]); assert.ok(loadMs<5000); checks.push('no browser errors; load under 5 seconds');
   if(process.env.REPO_GRAPH_UX_REPORT) {
-    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',reranker:method,loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,savedChecks,savedObservations,impactChecks,impactObservations,callsResponses,browserErrors:errors},null,2)+'\n');
+    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',reranker:method,loadMs,searchToGraphMs,systemMetrics,checks,searchChecks,searchResponses,callsChecks,savedChecks,savedObservations,impactChecks,impactObservations,callsResponses,browserErrors:errors},null,2)+'\n');
   }
-  console.log(JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,savedChecks,impactChecks,browserErrors:errors}));
+  console.log(JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,searchToGraphMs,systemMetrics,checks,searchChecks,callsChecks,savedChecks,impactChecks,browserErrors:errors}));
 } catch(error) {
   if(process.env.REPO_GRAPH_UX_REPORT) {
-    writeFileSync(process.env.REPO_GRAPH_UX_REPORT+'-failure.json',JSON.stringify({checks,callsChecks,savedChecks,savedObservations,impactChecks,impactObservations,callsResponses,browserErrors:errors,failure:{name:error.name,message:error.message,stack:error.stack}},null,2)+'\n');
+    writeFileSync(process.env.REPO_GRAPH_UX_REPORT+'-failure.json',JSON.stringify({checks,searchChecks,searchResponses,callsChecks,savedChecks,savedObservations,impactChecks,impactObservations,callsResponses,browserErrors:errors,failure:{name:error.name,message:error.message,stack:error.stack}},null,2)+'\n');
     await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-failure.png',fullPage:true}).catch(()=>{});
   }
   throw error;
