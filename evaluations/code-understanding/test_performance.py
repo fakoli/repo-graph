@@ -19,6 +19,238 @@ from evaluations.acceptance import PINS
 
 
 class ObservedProfile(unittest.TestCase):
+    def test_representative_flat_manifest_rejects_foreign_duplicate_and_changed_records(self):
+        rows = [dict(path='src/' + str(number).zfill(4) + '.py', language='python',
+                     kind='source', bytes=1, sha256=hashlib.sha256(b'x').hexdigest())
+                for number in range(2976)]
+        rows += [dict(path='package.json', language='javascript', kind='configuration', bytes=2,
+                      sha256=hashlib.sha256(b'{}').hexdigest()),
+                 dict(path='pyproject.toml', language='python', kind='configuration', bytes=3,
+                      sha256=hashlib.sha256(b'# x').hexdigest())]
+        rows.sort(key=lambda row: row['path'])
+        canonical = json.dumps(rows, sort_keys=True, separators=(',', ':')).encode()
+        raw = b''.join(json.dumps(row, sort_keys=True, separators=(',', ':')).encode() + b'\n' for row in rows)
+        with tempfile.TemporaryDirectory(prefix='representative-manifest-') as scratch:
+            directory, other = Path(scratch) / 'protocol', Path(scratch) / 'other'
+            directory.mkdir(); other.mkdir()
+            (directory / 'records.jsonl').write_bytes(raw)
+            with performance.SourceRoot(directory) as owner, performance.SourceRoot(other) as foreign:
+                loaded = dict(protocol_owner=owner.identity, header=dict(manifest=dict(
+                    sha256=hashlib.sha256(raw).hexdigest(), records_sha256=hashlib.sha256(canonical).hexdigest(),
+                    files=len(rows), bytes=len(raw), actual_content_bytes=sum(row['bytes'] for row in rows),
+                    language_counts=dict(python=2976))))
+                self.assertEqual(list(performance._persistent_records(directory, loaded)), rows)
+                with self.assertRaisesRegex(ValueError, 'owner changed'):
+                    list(performance._persistent_records(directory, dict(loaded, protocol_owner=foreign.identity)))
+                duplicate = raw.splitlines(keepends=True)[0] + raw
+                changed = raw.replace(rows[-1]['sha256'].encode(), b'f' * 64, 1)
+                for label, mutation in (('duplicate', duplicate), ('changed', changed)):
+                    with self.subTest(mutation=label):
+                        (directory / 'records.jsonl').write_bytes(mutation)
+                        with self.assertRaises(ValueError):
+                            list(performance._persistent_records(directory, loaded))
+                (directory / 'records.jsonl').write_bytes(raw)
+                self.assertEqual(list(performance._persistent_records(directory, loaded)), rows)
+
+    def test_pinned_sqlite_snapshot_keeps_wal_facts_and_failed_backups_unsealed(self):
+        import sqlite3
+        from repo_graph.analysis import SCHEMA
+        facts = dict(
+            definitions=[dict(id='main.py:0:8', path='main.py', name='target', text='def f():',
+                range=dict(start_byte=0, end_byte=8, start_line=1, end_line=1))],
+            sites=[dict(id='main.py:9:12', path='main.py', text='f()', role='call',
+                        target_ids=['main.py:0:8'], target_certainty='exact'),
+                   dict(id='main.py:13:22', path='main.py', text='missing()', role='call',
+                        target_ids=[], target_certainty='unknown')],
+            scopes=[dict(id='scope-main', parent=None, kind='module', name='', owner=None, path='main.py')],
+            imports=[dict(path='main.py', module='missing', name='missing', text='import missing')],
+            relationships=[dict(site_id='main.py:9:12', target_id='main.py:0:8', path='main.py',
+                                role='call', certainty='exact')])
+        semantic = b''.join(json.dumps(dict(kind=kind, fact=row), sort_keys=True,
+            separators=(',', ':')).encode() + b'\n' for kind, rows in facts.items() for row in rows)
+        with tempfile.TemporaryDirectory(prefix='representative-snapshot-') as scratch:
+            source, output, retained = (Path(scratch) / name for name in ('source', 'output', 'retained'))
+            for directory in (source, output, retained): directory.mkdir()
+            with performance.SourceRoot(source) as owner, performance.SourceRoot(output) as artifact:
+                index = SimpleNamespace(owner=owner.identity, output=output, output_owner=artifact.identity)
+            identities = dict(generation='b' * 64, repository_identity=index.owner,
+                              source_identity='c' * 64, analyzer_identity='d' * 64, config_identity='e' * 64)
+            writer = sqlite3.connect(output / 'search.db')
+            self.addCleanup(writer.close)
+            writer.execute('PRAGMA journal_mode=WAL'); writer.execute('PRAGMA wal_autocheckpoint=0')
+            writer.execute('CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT)')
+            meta = {'repository': index.owner, 'structural_schema': SCHEMA}
+            meta.update({'structural_' + key: identities[value] for key, value in
+                dict(generation='generation', repository='repository_identity', source='source_identity',
+                     analyzer='analyzer_identity', config='config_identity').items()})
+            writer.executemany('INSERT INTO meta VALUES(?,?)', meta.items())
+            tables = dict(definitions='structural_symbols', sites='structural_sites',
+                          scopes='structural_scopes', imports='structural_imports')
+            for kind, table in tables.items():
+                writer.execute('CREATE TABLE ' + table + '(path TEXT,ordinal INTEGER,data TEXT)')
+                writer.executemany('INSERT INTO ' + table + ' VALUES(?,?,?)',
+                    [('main.py', number, json.dumps(row)) for number, row in enumerate(facts[kind])])
+            writer.execute('CREATE TABLE structural_relationships(site_id TEXT,target_id TEXT,path TEXT,role TEXT,certainty TEXT)')
+            writer.executemany('INSERT INTO structural_relationships VALUES(?,?,?,?,?)',
+                [tuple(row[key] for key in ('site_id', 'target_id', 'path', 'role', 'certainty'))
+                 for row in facts['relationships']] + [('main.py:13:22', '', 'main.py', 'call', 'unknown')])
+            # Force more than one bounded backup page group; this is output padding, not source facts.
+            writer.execute('CREATE TABLE padding(body BLOB)')
+            writer.execute('INSERT INTO padding VALUES(?)', (b'x' * (512 * 1024),))
+            writer.commit()
+            self.assertGreater((output / 'search.db-wal').stat().st_size, 0)
+            proof = performance._persistent_snapshot(index, retained, 'success', check=lambda: None,
+                                                     limits=dict(snapshot_bytes=1024 * 1024))
+            self.assertEqual(proof['evidence_mode'], 'pinned_sqlite_backup_v1')
+            self.assertEqual(proof['identities'], identities)
+            self.assertEqual(proof['counts'], {kind: len(rows) for kind, rows in facts.items()})
+            self.assertEqual(proof['semantic_facts_sha256'], hashlib.sha256(semantic).hexdigest())
+            self.assertTrue(proof['snapshot']['sealed']); self.assertTrue(proof['snapshot']['metadata_verified'])
+            self.assertGreater(proof['snapshot']['backup_progress_callbacks'], 1)
+            sealed = retained / proof['artifact']['path']
+            initial = sealed.read_bytes()
+            self.assertEqual(proof['artifact']['sha256'], hashlib.sha256(initial).hexdigest())
+            self.assertEqual(proof['artifact']['bytes'], len(initial))
+            with sqlite3.connect(sealed) as db:
+                self.assertEqual(dict(db.execute('SELECT key,value FROM meta')), meta)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM structural_relationships').fetchone()[0], 2)
+                self.assertEqual(json.loads(db.execute('SELECT data FROM structural_sites WHERE ordinal=1').fetchone()[0]),
+                                 facts['sites'][1])
+            foreign = SimpleNamespace(**dict(vars(index), owner='f' * 64))
+            with self.assertRaisesRegex(ValueError, 'metadata affinity'):
+                performance._persistent_snapshot(foreign, retained, 'foreign', check=lambda: None,
+                                                 limits=dict(snapshot_bytes=1024 * 1024))
+            writer.execute("UPDATE meta SET value='foreign-schema' WHERE key='structural_schema'"); writer.commit()
+            with self.assertRaisesRegex(ValueError, 'metadata affinity'):
+                performance._persistent_snapshot(index, retained, 'schema', check=lambda: None,
+                                                 limits=dict(snapshot_bytes=1024 * 1024))
+            writer.execute("UPDATE meta SET value=? WHERE key='structural_schema'", (SCHEMA,)); writer.commit()
+            with self.assertRaisesRegex(ValueError, 'size ceiling'):
+                performance._persistent_snapshot(index, retained, 'capped', check=lambda: None,
+                                                 limits=dict(snapshot_bytes=8192))
+            interrupted, connect = [False], sqlite3.connect
+            class InterruptedConnection(sqlite3.Connection):
+                def backup(self, target, **kwargs):
+                    progress = kwargs['progress']
+                    def stop_after_page_group(*args):
+                        interrupted[0] = True
+                        return progress(*args)
+                    return super().backup(target, **dict(kwargs, progress=stop_after_page_group))
+            def cancel_backup():
+                if interrupted[0]: raise InterruptedError('synthetic interrupted backup')
+            with patch.object(performance.sqlite3, 'connect', side_effect=lambda *args, **kwargs:
+                    connect(*args, **dict(kwargs, factory=InterruptedConnection))):
+                with self.assertRaisesRegex(InterruptedError, 'synthetic interrupted backup'):
+                    performance._persistent_snapshot(index, retained, 'interrupted', check=cancel_backup,
+                                                     limits=dict(snapshot_bytes=1024 * 1024))
+            for label in ('foreign', 'schema', 'capped', 'interrupted'):
+                failure = json.loads((retained / (label + '-snapshot-failure.json')).read_bytes())
+                self.assertFalse(failure['sealed'])
+                self.assertFalse((retained / (label + '.facts.sqlite')).exists())
+            self.assertEqual(json.loads((retained / 'interrupted-snapshot-failure.json').read_bytes())['stage'],
+                             'snapshot_backup')
+            self.assertTrue((retained / 'interrupted.facts-building.sqlite').exists())
+            self.assertEqual(sealed.read_bytes(), initial)
+            self.assertFalse(list(retained.glob('*.facts.jsonl')))
+            self.assertEqual(initial.count(b'c' * 64), 1)
+            changed = initial.replace(b'c' * 64, b'f' * 64, 1)
+            sealed.write_bytes(changed)
+            self.assertEqual(len(changed), len(initial))
+            self.assertNotEqual(hashlib.sha256(changed).hexdigest(), proof['artifact']['sha256'])
+            forged = json.loads(json.dumps(proof))
+            forged['artifact']['sha256'] = hashlib.sha256(changed).hexdigest()
+            for saved in (proof, forged):
+                with self.subTest(forged_digest=saved is forged), self.assertRaises(ValueError):
+                    with performance._persistent_snapshot_view(retained, saved, lambda: None) as view:
+                        list(view.read_facts('definitions'))
+            writer.close()
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Owned native process limits require Linux')
+    def test_small_native_children_lower_inherited_cpu_and_file_envelopes(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        child = '\n'.join((
+            'import json,resource,sys',
+            'from pathlib import Path',
+            'assert sys.flags.isolated and sys.flags.no_user_site and sys.dont_write_bytecode',
+            'resource.setrlimit(resource.RLIMIT_CPU,(600,600))',
+            'resource.setrlimit(resource.RLIMIT_FSIZE,(2*1024**3,2*1024**3))',
+            'sys.path.insert(0,' + repr(str(Path(performance.__file__).resolve().parents[1])) + ')',
+            'from repo_graph.analysis_queue import collect_files,QueueLimits',
+            'seen=[]',
+            'def observe(event):',
+            '    if event["event"]=="readiness" and event["worker"] is not None:',
+            '        pid=event["worker"]["pid"]',
+            '        lines=Path("/proc",str(pid),"limits").read_text().splitlines()',
+            '        row={key:list(map(int,next(line for line in lines if line.startswith(label)).split()[-3:-1]))',
+            '            for key,label in (("cpu","Max cpu time"),("file","Max file size"))}',
+            '        seen.append(dict(pid=pid,**row))',
+            '    return True',
+            'items=[dict(path=name,language="python",content=raw) for name,raw in',
+            '    (("a.py",b"def first(): pass\\n"),("b.py",b"def second(): return 2\\n"))]',
+            'result=collect_files(items,mode="queued",concurrency=2,limits=QueueLimits(),telemetry=True,observer=observe)',
+            'assert result.status=="complete",(result.status,result.failures)',
+            'assert len(result.collected)==2 and len(seen)==2',
+            'assert all(row["cpu"]==[30,30] and row["file"]==[8*1024**2,8*1024**2] for row in seen)',
+            'assert all(row["leader_reaped"] and row["group_absent"] for row in result.cleanup)',
+            'print(json.dumps(dict(status=result.status,workers=seen,files=len(result.collected),',
+            '    controller_cpu=resource.getrlimit(resource.RLIMIT_CPU),controller_file=resource.getrlimit(resource.RLIMIT_FSIZE))))',
+        ))
+        result = subprocess.run([sys.executable, '-I', '-B', '-c', child],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=True, timeout=20, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        observed = json.loads(result.stdout)
+        self.assertEqual(observed['status'], 'complete')
+        self.assertEqual(observed['files'], 2)
+        self.assertEqual(observed['controller_cpu'], [600, 600])
+        self.assertEqual(observed['controller_file'], [2 * 1024 ** 3, 2 * 1024 ** 3])
+        self.assertEqual(len({row['pid'] for row in observed['workers']}), 2)
+
+    def test_streamed_private_archive_full_hashes_empty_prefixes_and_finite_caps(self):
+        from evaluations import engine_checks as checks
+        from repo_graph.source import SourceRoot
+        with tempfile.TemporaryDirectory(prefix='streamed-archive-') as scratch:
+            directory = Path(scratch)
+            bodies = {'first.bin': b'a' * 65553, 'last.txt': b'tail'}
+            for name, raw in bodies.items(): (directory / name).write_bytes(raw)
+            limits = dict(max_file_bytes=65553, max_total_bytes=65557, max_files=2)
+            observed, original = [], SourceRoot.read
+            def read(source, path, prefix, **kwargs):
+                result = original(source, path, prefix, **kwargs)
+                observed.append((path, prefix, kwargs, result))
+                return result
+            report = dict(status='failed', reason='synthetic retained result')
+            with patch.object(SourceRoot, 'read', read):
+                result = checks._adapter_archive(directory, 'owned-run', report, limits=limits)
+            archive = result['archive']
+            self.assertEqual(result['full_private_report'], report)
+            self.assertFalse(result['qualification_complete'])
+            self.assertEqual(archive['files'], [dict(path=name, bytes=len(raw),
+                sha256=hashlib.sha256(raw).hexdigest()) for name, raw in sorted(bodies.items())])
+            self.assertEqual(archive['bytes'], sum(map(len, bodies.values())))
+            self.assertEqual(archive['hash_work']['successful_operations'], 2)
+            self.assertEqual(archive['hash_work']['hashed_bytes'], 65557)
+            self.assertGreaterEqual(archive['hash_work']['elapsed_seconds'], 0)
+            for path, prefix, kwargs, (raw, digest, info) in observed:
+                self.assertEqual(prefix, 0)
+                self.assertTrue(kwargs['hash_full'])
+                self.assertEqual(raw, b'')
+                self.assertEqual(kwargs['measurements']['returned_prefix_bytes'], 0)
+                self.assertEqual(kwargs['measurements']['stream_bytes'], len(bodies[path]))
+                self.assertEqual(kwargs['measurements']['hashed_bytes'], len(bodies[path]))
+            legacy = checks._adapter_archive(directory, 'owned-run', report)
+            self.assertEqual(legacy['archive'], {key: value for key, value in archive.items() if key != 'hash_work'})
+            invalid = [dict(limits, max_file_bytes=65552), dict(limits, max_total_bytes=65556),
+                       dict(limits, max_files=1), dict(limits, max_files=True),
+                       dict(limits, unexpected=1), {'max_files': 2}]
+            for bounds in invalid:
+                with self.subTest(bounds=bounds), self.assertRaises(ValueError):
+                    checks._adapter_archive(directory, 'owned-run', report, limits=bounds)
+            with self.assertRaises(InterruptedError):
+                checks._adapter_archive(directory, 'owned-run', report, limits=limits, check=lambda: True)
+            self.assertEqual({name: (directory / name).read_bytes() for name in bodies}, bodies)
+
     def test_persistent_query_failure_retains_responses_samples_and_prior_progress(self):
         """Synthetic returned envelopes exercise retention, without a query workload."""
         from repo_graph import analysis_queries as queries

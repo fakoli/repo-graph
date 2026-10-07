@@ -105,6 +105,25 @@ backend. It retains raw receipts privately and writes a separate bounded
 Representative corpus measurements, complete source I/O accounting and
 independent correctness/adversarial review remain required for qualification.
 
+The experimental Django runner takes a separately reviewed private protocol
+directory containing the pinned header, streamed content manifest, six query
+selectors and two independent postimages. With the private source map and work
+root configured below, its command is:
+
+```bash
+uv run python evaluations/analysis.py --profile-pilot --protocol path/to/reviewed-protocol
+```
+
+Only the preregistered first repetition is admitted. Correctness and adversarial
+preflight approval must precede corpus execution. It retains one SQLite snapshot
+and a digest of the five canonical fact streams per phase, then writes
+`persistent-Django.json` without replacing an existing report. Serial and queued
+modes share the same copied source owner. The run stops for evidence review
+before repetitions two and three; it does not qualify the remaining corpora,
+adopt Rust, select an engine or freeze resource budgets. Storage ceilings are
+cooperative measurement stops; sampled owned RSS is not an exact peak or a
+kernel memory quota. The evaluator does not flush the OS cache.
+
 For the pinned local corpus checkouts, supply a private JSON source map with
 `schema_version: 1` and a `corpora` array of `{id, source, revision}` entries.
 `source` is an absolute checkout directory; `revision` is its full Git commit.

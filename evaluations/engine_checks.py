@@ -578,7 +578,22 @@ def _adapter_dump(parent, name, value):
             stream.write(raw)
 
 
-def _adapter_archive(run, name, report, excluded_runtime_directories=()):
+def _adapter_archive(run, name, report, excluded_runtime_directories=(), *, limits=None, check=None):
+    streaming = limits is not None
+    if (check is not None and not callable(check) or streaming and
+            (type(limits) is not dict or set(limits) != {'max_file_bytes', 'max_total_bytes', 'max_files'} or
+             any(type(value) is not int or value <= 0 for value in limits.values()) or
+             limits['max_file_bytes'] > 2 * 1024 ** 3 or limits['max_total_bytes'] > 8 * 1024 ** 3 or
+             limits['max_files'] > 20000)):
+        raise ValueError('Finite private archive limits and callable check required')
+    bounds = limits or dict(max_file_bytes=16 * 1024 ** 2, max_total_bytes=256 * 1024 ** 2, max_files=10000)
+    started = time.monotonic()
+    def guarded():
+        if streaming and time.monotonic() - started >= 300:
+            raise TimeoutError('Private archive deadline exhausted')
+        if check is not None and check():
+            raise InterruptedError('Private archive cancelled')
+        return False
     allowed = {'venv', 'source', 'map', 'home', 'config', 'cache', 'data', 'tmp'}
     if (type(excluded_runtime_directories) not in (tuple, list) or
             any(type(value) is not str or value not in allowed or
@@ -588,28 +603,45 @@ def _adapter_archive(run, name, report, excluded_runtime_directories=()):
         raise ValueError('Only fixed canonical missing-backend runtime roots may be excluded')
     if excluded_runtime_directories and report.get('excluded_runtime_directories') != list(excluded_runtime_directories):
         raise ValueError('Runtime archive omissions must be explicit in the full private report')
-    references, total = [], 0
+    references, total, hash_operations, hashed_bytes = [], 0, 0, 0
     with SourceRoot(run) as source:
         expected, actual = os.stat(run), os.fstat(source.fd)
         if (expected.st_dev, expected.st_ino) != (actual.st_dev, actual.st_ino):
             raise ValueError('Private archive directory owner changed')
         for parent, directories, files in os.walk(run, followlinks=False):
+            guarded()
             if Path(parent) == run:
                 directories[:] = [value for value in directories if value not in excluded_runtime_directories]
             directories.sort()
             for filename in sorted(files):
                 path = (Path(parent) / filename).relative_to(run).as_posix()
-                if len(references) >= 10000:
+                guarded()
+                if len(references) >= bounds['max_files']:
                     raise ValueError('Private archive inventory bound exceeded')
-                raw, digest, info = source.read(path, 16 * 1024 * 1024 + 1, hash_full=False)
-                if len(raw) != info.st_size or len(raw) > 16 * 1024 * 1024:
-                    raise ValueError('Private archive file byte bound exceeded')
-                total += len(raw)
-                if total > 256 * 1024 * 1024:
+                if streaming:
+                    size = source.info(path).st_size
+                    if size > bounds['max_file_bytes'] or total + size > bounds['max_total_bytes']:
+                        raise ValueError('Private archive file or aggregate byte bound exceeded')
+                    measured = {}
+                    raw, digest, info = source.read(path, 0, hash_full=True, cancel=guarded,
+                        max_bytes=min(bounds['max_file_bytes'], bounds['max_total_bytes'] - total), measurements=measured)
+                    if raw or measured['stream_bytes'] != info.st_size or measured['hashed_bytes'] != info.st_size:
+                        raise ValueError('Incomplete private archive hash')
+                    hash_operations += measured['successful_operations']; hashed_bytes += measured['hashed_bytes']
+                else:
+                    raw, digest, info = source.read(path, bounds['max_file_bytes'] + 1, hash_full=False)
+                    if len(raw) != info.st_size or len(raw) > bounds['max_file_bytes']:
+                        raise ValueError('Private archive file byte bound exceeded')
+                total += info.st_size
+                if total > bounds['max_total_bytes']:
                     raise ValueError('Private archive aggregate byte bound exceeded')
-                references.append({'path': path, 'sha256': digest, 'bytes': len(raw)})
+                references.append({'path': path, 'sha256': digest, 'bytes': info.st_size})
+    archive = {'directory': name, 'files': references, 'bytes': total}
+    if streaming:
+        archive['hash_work'] = dict(successful_operations=hash_operations, hashed_bytes=hashed_bytes,
+            elapsed_seconds=time.monotonic() - started, scope='Guarded retained artifact hashes; not source reads or physical disk I/O')
     return {'status': report['status'], 'full_private_report': report,
-        'archive': {'directory': name, 'files': references, 'bytes': total},
+        'archive': archive,
         'engine_selected': False, 'qualification_complete': False}
 
 

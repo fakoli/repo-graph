@@ -34,6 +34,90 @@ def site(result, source):
 
 
 class BackendTests(unittest.TestCase):
+    def test_representative_pilot_cli_and_launcher_keep_protocol_descriptors_and_boundaries(self):
+        from evaluations import engine_checks as checks, performance
+        with tempfile.TemporaryDirectory(prefix='representative-launcher-') as scratch:
+            checkout, protocol, original, evidence = (Path(scratch) / name
+                for name in ('checkout', 'protocol', 'original', 'evidence'))
+            for directory in (checkout, protocol, original, evidence): directory.mkdir()
+            mapping = Path(scratch) / 'map.json'; mapping.write_text('{}')
+            result = dict(kind='persistent_corpus_profile', status='complete', cases=[],
+                **{key: False for key in ('engine_selected', 'qualification_complete',
+                    'resource_budgets_frozen', 'all_owned_source_reads_measured')})
+            arguments = ['--profile-pilot', '--protocol', str(protocol), '--source-map', str(mapping),
+                         '--work-root', str(evidence)]
+            with patch.dict(os.environ, {}, clear=True), patch.object(analysis, 'ROOT', checkout), \
+                    patch.object(performance, 'mapped_corpora', return_value={'django': {'source': str(original)}}), \
+                    patch.object(analysis, 'profile_fixture_pilot', return_value=result) as pilot, \
+                    patch.object(analysis, 'write_result', return_value=123) as written, \
+                    patch.object(analysis, 'record_task') as recorded, redirect_stdout(io.StringIO()):
+                self.assertEqual(analysis.main(arguments), 0)
+            pilot.assert_called_once_with(checkout, evidence, protocol=protocol, original_source=original)
+            self.assertEqual(written.call_args.args[1], 'evaluations/results/code-understanding/persistent-Django.json')
+            self.assertEqual(written.call_args.args[-1], 2 * 1024 * 1024)
+            recorded.assert_not_called()
+            target = checkout / 'evaluations/results/code-understanding/persistent-Django.json'
+            target.parent.mkdir(parents=True); target.write_bytes(b'preserved prior report')
+            invalid = [arguments, arguments + ['--max-result-bytes', str(2 * 1024 * 1024 + 1)],
+                       ['--profile-pilot', '--protocol', str(protocol)],
+                       ['--engine', 'tree-sitter', '--protocol', str(protocol), '--source-map', str(mapping)]]
+            for flags in invalid:
+                with self.subTest(flags=flags), patch.dict(os.environ, {}, clear=True), \
+                        patch.object(analysis, 'ROOT', checkout), patch.object(analysis, 'profile_fixture_pilot') as launch, \
+                        patch('sys.stderr', io.StringIO()), redirect_stdout(io.StringIO()), self.assertRaises(SystemExit):
+                    analysis.main(flags)
+                launch.assert_not_called()
+            self.assertEqual(target.read_bytes(), b'preserved prior report')
+
+            observed, loads = [], []
+            def load(protocol_bridge, original_bridge):
+                with performance.SourceRoot(protocol_bridge) as p, performance.SourceRoot(original_bridge) as s:
+                    loaded = dict(config=dict(ceilings=dict(launcher_wall_seconds=2410)),
+                                  protocol_owner=p.identity, original_owner=s.identity, protocol_sha256='a' * 64)
+                    loads.append(loaded)
+                    return loaded
+            for code in (0, 7):
+                class Process:
+                    returncode = None
+                    def __init__(self, command, **options):
+                        self.returncode = code
+                        passed = options['pass_fds']
+                        self.protocol_fd = int(command[command.index('--protocol-fd') + 1])
+                        self.original_fd = int(command[command.index('--original-fd') + 1])
+                        self.assertions = (len(passed), self.protocol_fd in passed, self.original_fd in passed)
+                        for fd in passed: os.fstat(fd)
+                        observed.append(self)
+                        os.write(options['stdout'].fileno(), json.dumps(result).encode())
+                    def wait(self, timeout):
+                        self.timeout = timeout
+                        return self.returncode
+                before = set(evidence.iterdir())
+                with patch.object(checks, '_adapter_root', return_value=checkout), \
+                        patch.object(performance, '_persistent_protocol', side_effect=load), \
+                        patch.object(analysis.subprocess, 'Popen', side_effect=Process), \
+                        patch.object(checks, '_stop_and_reap', return_value=dict(leader_reaped=True, group_absent=True)):
+                    actual = analysis.profile_fixture_pilot(checkout, evidence, protocol=protocol, original_source=original)
+                self.assertEqual(actual['status'], 'complete' if code == 0 else 'failed')
+                self.assertEqual(observed[-1].assertions, (3, True, True))
+                self.assertEqual(observed[-1].timeout, 2410)
+                directory, = set(evidence.iterdir()) - before
+                receipt = json.loads((directory / 'command.json').read_bytes())
+                self.assertEqual(receipt['returncode'], code)
+                self.assertEqual(receipt['protocol_sha256'], loads[-1]['protocol_sha256'])
+                self.assertEqual(receipt['original_owner'], loads[-1]['original_owner'])
+                self.assertTrue(receipt['cleanup']['group_absent'])
+                for fd in (observed[-1].protocol_fd, observed[-1].original_fd):
+                    with self.assertRaises(OSError): os.fstat(fd)
+            for protected in (original, protocol):
+                inside = protected / 'evidence'; inside.mkdir()
+                before = set(inside.iterdir())
+                with patch.object(checks, '_adapter_root', return_value=checkout), \
+                        patch.object(analysis.subprocess, 'Popen') as process, \
+                        self.assertRaisesRegex(ValueError, 'outside source and protocol'):
+                    analysis.profile_fixture_pilot(checkout, inside, protocol=protocol, original_source=original)
+                process.assert_not_called()
+                self.assertEqual(set(inside.iterdir()), before)
+
     def test_fixture_pilot_cli_preserves_task_evidence_and_does_not_qualify(self):
         with tempfile.TemporaryDirectory() as scratch:
             evidence = Path(scratch)

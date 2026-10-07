@@ -14,7 +14,7 @@ No provider calls, real-corpus download, daemon, dynamic imports of source code,
 or runtime product installation occurs. Experimental selection requires all component and finite-cost proofs.
 """
 import argparse
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 import hashlib
 from importlib import metadata
 import json
@@ -2605,33 +2605,59 @@ def profile_component(source_map, work_root=None, freeze_budgets=False, recorded
             'Rust adoption requires separate approval and ADR0006 measured equivalent-workload thresholds.']}
 
 
-def profile_fixture_pilot(root, evidence_directory):
+def profile_fixture_pilot(root, evidence_directory, *, protocol=None, original_source=None):
     """Launch the finite pilot in its own bounded supervisor, retaining raw logs."""
     from evaluations import engine_checks as checks
     from evaluations.supplement_preparation import decode
     if evidence_directory is None:
         raise ValueError('Private --work-root or REPO_GRAPH_EVAL_WORK_ROOT required')
     root = checks._adapter_root(root)
-    with checks._adapter_run(root, evidence_directory, 'persistent-pilot-command') as (run, name), SourceRoot(run) as owner:
+    if protocol is None and original_source is not None:
+        raise ValueError('Original source requires a preregistered protocol')
+    if protocol is not None:
+        if original_source is None:
+            raise ValueError('Representative protocol requires the pinned original source')
+        destination = Path(evidence_directory).resolve(strict=True)
+        for protected in (Path(original_source).resolve(strict=True), Path(protocol).resolve(strict=True)):
+            if destination == protected or protected in destination.parents:
+                raise ValueError('Representative evidence must be outside source and protocol inputs')
+    with ExitStack() as holds, checks._adapter_run(root, evidence_directory, 'persistent-pilot-command') as (run, name), SourceRoot(run) as owner:
         bridge = Path('/proc') / str(os.getpid()) / 'fd' / str(owner.fd)
         process, result = None, {'schema_version': 1, 'kind': 'persistent_fixture_profile', 'status': 'failed',
             'engine_selected': False, 'qualification_complete': False, 'resource_budgets_frozen': False,
             'representative_corpus_profiled': False, 'all_owned_source_reads_measured': False, 'cases': []}
         receipt = {'schema_version': 1, 'returncode': None}
         try:
+            command = [sys.executable, '-I', '-B', str(root / 'evaluations/performance.py'),
+                '--persistent-supervisor', str(Path('/proc/self/fd') / str(owner.fd)), '--creator-pid', str(os.getpid())]
+            descriptors, timeout = [owner.fd], 95
+            if protocol is not None:
+                from evaluations.performance import _dual_self_identity, _persistent_protocol
+                protocol_owner = holds.enter_context(SourceRoot(protocol))
+                original_owner = holds.enter_context(SourceRoot(original_source))
+                loaded = _persistent_protocol(Path('/proc/self/fd') / str(protocol_owner.fd),
+                    Path('/proc/self/fd') / str(original_owner.fd))
+                command.extend(['--protocol-fd', str(protocol_owner.fd), '--original-fd', str(original_owner.fd),
+                    '--invoker', json.dumps(_dual_self_identity(), sort_keys=True, separators=(',', ':'))])
+                descriptors.extend([protocol_owner.fd, original_owner.fd])
+                timeout = loaded['config']['ceilings']['launcher_wall_seconds']
+                receipt.update(protocol_sha256=loaded['protocol_sha256'], protocol_owner=loaded['protocol_owner'],
+                    original_owner=loaded['original_owner'], timeout_seconds=timeout)
+                result['kind'] = 'persistent_corpus_profile'
             with owner.open('stdout.log', create=True) as stdout, owner.open('stderr.log', create=True) as stderr:
-                process = subprocess.Popen([sys.executable, '-I', '-B', str(root / 'evaluations/performance.py'),
-                    '--persistent-supervisor', str(Path('/proc/self/fd') / str(owner.fd)), '--creator-pid', str(os.getpid())],
-                    cwd=bridge, env=checks._environment(bridge), pass_fds=(owner.fd,),
+                process = subprocess.Popen(command,
+                    cwd=bridge, env=checks._environment(bridge), pass_fds=tuple(descriptors),
                     stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, start_new_session=True)
-                receipt['returncode'] = process.wait(timeout=95)
+                receipt['returncode'] = process.wait(timeout=timeout)
             raw, _, info = owner.read('stdout.log', checks.ADAPTER_REPORT_BYTES + 1, hash_full=False)
             if len(raw) != info.st_size or len(raw) > checks.ADAPTER_REPORT_BYTES:
                 raise ValueError('Bounded complete pilot output required')
             observed = decode(raw)
-            if (type(observed) is not dict or observed.get('kind') != 'persistent_fixture_profile' or
+            expected_kind = 'persistent_corpus_profile' if protocol is not None else 'persistent_fixture_profile'
+            if (type(observed) is not dict or observed.get('kind') != expected_kind or
                     any(observed.get(key) is not False for key in ('engine_selected', 'qualification_complete',
-                        'resource_budgets_frozen', 'representative_corpus_profiled', 'all_owned_source_reads_measured'))):
+                        'resource_budgets_frozen', 'all_owned_source_reads_measured')) or
+                    protocol is None and observed.get('representative_corpus_profiled') is not False):
                 raise ValueError('Finite pilot output required')
             result = observed
             if receipt['returncode'] != 0:
@@ -2664,6 +2690,7 @@ def main(argv=None):
     modes.add_argument('--compare', action='store_true')
     modes.add_argument('--profile', action='store_true')
     modes.add_argument('--profile-pilot', action='store_true', help='one finite fixture serial/queued pair; no task qualification')
+    parser.add_argument('--protocol', type=Path, help='private preregistered representative protocol directory; requires --profile-pilot and --source-map')
     parser.add_argument('--freeze-budgets', action='store_true')
     parser.add_argument('--source-map', type=Path, default=os.environ.get('REPO_GRAPH_EVAL_SOURCE_MAP'),
                         help='private pinned source map; alternatively REPO_GRAPH_EVAL_SOURCE_MAP')
@@ -2685,7 +2712,11 @@ def main(argv=None):
     if structural_task and (args.screen_engines or args.compare or args.profile or args.profile_pilot):
         parser.error(args.suite + ' uses the shared structural owner directly')
     if args.max_result_bytes is None:
-        args.max_result_bytes = (2 if args.compare or structural_task else 1) * 1024 * 1024
+        args.max_result_bytes = (2 if args.compare or structural_task or args.protocol else 1) * 1024 * 1024
+    if args.protocol and (not args.profile_pilot or args.source_map is None):
+        parser.error('--protocol requires --profile-pilot and a pinned --source-map')
+    if args.protocol and not 0 < args.max_result_bytes <= 2 * 1024 * 1024:
+        parser.error('--protocol portable result cap must be positive and at most 2 MiB')
     if args.freeze_budgets and not args.profile:
         parser.error('--freeze-budgets requires --profile')
     if args.preselection_cost_report and not args.compare:
@@ -2694,6 +2725,7 @@ def main(argv=None):
         parser.error('--profile-report requires --profile')
     default = ('evaluations/results/code-understanding/engine-comparison.json' if args.compare else
                'evaluations/results/code-understanding/capacity-profile.json' if args.profile else
+               'evaluations/results/code-understanding/persistent-Django.json' if args.profile_pilot and args.protocol else
                'evaluations/results/code-understanding/persistent-pilot.json' if args.profile_pilot else
                'evaluations/results/code-understanding/reusable-screen.json' if args.screen_engines else
                FACTS_OUTPUT if structural_task else DEFAULT_OUTPUT)
@@ -2702,7 +2734,7 @@ def main(argv=None):
         try:
             SourceRoot.parts(args.output)
             args.output = str(PurePosixPath(args.output))
-            if args.output != default:
+            if args.output != default or args.protocol:
                 with SourceRoot(ROOT) as owner:
                     try: owner.info(args.output)
                     except FileNotFoundError: pass
@@ -2714,7 +2746,14 @@ def main(argv=None):
         if args.max_result_bytes <= 0:
             raise ValueError('Output budget must be positive')
         if args.profile_pilot:
-            result = profile_fixture_pilot(ROOT, args.work_root)
+            if args.protocol:
+                from evaluations.performance import mapped_corpora
+                with SourceRoot(args.source_map.parent) as owner:
+                    mapping, _ = read_json(owner, args.source_map.name)
+                original = Path(mapped_corpora(mapping)['django']['source'])
+                result = profile_fixture_pilot(ROOT, args.work_root, protocol=args.protocol, original_source=original)
+            else:
+                result = profile_fixture_pilot(ROOT, args.work_root)
             size = write_result(ROOT, args.output, result, args.max_result_bytes)
             print(json.dumps({'status': result['status'], 'result': args.output, 'result_bytes': size,
                 'qualification_complete': False, 'resource_budgets_frozen': False}, separators=(',', ':')))
