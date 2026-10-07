@@ -14,7 +14,7 @@ import tempfile
 from threading import Lock
 import time
 import uuid
-from .source import SourceRoot
+from .source import PublicationError, SourceRoot
 
 MODEL = "BAAI/bge-small-en-v1.5"
 STOPWORDS = set("a an the and or of to in on for with by from is are was were be been which that this these those how where what when why will can as it its us our".split())
@@ -47,14 +47,34 @@ def _artifact_token(boundary):
 
 
 @contextmanager
-def _index_lock(boundary):
+def _index_lock(boundary, *, check=None, create=True):
     import fcntl
-    try:
-        with boundary.open('.index.lock', create=True): pass
-    except FileExistsError: pass
-    with boundary.open('.index.lock') as stream:
-        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+    if create:
+        try:
+            with boundary.open('.index.lock', create=True): pass
+        except FileExistsError: pass
+    elif not _lock_exists(boundary):
+        if check is not None: check()
         yield
+        return
+    with boundary.open('.index.lock') as stream:
+        if check is None:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        else:
+            while True:
+                check()
+                try:
+                    fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    time.sleep(0.005)
+        yield
+
+
+def _lock_exists(boundary):
+    try: boundary.info('.index.lock')
+    except FileNotFoundError: return False
+    return True
 
 
 def _fresh(boundary, output, expected):
@@ -284,16 +304,259 @@ def connect(output: Path, *, readonly: bool = False, owner: str | None = None, c
         raise
 
 
-def catalog(root: Path, files: list[str], output: Path) -> dict:
+ATTEMPT_BYTES = 32 * 1024
+ATTEMPT_STATES = {'updating', 'ready', 'interrupted', 'failed', 'publication_uncertain'}
+
+
+def _attempt(boundary, component):
+    try:
+        with boundary.open(component + '-attempt.json') as stream:
+            data = stream.read(ATTEMPT_BYTES + 1)
+    except FileNotFoundError:
+        return None
+    if len(data) > ATTEMPT_BYTES:
+        raise ValueError('Index attempt record exceeds its byte budget')
+    record = json.loads(data)
+    if (type(record) is not dict or type(record.get('attempt_id')) is not str or
+            not 1 <= len(record['attempt_id']) <= 128 or type(record.get('status')) is not str or
+            record['status'] not in ATTEMPT_STATES):
+        raise ValueError('Invalid persisted index attempt')
+    return record
+
+
+def record_attempt(output, owner, component, record, expected=None):
+    """Record a bounded producer receipt independently of the last published facts."""
+    if (component not in {'structural', 'semantic'} or type(record) is not dict or
+            type(record.get('attempt_id')) is not str or not 1 <= len(record['attempt_id']) <= 128 or
+            type(record.get('status')) is not str or record['status'] not in ATTEMPT_STATES or
+            expected is not None and (type(expected) is not str or not 1 <= len(expected) <= 128)):
+        raise ValueError('Component, attempt ID and lifecycle status are required')
+    data = json.dumps(record, ensure_ascii=True, separators=(',', ':'), allow_nan=False).encode()
+    if len(data) > ATTEMPT_BYTES:
+        raise ValueError('Index attempt record exceeds its byte budget')
+    with SourceRoot(Path(output)) as boundary:
+        if boundary.identity != owner:
+            raise RuntimeError('Index output owner changed; reopen the original output directory')
+        with _index_lock(boundary):
+            previous = _attempt(boundary, component)
+            if expected is not None and (previous or {}).get('attempt_id') != expected:
+                raise RuntimeError('Index attempt changed; retry with the current attempt ID')
+            if previous is not None and previous['attempt_id'] == record['attempt_id']:
+                if previous['status'] != 'updating':
+                    if previous == record: return record
+                    raise RuntimeError('Terminal index attempt is immutable')
+            elif record['status'] != 'updating' or (previous is not None and
+                    previous['status'] == 'updating' and expected is None):
+                raise RuntimeError('Another index attempt owns the lifecycle record')
+            def check_owner():
+                with SourceRoot(Path(output)) as current:
+                    if current.identity != owner:
+                        raise RuntimeError('Index output owner changed; reopen the original output directory')
+            check_owner()
+            with boundary.atomic_writer(component + '-attempt.json', before_replace=check_owner) as target:
+                target.write(data)
+    return record
+
+
+def begin_attempt(output, owner, component, record):
+    """CAS-supersede the observed attempt without letting its later terminal win."""
+    if component not in {'structural', 'semantic'}:
+        raise ValueError('Unknown index lifecycle component')
+    with SourceRoot(Path(output)) as boundary:
+        if boundary.identity != owner:
+            raise RuntimeError('Index output owner changed; reopen the original output directory')
+        previous = _attempt(boundary, component)
+    return record_attempt(output, owner, component, record,
+                          expected=previous['attempt_id'] if previous else None)
+
+
+def _status_component(attempt=None):
+    return {'state': 'not_scanned', 'artifact_ready': False, 'query_available': False,
+            'freshness': 'unknown', 'freshness_basis': 'unobserved_live_source',
+            'identities': {}, 'receipt': None, 'last_attempt': attempt}
+
+
+def index_status(output, *, owner=None, expected_source=None, backend_available=None):
+    """Read one bounded captured index; never inspect live source, Git or a backend."""
+    if expected_source is not None and (type(expected_source) is not str or
+            not re.fullmatch('[0-9a-f]{64}', expected_source)):
+        raise ValueError('Expected source must be a SHA256 identity')
+    if backend_available is not None and type(backend_available) is not bool:
+        raise ValueError('Backend availability must be an observed boolean or unknown')
     started = time.monotonic()
-    scanned = reused = truncated = 0
+    result = {'status': 'ok', 'output_owner': owner, 'structural': _status_component(),
+              'semantic_index': _status_component(), 'storage': {'deadline_seconds': 0.5}}
+    result['semantic_index'].update(model=None, backend_available=backend_available,
+        compatibility='unknown_legacy', generation_basis='keyword-docs-v2', structural_generation_affinity='unknown',
+        catalog_receipt=None)
+    def check():
+        if time.monotonic() - started >= 0.5:
+            raise TimeoutError('Index status storage deadline exceeded')
+    stop = None
+    def progress():
+        nonlocal stop
+        try: check(); return 0
+        except TimeoutError as error: stop = error; return 1
+    try:
+        check()
+        with SourceRoot(Path(output)) as boundary:
+            if owner is not None and boundary.identity != owner:
+                raise RuntimeError('Index output owner changed; reopen the original output directory')
+            result['output_owner'] = boundary.identity
+            with _index_lock(boundary, check=check, create=False):
+                for name, key in [('structural', 'structural'), ('semantic', 'semantic_index')]:
+                    result[key]['last_attempt'] = _attempt(boundary, name)
+                    check()
+                if _artifact_token(boundary) is not None:
+                    with closing(connect(Path(output), readonly=True, owner=boundary.identity, check=check)) as db:
+                        db.set_progress_handler(progress, 64)
+                        keys = ('structural_schema', 'structural_repository', 'structural_source',
+                                'structural_generation', 'structural_analyzer', 'structural_config',
+                                'structural_receipt', 'schema', 'repository', 'generation',
+                                'analyzer', 'config', 'model', 'semantic_receipt', 'catalog_receipt')
+                        meta = dict(db.execute('SELECT key,substr(value,1,?) FROM meta WHERE key IN (' +
+                            ','.join('?' for _ in keys) + ')', (ATTEMPT_BYTES + 1, *keys)))
+                        check()
+                        if any(type(value) is not str or len(value.encode()) > ATTEMPT_BYTES for value in meta.values()):
+                            raise ValueError('Persisted index status receipt exceeds its byte budget')
+                        structural = result['structural']
+                        structural['identities'] = {key + '_identity' if key != 'generation' else key:
+                            meta.get('structural_' + key) for key in ('repository', 'source', 'analyzer', 'config', 'generation')}
+                        if meta.get('structural_receipt'):
+                            structural['receipt'] = json.loads(meta['structural_receipt'])
+                            if type(structural['receipt']) is not dict:
+                                raise ValueError('Invalid structural status receipt')
+                        coherent = all((structural['receipt'] or {}).get(key + '_identity' if key != 'generation' else key) ==
+                            meta.get('structural_' + key) for key in ('repository', 'source', 'analyzer', 'config', 'generation'))
+                        structural['artifact_ready'] = (meta.get('structural_schema') == 'structural-v2' and
+                            all(meta.get('structural_' + key) for key in ('repository', 'source', 'analyzer', 'config', 'generation')) and
+                            coherent and
+                            (structural['receipt'] or {}).get('status') in ('ready', 'publication_uncertain'))
+                        structural['query_available'] = structural['artifact_ready']
+                        structural['state'] = 'ready' if structural['artifact_ready'] else (
+                            'unknown_legacy' if meta.get('structural_generation') else 'not_scanned')
+                        if expected_source is not None and meta.get('structural_source'):
+                            structural['freshness_basis'] = 'caller_expected_source'
+                            structural['freshness'] = 'current' if expected_source == meta['structural_source'] else 'stale'
+                            if structural['freshness'] == 'stale': structural['state'] = 'stale'
+                        semantic = result['semantic_index']
+                        semantic['identities'] = {key + '_identity' if key != 'generation' else key: meta.get(key)
+                            for key in ('repository', 'analyzer', 'config', 'generation')}
+                        semantic['model'] = meta.get('model')
+                        semantic['backend_available'] = backend_available
+                        semantic['generation_basis'] = 'keyword-docs-v2'
+                        semantic['structural_generation_affinity'] = 'unknown'
+                        semantic['compatibility'] = 'unknown_legacy'
+                        if meta.get('catalog_receipt'):
+                            semantic['catalog_receipt'] = json.loads(meta['catalog_receipt'])
+                            if type(semantic['catalog_receipt']) is not dict:
+                                raise ValueError('Invalid captured catalog receipt')
+                        if meta.get('semantic_receipt'):
+                            receipt = semantic['receipt'] = json.loads(meta['semantic_receipt'])
+                            if (type(receipt) is not dict or type(receipt.get('status')) is not str or
+                                    receipt['status'] not in {'ready', 'stale', 'not_indexed'}):
+                                raise ValueError('Invalid semantic status receipt')
+                            coherent = (receipt.get('generation_basis') == 'keyword-docs-v2' and
+                                all(meta.get(key) for key in ('repository', 'generation', 'analyzer', 'config')) and
+                                all(receipt.get(key) == meta.get(key) for key in ('repository', 'generation', 'analyzer', 'config', 'model')) and
+                                all(type(receipt.get(key)) is int and receipt[key] >= 0
+                                    for key in ('documents', 'vectors', 'missing_vectors')) and
+                                receipt['documents'] == receipt['vectors'] + receipt['missing_vectors'] and
+                                meta.get('schema') == '2')
+                            semantic['compatibility'] = 'captured' if coherent else 'stale'
+                            semantic['artifact_ready'] = bool(coherent and receipt.get('status') == 'ready' and
+                                meta.get('model') and receipt.get('missing_vectors') == 0)
+                            semantic['state'] = 'ready' if semantic['artifact_ready'] else (receipt.get('status', 'unknown_legacy') if coherent else 'stale')
+                        elif meta.get('generation'):
+                            semantic['state'] = 'unknown_legacy'
+                        semantic['query_available'] = semantic['artifact_ready'] and backend_available is True
+                        db.set_progress_handler(None, 0)
+            check()
+            with SourceRoot(Path(output)) as current:
+                if current.identity != boundary.identity:
+                    raise RuntimeError('Index output owner changed; reopen the original output directory')
+    except FileNotFoundError:
+        result['status'] = 'unavailable'
+    except (TimeoutError, sqlite3.Error, OSError, ValueError, RecursionError) as error:
+        result['status'] = 'bounded_stop' if stop is not None or isinstance(error, TimeoutError) else 'unavailable'
+        result['reason'] = str(stop or error)
+        # No partial metadata observation is advertised as ready after interrupted storage work.
+        for key in ('structural', 'semantic_index'):
+            result[key].update(state='unknown', artifact_ready=False, query_available=False)
+    for key in ('structural', 'semantic_index'):
+        component = result[key]
+        attempt = component['last_attempt']
+        if attempt and attempt['status'] != 'ready' and result['status'] == 'ok':
+            component['state'] = attempt['status']
+            if attempt.get('reason') in ('source_changed_before_publication', 'repository_replaced_before_publication'):
+                component['freshness'] = 'stale'
+                component['freshness_basis'] = 'observed_attempt_failure'
+    result['semantic_index'].setdefault('backend_available', backend_available)
+    result['storage']['elapsed_seconds'] = time.monotonic() - started
+    return result
+
+
+def _run_semantic_writer(output, operation, run):
+    with SourceRoot(Path(output)) as destination:
+        owner = destination.identity
+    attempt = {'attempt_id': uuid.uuid4().hex, 'status': 'updating', 'operation': operation,
+               'started_at': time.time(), 'generation_basis': 'keyword-docs-v2'}
+    try:
+        result = run(owner, attempt)
+    except BaseException as error:
+        if attempt.get('recorded'):
+            terminal = dict(attempt, status='publication_uncertain' if isinstance(error, PublicationError) else (
+                'interrupted' if isinstance(error, (InterruptedError, KeyboardInterrupt)) else 'failed'),
+                error_kind=type(error).__name__, reason=str(error)[:1024], finished_at=time.time(),
+                published=isinstance(error, PublicationError))
+            terminal.pop('recorded', None)
+            try: record_attempt(output, owner, 'semantic', terminal, expected=attempt['attempt_id'])
+            except Exception: pass  # A rejected/failed receipt remains honestly unsettled; preserve the original failure.
+        raise
+    terminal = dict(attempt, status='ready', finished_at=time.time(), published=True, receipt=result)
+    terminal.pop('recorded', None)
+    record_attempt(output, owner, 'semantic', terminal, expected=attempt['attempt_id'])
+    return result
+
+
+def _begin_semantic(output, owner, attempt, identity):
+    attempt.update(repository_identity=identity.get('repository'), previous_generation=identity.get('generation'))
+    begin_attempt(output, owner, 'semantic', attempt)
+    attempt['recorded'] = True
+
+
+def _semantic_receipt(db, identity, *, previous=None, embedded=False):
+    documents, vectors = db.execute('SELECT count(*),coalesce(sum(vector IS NOT NULL),0) FROM docs').fetchone()
+    model = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()
+    model = model[0] if model else None
+    compatible = embedded or (previous is not None and previous.get('status') == 'ready' and
+        previous.get('generation_basis') == 'keyword-docs-v2' and previous.get('schema') == '2' and
+        previous.get('model') == model and all(previous.get(key) == identity.get(key)
+            for key in ('repository', 'analyzer', 'config')))
+    receipt = {**identity, 'model': model, 'generation_basis': 'keyword-docs-v2',
+        'documents': documents, 'vectors': vectors, 'missing_vectors': documents - vectors,
+        'status': 'ready' if model and compatible and documents == vectors else (
+            'stale' if model else 'not_indexed')}
+    db.execute("INSERT OR REPLACE INTO meta VALUES('semantic_receipt',?)",
+               (json.dumps(receipt, ensure_ascii=True, separators=(',', ':')),))
+    return receipt
+
+
+def catalog(root: Path, files: list[str], output: Path) -> dict:
+    return _run_semantic_writer(output, 'catalog', lambda owner, attempt: _catalog(root, files, output, owner, attempt))
+
+
+def _catalog(root, files, output, owner, attempt):
+    started = time.monotonic()
+    scanned = reused = truncated = failed = 0
     failures = []
-    with SourceRoot(root) as source_root, closing(connect(output)) as db, db:
+    with SourceRoot(root) as source_root, closing(connect(output, owner=owner)) as db, db:
         identity = {'schema': '2', 'repository': source_root.identity, 'analyzer': 'synopsis-v2',
                     'config': hashlib.sha256(json.dumps([READ_LIMIT, sorted(TEXT_EXTENSIONS)]).encode()).hexdigest()}
         previous = dict(db.execute('SELECT key,value FROM meta'))
         if previous.get('structural_repository') not in (None, source_root.identity):
             raise RuntimeError('Shared index belongs to another structural repository; use a new output directory')
+        _begin_semantic(output, owner, attempt, previous)
         if any(previous.get(key) != value for key, value in identity.items()):
             db.execute('DELETE FROM docs')
         db.execute("CREATE TEMP TABLE seen(path TEXT PRIMARY KEY)")
@@ -307,7 +570,16 @@ def catalog(root: Path, files: list[str], output: Path) -> dict:
                     data = b''
                     content_digest = hashlib.sha256(f'{stat.st_size}:{stat.st_mtime_ns}:{stat.st_ctime_ns}'.encode()).hexdigest()
             except OSError as error:
-                failures.append({'path': path, 'reason': error.strerror})
+                failed += 1
+                if len(failures) < 20:
+                    failure = {}
+                    for key, value in [('path', path), ('reason', error.strerror or '')]:
+                        bounded = value[:256]
+                        while len(json.dumps(bounded, ensure_ascii=True).encode()) > 256:
+                            bounded = bounded[:len(bounded) // 2]
+                        failure[key] = bounded
+                        if bounded != value: failure[key + '_truncated'] = True
+                    failures.append(failure)
                 continue
             stamp = f"{stat.st_mtime_ns}:{stat.st_size}"
             db.execute("INSERT OR IGNORE INTO seen VALUES(?)", (path,))
@@ -329,9 +601,17 @@ def catalog(root: Path, files: list[str], output: Path) -> dict:
         generation = uuid.uuid4().hex
         db.executemany('INSERT OR REPLACE INTO meta VALUES(?,?)', [*identity.items(), ('generation', generation)])
         count = db.execute("SELECT count(*) FROM docs").fetchone()[0]
-    return dict(documents=count, scanned=scanned, reused=reused, deleted=deleted, truncated=truncated,
+        semantic = _semantic_receipt(db, {**identity, 'generation': generation},
+            previous=json.loads(previous['semantic_receipt']) if previous.get('semantic_receipt') else None)
+        receipt = dict(documents=count, scanned=scanned, reused=reused, deleted=deleted, truncated=truncated,
                 seconds=round(time.monotonic() - started, 3), identity=identity, generation=generation,
-                failed=len(failures), failures=failures[:50], secure_reads=source_root.secure)
+                failed=failed, failures=failures, secure_reads=source_root.secure,
+                failures_truncated=failed > len(failures),
+                semantic_index=semantic)
+        attempt.update(generation=generation, repository_identity=source_root.identity)
+        db.execute("INSERT OR REPLACE INTO meta VALUES('catalog_receipt',?)",
+                   (json.dumps(receipt, ensure_ascii=True, separators=(',', ':')),))
+    return receipt
 
 
 class Embeddings:
@@ -361,11 +641,16 @@ class Embeddings:
 
 
 def embed_index(output: Path, embedder: Embeddings) -> dict:
+    return _run_semantic_writer(output, 'embed', lambda owner, attempt: _embed_index(output, embedder, owner, attempt))
+
+
+def _embed_index(output, embedder, owner, attempt):
     started = time.monotonic()
-    with closing(connect(output)) as db, db:
+    with closing(connect(output, owner=owner)) as db, db:
         with db:
             db.execute('BEGIN IMMEDIATE')
             identity = dict(db.execute('SELECT key,value FROM meta'))
+            _begin_semantic(output, owner, attempt, identity)
             if identity.get('schema') != '2' or any(not identity.get(k) for k in ('repository', 'generation', 'analyzer', 'config')):
                 raise RuntimeError('Legacy or incomplete source identity; run repo-graph map REPO --output OUTPUT before embedding.')
             if db.execute("SELECT count(*) FROM docs WHERE digest='' OR content_digest=''").fetchone()[0]:
@@ -374,7 +659,7 @@ def embed_index(output: Path, embedder: Embeddings) -> dict:
             if old and old[0] != embedder.name:
                 raise ValueError(f"Index uses {old[0]}; rebuild in a different output directory to change model.")
             db.execute("INSERT OR REPLACE INTO meta VALUES('model',?)", (embedder.name,))
-    with closing(connect(output)) as db, db:
+    with closing(connect(output, owner=owner)) as db, db:
         reused = db.execute("SELECT count(*) FROM docs WHERE vector IS NOT NULL").fetchone()[0]
         embedded = 0
         while True:
@@ -399,7 +684,11 @@ def embed_index(output: Path, embedder: Embeddings) -> dict:
                     if not changed:
                         raise RuntimeError('Embedding source/model snapshot is stale; remap or retry the index command.')
             embedded += len(rows)
-        return dict(embedded=embedded, reused=reused, model=embedder.name, seconds=round(time.monotonic() - started, 3))
+        semantic = _semantic_receipt(db, {key: captured[key] for key in
+            ('schema', 'repository', 'generation', 'analyzer', 'config')}, embedded=True)
+        attempt.update(generation=captured['generation'])
+        return dict(embedded=embedded, reused=reused, model=embedder.name,
+                    seconds=round(time.monotonic() - started, 3), semantic_index=semantic)
 
 
 class Search:

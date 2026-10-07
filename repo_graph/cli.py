@@ -97,6 +97,9 @@ def main(argv=None):
     query.add_argument('--stdio', action='store_true', help='Read JSON requests and write bounded JSON responses, one per line')
     query.add_argument('--server', help='Reuse a loopback server session at http://127.0.0.1:PORT')
     query.add_argument('--cursor', help='Continue a --server query with the same filters')
+    status = subs.add_parser('status', help='Read captured coverage, freshness and lifecycle without rescanning source')
+    status.add_argument('output', type=Path)
+    status.add_argument('--expect-source', help='Compare the captured structural source SHA256 to an expected identity')
     init = subs.add_parser('init', help='Install this product through native harness managers')
     init.add_argument('--harness', choices=['all', 'pi', 'codex', 'claude'], default='all')
     init.add_argument('--scope', choices=['user', 'project'], default='user')
@@ -128,6 +131,10 @@ def main(argv=None):
                                 ref=parsed.ref, dry_run=parsed.dry_run)
             print(json.dumps(result, ensure_ascii=False)); return 0
         output = parsed.output.expanduser().resolve()
+        if parsed.command == 'status':
+            from .search import index_status
+            result = index_status(output, expected_source=parsed.expect_source)
+            print(json.dumps(result, ensure_ascii=False)); return 0 if result['status'] == 'ok' else 1
         if parsed.command == 'analyze':
             from .analysis import StructuralIndex
             root = parsed.repository.expanduser().resolve()

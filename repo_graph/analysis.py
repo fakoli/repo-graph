@@ -7,13 +7,18 @@ import hashlib
 from importlib import metadata
 import json
 import math
+import os
 from pathlib import Path, PurePosixPath
+import select
+import signal
 import sqlite3
+import subprocess
 import time
+import uuid
 
 from . import analysis_native as native
 from .analysis_queue import QueueLimits, collect_files, _identity as queue_identity
-from .search import connect, code_identity as writer_code_identity
+from .search import connect, code_identity as writer_code_identity, begin_attempt, record_attempt
 from .source import SourceRoot, PublicationError
 
 SCHEMA = 'structural-v2'
@@ -32,6 +37,82 @@ def analyzer_identity():
         raise RuntimeError('Index implementation changed since module import')
     return hashlib.sha256(encoded({'index': observed, 'collector': native.collector_identity(),
                                    'queue': queue_identity(), 'writer': writer_code_identity(), 'schema': SCHEMA})).hexdigest()
+
+
+def _git_observation(root, check):
+    """Capture Git knowledge during production, without retaining filenames or Git errors."""
+    env = {'PATH': os.environ.get('PATH', ''), 'GIT_CONFIG_GLOBAL': os.devnull,
+           'GIT_CONFIG_NOSYSTEM': '1', 'GIT_OPTIONAL_LOCKS': '0', 'GIT_TERMINAL_PROMPT': '0'}
+    command = ['git', '--no-optional-locks', '-c', 'core.fsmonitor=false',
+               '-c', 'core.hooksPath=' + os.devnull, '-c', 'core.quotePath=true', '-C', str(root)]
+    def run(args, maximum):
+        deadline, data = time.monotonic() + 2, bytearray()
+        with subprocess.Popen(command + args, env=env, stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True) as process:
+            try:
+                while True:
+                    check()
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0: raise TimeoutError('Git capture deadline')
+                    if not select.select([process.stdout], [], [], min(remaining, 0.01))[0]: continue
+                    chunk = os.read(process.stdout.fileno(), maximum - len(data))
+                    if not chunk:
+                        return bytes(data) if process.wait(timeout=remaining) == 0 else None
+                    data.extend(chunk)
+                    if len(data) == maximum: return bytes(data)
+            finally:
+                # Only this owned process group is stopped; status output is deliberately bounded.
+                try: os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError: pass
+                process.wait()
+    try:
+        revision = run(['rev-parse', '--verify', 'HEAD'], 128)
+        if revision is None: return {'revision': None, 'dirty': None, 'knowledge': 'unknown', 'reason': 'git_revision_unavailable'}
+        revision = revision.decode('ascii').strip()
+        if len(revision) not in (40, 64) or any(c not in '0123456789abcdef' for c in revision):
+            raise ValueError('Invalid Git revision')
+        dirty = run(['status', '--porcelain=v1', '--untracked-files=normal', '--ignore-submodules=all'], 1)
+        if dirty is None: raise ValueError('Git status unavailable')
+        return {'revision': revision, 'dirty': bool(dirty), 'knowledge': 'captured_git', 'reason': None}
+    except (OSError, ValueError, TimeoutError, subprocess.TimeoutExpired):
+        return {'revision': None, 'dirty': None, 'knowledge': 'unknown', 'reason': 'git_capture_unavailable_or_bounded_stop'}
+
+
+def _coverage(db, count, check):
+    statuses = dict(db.execute('SELECT status,count(*) FROM structural_files GROUP BY status'))
+    languages, overflow = {}, {'languages': 0, 'files_total': 0, 'file_status': {}}
+    for language, status, total in db.execute('SELECT language,status,count(*) FROM structural_files GROUP BY language,status ORDER BY language,status'):
+        check()
+        if language not in languages and len(languages) >= 32:
+            if language != overflow.get('last_language'): overflow['languages'] += 1
+            overflow['last_language'] = language
+            group = overflow
+        else:
+            group = languages.setdefault(language, {'files_total': 0, 'file_status': {}})
+        group['files_total'] += total
+        group['file_status'][status] = total + group['file_status'].get(status, 0)
+    overflow.pop('last_language', None)
+    sites, errors, samples, sample_bytes = {}, 0, [], 0
+    for role, data in db.execute('SELECT role,data FROM structural_sites ORDER BY path,ordinal'):
+        check()
+        certainty = json.loads(data)['certainty']
+        group = sites.setdefault(role, {})
+        group[certainty] = group.get(certainty, 0) + 1
+    for path, ir in db.execute('SELECT path,ir FROM structural_files WHERE ir IS NOT NULL ORDER BY path'):
+        check()
+        for error in json.loads(ir)['errors']:
+            errors += 1
+            sample = {'path': path, 'kind': error['kind'], 'range': error['range']}
+            size = len(encoded(sample))
+            if len(samples) < 16 and sample_bytes + size <= 4096:
+                samples.append(sample); sample_bytes += size
+    return {'files_total': count, 'files_supported': statuses.get('parsed', 0) + statuses.get('partial_parse', 0),
+            'files_unsupported': statuses.get('unsupported_language', 0), 'status_counts': statuses,
+            'file_status': statuses, 'by_language': languages, 'language_overflow': overflow,
+            'sites_by_role_certainty': sites, 'parser_error_count': errors,
+            'parser_error_samples': samples, 'parser_error_samples_truncated': errors > len(samples),
+            'inventory_scope': 'caller_admitted_inventory', 'discovery_skipped_files': None,
+            'discovery_skip_knowledge': 'outside_admitted_inventory_not_measured'}
 
 
 @dataclass(frozen=True)
@@ -306,6 +387,7 @@ class StructuralIndex:
                      'bindings_files_resolved': 0, 'bindings_files_reused': 0,
                      'unknown_closure_files_rebuilt': 0, 'dependency_lookups_checked': 0}
         previous, current_path, collection_failures = None, None, []
+        attempt, receipt = None, None
 
         def check():
             if cancel is not None and cancel():
@@ -316,8 +398,6 @@ class StructuralIndex:
 
         try:
             analyzer = analyzer_identity()
-            if {name: metadata.version(name) for name in native.PINS} != native.PINS:
-                raise native.BackendUnavailable('Optional backend versions differ from qualified pins')
             config = hashlib.sha256(encoded({'budget': asdict(budget), 'limits': asdict(limits),
                                              'versions': native.PINS, 'schema': SCHEMA})).hexdigest()
             with SourceRoot(self.output) as output:
@@ -333,6 +413,13 @@ class StructuralIndex:
                     raise RuntimeError('Repository ownership changed')
                 old = self._metadata(db)
                 previous = old.get('structural_generation')
+                attempt = {'attempt_id': uuid.uuid4().hex, 'status': 'updating',
+                           'started_at': time.time(), 'repository_identity': self.owner,
+                           'previous_generation': previous}
+                begin_attempt(self.output, self.output_owner, 'structural', attempt)
+                if {name: metadata.version(name) for name in native.PINS} != native.PINS:
+                    raise native.BackendUnavailable('Optional backend versions differ from qualified pins')
+                git_before = _git_observation(source.root, check)
                 _schema(db)
                 page_size = db.execute('PRAGMA page_size').fetchone()[0]
                 pages = db.execute('PRAGMA max_page_count=' + str(max(1, limits.max_index_bytes // page_size))).fetchone()[0]
@@ -418,7 +505,7 @@ class StructuralIndex:
                     db.execute('INSERT INTO structural_seen VALUES(?)', (path,))
                     language = item.get('language', LANGUAGES.get(PurePosixPath(path).suffix, 'unknown'))
                     kind = item.get('kind', 'configuration' if PurePosixPath(path).name == 'go.mod' else 'source')
-                    if type(language) is not str or kind not in ('source', 'configuration'):
+                    if type(language) is not str or not 1 <= len(language.encode()) <= 128 or kind not in ('source', 'configuration'):
                         raise ValueError('Invalid source metadata')
                     remaining = limits.max_source_bytes - resources['source_bytes']
                     if source.info(path).st_size > remaining:
@@ -508,12 +595,15 @@ class StructuralIndex:
                 for table in ('structural_symbols', 'structural_sites', 'structural_scopes', 'structural_imports'):
                     for row in db.execute('SELECT data FROM ' + table + ' ORDER BY path,ordinal'):
                         generation.update(row[0] if type(row[0]) is bytes else row[0].encode())
-                coverage = dict(db.execute('SELECT status,count(*) FROM structural_files GROUP BY status'))
+                git_after = _git_observation(source.root, check)
+                if git_before != git_after:
+                    git_after = {'revision': None, 'dirty': None, 'knowledge': 'unknown', 'reason': 'git_changed_during_capture'}
                 receipt = {'status': 'ready', 'published': True, 'generation': generation.hexdigest(),
                     'source_identity': source_identity, 'repository_identity': self.owner,
                     'analyzer_identity': analyzer, 'config_identity': config, 'resources': resources,
-                    'coverage': {'files_total': count, 'files_supported': coverage.get('parsed', 0) + coverage.get('partial_parse', 0),
-                                 'files_unsupported': coverage.get('unsupported_language', 0), 'status_counts': coverage},
+                    'coverage': _coverage(db, count, check),
+                    'versions': {'schema': SCHEMA, 'rules': native.RULE_VERSION, 'grammars': dict(native.PINS)},
+                    'revision_dirty': dict(git_after, content_identity=source_identity),
                     'scope': 'Persistent bounded structural foundation; scale and query defaults unqualified'}
                 values = {'schema': SCHEMA, 'repository': self.owner, 'analyzer': analyzer, 'config': config,
                           'source': source_identity, 'generation': receipt['generation'], 'receipt': encoded(receipt).decode()}
@@ -540,5 +630,25 @@ class StructuralIndex:
                        'collection_failures': collection_failures,
                        'remaining_inventory_status': 'not_evaluated_after_failure',
                        'published_coverage_generation': previous}
+        except BaseException as error:
+            receipt = {'status': 'interrupted' if isinstance(error, KeyboardInterrupt) else 'failed',
+                       'published': False, 'error_kind': type(error).__name__, 'reason': str(error)[:1024],
+                       'previous_generation': previous, 'published_coverage_generation': previous,
+                       'remaining_inventory_status': 'not_evaluated_after_failure', 'resources': resources}
+            raise
+        finally:
+            if receipt is not None:
+                self.last_attempt = receipt
+            if attempt is not None and receipt is not None:
+                terminal = dict(attempt, status=receipt['status'], finished_at=time.time(),
+                                published=receipt['published'], receipt=receipt)
+                if receipt.get('reason'):
+                    terminal['reason'] = receipt['reason'][:1024]
+                try:
+                    record_attempt(self.output, self.output_owner, 'structural', terminal,
+                                   expected=attempt['attempt_id'])
+                except Exception as error:
+                    # Published facts remain authoritative; a failed terminal write is observable.
+                    receipt['attempt_record_error'] = type(error).__name__
         self.last_attempt = receipt
         return receipt

@@ -2,7 +2,6 @@
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import sqlite3
-from contextlib import closing
 from urllib.parse import urlsplit
 from threading import BoundedSemaphore
 from .source import SourceRoot
@@ -48,14 +47,14 @@ class Handler(BaseHTTPRequestHandler):
         name = urlsplit(self.path).path
         if name == '/api/status':
             try:
-                with closing(self.server.engine.connect()) as db:
-                    total, ready = db.execute('SELECT count(*),sum(vector IS NOT NULL) FROM docs').fetchone()
-                    identity = dict(db.execute('SELECT key,value FROM meta'))
+                from .search import index_status
+                result = index_status(self.server.engine.output, owner=self.server.engine.owner,
+                    backend_available=self.server.engine.embedder is not None)
             except (OSError, RuntimeError, sqlite3.Error):
                 self.respond(409, {'error': 'Index owner unavailable; reopen the original output'}); return
-            current = identity.get('schema') == '2' and all(identity.get(k) for k in ('repository', 'generation', 'analyzer', 'config'))
-            self.respond(200, {'semantic':current and self.server.engine.embedder is not None and total > 0 and total == ready,
-                'rerankers':['none'] + (['local'] if self.server.local_reranker else []) + (['jev'] if self.server.allow_jev else [])}); return
+            result['semantic'] = result['semantic_index']['query_available']
+            result['rerankers'] = ['none'] + (['local'] if self.server.local_reranker else []) + (['jev'] if self.server.allow_jev else [])
+            self.respond(200, result); return
         if name not in {'/', '/architecture.html', '/graph.html', '/graph.json', '/architecture.mmd', '/architecture.md'}:
             self.respond(404, {'error':'Not found'}); return
         file = self.server.engine.output / ('architecture.html' if name == '/' else name[1:])

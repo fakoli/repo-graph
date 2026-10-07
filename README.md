@@ -113,6 +113,7 @@ These development commands are undergoing qualification and are not in 0.6.0:
 ```bash
 uv run --extra analysis repo-graph analyze . --output ../repo-graph-output
 uv run repo-graph query ../repo-graph-output --operation symbol
+uv run repo-graph status ../repo-graph-output
 uv run repo-graph serve ../repo-graph-output
 ```
 
@@ -145,6 +146,20 @@ across CLI calls; retain the original operation, seed and filters. Cursors expir
 are consumed once, and cannot be moved to another server or changed query.
 Pagination continues the captured generation when a newer index is published.
 This API uses no model or Jev calls.
+
+`status OUTPUT` and `GET /api/status` read the same captured receipts. They show
+admitted files by parser status and language, call/reference uncertainty, parser
+error ranges, applied versions and captured Git revision/dirty knowledge. Files
+excluded before admission are outside this denominator. Large error samples and
+language groups are capped with explicit omitted counts.
+
+Published coverage stays attached to its generation. A separate persisted attempt
+shows updating, failed, interrupted or uncertain publication while keeping the
+previous artifact available. Unobserved live-source freshness is `unknown`;
+`status OUTPUT --expect-source SHA256` compares a caller-provided source identity.
+Status performs no source or Git rescan and loads no model. Semantic artifacts
+declare their keyword-document generation basis; backend availability is separate
+and structural-generation affinity remains unknown until explicitly captured.
 
 ## Views and search
 
