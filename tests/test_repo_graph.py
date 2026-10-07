@@ -93,6 +93,38 @@ class RepoGraphTests(unittest.TestCase):
             self.assertEqual(graph['search']['status'], 'unavailable')
             self.assertTrue((out / 'architecture.html').is_file())
             self.assertFalse((out / 'search.db').exists())
+            self.assertEqual(graph['index_status']['capture_kind'], 'offline')
+            self.assertNotIn('privateBody', (out / 'architecture.html').read_text())
+
+    def test_offline_status_keeps_captured_counts_without_diagnostics_or_facts(self):
+        from repo_graph import search
+        captured = search.index_status(Path('/nonexistent-synthetic-index'))
+        structural = captured['structural']
+        structural.update(state='failed', artifact_ready=True, freshness='stale',
+            last_attempt=dict(status='failed', error_kind='ValueError', reason='PRIVATE_DIAGNOSTIC'),
+            receipt=dict(coverage=dict(files_total=3, files_supported=2, files_unsupported=1,
+                parser_error_count=1, parser_error_samples=[dict(path='PRIVATE_SAMPLE')],
+                by_language=dict(python=dict(files_total=2, file_status=dict(parsed=2), source='PRIVATE_BODY')),
+                extra='PRIVATE_EXTRA'), versions=dict(schema='structural-v2', rules='test', extra='PRIVATE_VERSION'),
+                revision_dirty=dict(revision=None, dirty=None, knowledge='unknown', reason='PRIVATE_REASON')))
+        captured['facts'] = 'PRIVATE_FACTS'
+        captured['semantic_index']['catalog_receipt'] = dict(documents=3, truncated=1, failed=1,
+                                                             failures=['PRIVATE_FAILURE'])
+        before = json.dumps(captured, sort_keys=True)
+        with patch.object(search, 'index_status', return_value=captured) as read:
+            status = repo_graph.offline_index_status(Path('synthetic-output'))
+        read.assert_called_once_with(Path('synthetic-output'))
+        self.assertEqual(json.dumps(captured, sort_keys=True), before)
+        self.assertNotIn('PRIVATE_', json.dumps(status))
+        self.assertEqual(status['structural']['state'], 'failed')
+        self.assertTrue(status['structural']['artifact_ready'])
+        self.assertEqual(status['structural']['freshness'], 'stale')
+        self.assertEqual(status['structural']['receipt']['coverage']['files_total'], 3)
+        self.assertEqual(status['semantic_index']['catalog_receipt'], dict(documents=3, truncated=1, failed=1))
+        self.assertEqual(status['structural']['last_attempt'], dict(status='failed', error_kind='ValueError'))
+        structural['receipt']['coverage']['inventory_scope'] = 'x' * 65536
+        with patch.object(search, 'index_status', return_value=captured), self.assertRaises(ValueError):
+            repo_graph.offline_index_status(Path('synthetic-output'))
 
     @unittest.skipUnless(os.open in os.supports_dir_fd and hasattr(os, 'O_NOFOLLOW'), 'Descriptor-relative opens unavailable')
     def test_root_acquisition_rejects_ancestor_swap_after_resolution(self):

@@ -4,6 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { once } from 'node:events';
 
 const scratch = mkdtempSync(resolve(tmpdir(),'repo-graph-ux-'));
@@ -13,6 +14,10 @@ if (!process.env.REPO_GRAPH_UX_OUTPUT) {
   for (let i=0;i<75;i++) { const dir=resolve(repo,'src','component'+String(i).padStart(2,'0')); mkdirSync(dir,{recursive:true}); writeFileSync(resolve(dir,'main.py'),'def process():\n    """Apply access control permissions to a request."""\n'); }
   const scan=spawnSync(python,['scripts/repo_graph.py','map',repo,'--output',output],{encoding:'utf8'});
   assert.equal(scan.status,0,scan.stderr);
+  const analysis=spawnSync(python,['scripts/repo_graph.py','analyze',repo,'--output',output,'--mode','serial'],{encoding:'utf8'});
+  assert.equal(analysis.status,0,analysis.stderr);
+  const captured=spawnSync(python,['scripts/repo_graph.py','map',repo,'--output',output],{encoding:'utf8'});
+  assert.equal(captured.status,0,captured.stderr);
 }
 const method=process.env.REPO_GRAPH_UX_RERANK || 'none';
 const server=spawn(python,['scripts/repo_graph.py','serve',output,'--offline',...(method==='local'?['--local-reranker']:method==='jev'?['--allow-jev']:[])],{stdio:['ignore','pipe','pipe']});
@@ -29,6 +34,65 @@ try {
   const graph=JSON.parse(readFileSync(resolve(output,'graph.json'),'utf8'));
   assert.equal(await page.locator('#stat-files').innerText(),graph.file_count.toLocaleString('en-US'));
   checks.push('inventory count');
+  const liveStatus=await (await page.request.get(new URL('/api/status',url).toString())).json();
+  await page.waitForFunction(()=>document.querySelector('#index-heading').textContent.includes('local index'));
+  assert.match(await page.locator('#index-summary').innerText(),/Live freshness unobserved/);
+  if (!process.env.REPO_GRAPH_UX_OUTPUT) {
+    assert.equal(liveStatus.structural.artifact_ready,true);
+    assert.match(await page.locator('#index-summary').innerText(),/captured artifact ready/);
+    assert.match(await page.locator('#index-summary').innerText(),new RegExp(liveStatus.structural.receipt.coverage.files_total+' admitted files'));
+  }
+  checks.push('captured API readiness and explicit live freshness knowledge');
+  for (const state of ['updating','interrupted','stale']) {
+    const changed=structuredClone(liveStatus);
+    changed.structural.state=state;
+    changed.structural.freshness=state==='stale' ? 'stale' : 'unknown';
+    changed.structural.last_attempt={status:state==='stale' ? 'failed' : state,reason:'RAW_PRIVATE_DIAGNOSTIC',error:'RAW_PRIVATE_DIAGNOSTIC'};
+    changed.structural.attempt_attribution='captured_repository';
+    await page.route('**/api/status',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(changed)}));
+    await page.reload(); await page.waitForFunction(state=>document.querySelector('#index-summary').textContent.includes('Structural: '+state),state);
+    if (state==='stale') {
+      assert.match(await page.locator('#index-summary').innerText(),/Freshness: stale/);
+      if(process.env.REPO_GRAPH_UX_REPORT) await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-stale.png'});
+    }
+    assert.ok((await page.locator('#index-errors').innerText()).length>0);
+    assert.doesNotMatch(await page.locator('.index-status').innerText(),/RAW_PRIVATE_DIAGNOSTIC/);
+    await page.unroute('**/api/status');
+  }
+  await page.route('**/api/status',route=>route.abort());
+  await page.reload(); await page.waitForFunction(()=>document.querySelector('#index-errors').textContent.includes('Live status unavailable'));
+  assert.match(await page.locator('#index-heading').innerText(),/captured export/);
+  await page.unroute('**/api/status'); await page.reload();
+  await page.waitForFunction(()=>document.querySelector('#index-heading').textContent.includes('local index'));
+  checks.push('visible lifecycle/stale states; safe errors; unavailable service keeps captured status');
+  const offline=await browser.newPage({viewport:{width:1440,height:1000}}), offlineNetwork=[];
+  offline.on('pageerror',error=>errors.push(error.message));
+  offline.on('request',request=>{if(/^https?:/.test(request.url()))offlineNetwork.push(request.url());});
+  try {
+    await offline.goto(pathToFileURL(resolve(output,'architecture.html')).toString());
+    await offline.click('#tab-system');
+    assert.ok(await offline.locator('.node').count()<=12);
+    assert.match(await offline.locator('#index-heading').innerText(),/captured export/);
+    assert.match(await offline.locator('#index-summary').innerText(),/Live freshness unobserved/);
+    if (!process.env.REPO_GRAPH_UX_OUTPUT) assert.match(await offline.locator('#index-summary').innerText(),/captured artifact ready/);
+    const payload=await offline.locator('#graph-data').textContent();
+    const embedded=JSON.parse(payload);
+    const capturedFreshness=['current','stale'].includes(embedded.index_status?.structural?.freshness) ? embedded.index_status.structural.freshness : 'unknown';
+    assert.match(await offline.locator('#index-summary').innerText(),new RegExp('Captured freshness: '+capturedFreshness+' · Live freshness unobserved'));
+    for(const field of ['definitions','symbols','sites','relationships','source_text','ir']) assert.equal(Object.hasOwn(embedded,field),false);
+    assert.equal(Object.hasOwn(embedded.index_status?.structural?.receipt?.coverage || {},'parser_error_samples'),false);
+    if(process.env.REPO_GRAPH_UX_REPORT) await offline.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-offline.png'});
+    await offline.locator('.node').first().focus(); await offline.keyboard.press('Enter');
+    await offline.locator('#inspector-content .detail-section .component-item').first().click();
+    assert.equal(await offline.locator('#tab-explore').getAttribute('aria-selected'),'true');
+    await offline.setViewportSize({width:360,height:900});
+    assert.ok(await offline.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await offline.locator('.index-status summary').focus(); await offline.keyboard.press('Enter');
+    assert.equal(await offline.locator('.index-status details').getAttribute('open'),'');
+    assert.ok(await offline.locator('.index-status summary').evaluate(control=>control.getBoundingClientRect().height>=44));
+    assert.deepEqual(offlineNetwork,[]);
+    checks.push('offline bounded ready overview; source inspection; keyboard coverage; 360px layout; no HTTP requests or symbol graph');
+  } finally { await offline.close(); }
   for (const file of ['graph.json','architecture.mmd']) { const response=await page.request.get(new URL(file,url).toString()); assert.equal(response.status(),200); }
   checks.push('JSON and Mermaid downloads');
   for(const mode of ['system','atlas','tree','radial','treemap','table','matrix']) {
@@ -38,6 +102,9 @@ try {
     assert.ok(await page.locator('.node').count()<=24); checks.push('view '+mode);
   }
   await page.click('#tab-system');
+  assert.ok(await page.locator('.node').count()<=12);
+  const grouped=(graph.system?.edges || []).reduce((sum,edge)=>sum+edge.count,0);
+  assert.match(await page.locator('#map-subtitle').innerText(),new RegExp(grouped.toLocaleString('en-US')+' captured imports'));
   await page.evaluate(()=>new Promise(requestAnimationFrame));
   assert.equal(await page.locator('#inspector').isVisible(),false);
   const systemMetrics=await page.evaluate(() => {

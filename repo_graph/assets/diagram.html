@@ -36,6 +36,14 @@
   .eyebrow { color:var(--muted); font:700 10px/1.2 "SFMono-Regular",Consolas,monospace; letter-spacing:.16em; text-transform:uppercase; }
   .side-title { font:600 23px/1.15 Georgia,"Iowan Old Style",serif; letter-spacing:-.035em; margin:9px 0 10px; }
   .side-copy { color:var(--muted); font-size:12px; line-height:1.65; margin:0 0 18px; }
+  .index-status { margin:0 0 20px; padding:12px; border:1px solid var(--line); border-radius:9px; background:#f8f9fc; font-size:11px; overflow-wrap:anywhere; }
+  .index-status h3 { margin:0 0 7px; font-size:12px; }
+  .index-status p { margin:5px 0; }
+  .index-status .index-errors { color:#8c302b; }
+  .index-status summary { min-height:44px; display:flex; align-items:center; cursor:pointer; color:#354bab; }
+  .index-status ul { padding-left:17px; margin:0; }
+  .index-status li { margin:6px 0; }
+  .index-status details { max-height:360px; overflow:auto; }
   .view-options { display:grid; gap:9px; margin-bottom:20px; }
   .view-options label { display:grid; grid-template-columns:42px minmax(0,1fr); gap:6px; align-items:center; color:var(--muted); font-size:11px; }
   .view-options select { width:100%; min-height:33px; border:1px solid var(--line); border-radius:8px; background:#f8f9fc; padding:5px 8px; color:var(--ink); font:inherit; }
@@ -182,6 +190,7 @@
       <div class="eyebrow">01 / Overview</div>
       <h2 class="side-title">Explore the repository.</h2>
       <p class="side-copy">A grounded map of files and relationships. Select a component to follow its connections.</p>
+      <section class="index-status" aria-labelledby="index-heading"><h3 id="index-heading">Index coverage</h3><div id="index-summary" role="status" aria-live="polite"></div><p id="index-errors" class="index-errors"></p><details><summary>Coverage and snapshot details</summary><ul id="index-details"></ul></details></section>
       <div class="view-tabs" role="tablist" aria-label="Repository views"><button type="button" role="tab" id="tab-system" aria-selected="false">System</button><button type="button" role="tab" id="tab-explore" aria-selected="true">Explore</button><button type="button" role="tab" id="tab-data" aria-selected="false">Data</button><button type="button" role="tab" id="tab-search" aria-selected="false">Search</button></div>
       <div class="view-options">
         <label>View<select id="view-mode"><option value="system">System overview</option><option value="atlas" selected>Card diagram</option><option value="tree">Top-down tree</option><option value="radial">Radial map</option><option value="treemap">File-count treemap</option><option value="table">Data table</option><option value="matrix">Dependency matrix</option><option value="search">Repository search</option></select></label>
@@ -234,6 +243,23 @@ __VIEW_HELPERS__
   document.title = `${data.name} · ${graphMode ? 'Dependency graph' : 'Architecture map'}`;
   document.getElementById('repo-name').textContent = data.name;
   document.getElementById('stat-files').textContent = data.file_count.toLocaleString();
+
+  function renderIndexStatus(raw, captured=true, notice='') {
+    const status = RepoViews.indexStatus(raw,captured);
+    document.getElementById('index-heading').textContent = captured ? 'Index coverage · captured export' : 'Index coverage · local index';
+    const host = document.getElementById('index-summary'); host.replaceChildren();
+    for (const line of status.summary) { const p = document.createElement('p'); p.textContent = line; host.appendChild(p); }
+    document.getElementById('index-errors').textContent = [notice,...status.errors].filter(Boolean).join(' ');
+    const details = document.getElementById('index-details'); details.replaceChildren();
+    for (const line of status.details) { const li = document.createElement('li'); li.textContent = line; details.appendChild(li); }
+  }
+  renderIndexStatus(data.index_status);
+  const online = location.protocol === 'http:' && location.hostname === '127.0.0.1';
+  const statusRequest = online ? fetch('/api/status').then(response => response.json()).then(state => {
+    renderIndexStatus(state,false); return state;
+  }).catch(() => {
+    renderIndexStatus(data.index_status,true,'Live status unavailable. Showing captured export status.'); return null;
+  }) : Promise.resolve(null);
 
   function renderScope() {
     document.getElementById('workspace').classList.toggle('search-view',viewMode === 'search');
@@ -346,13 +372,13 @@ __VIEW_HELPERS__
         article.append(heading,evidence,open); results.appendChild(article);
       }
     };
-    const online = location.protocol === 'http:' && location.hostname === '127.0.0.1';
     if (!online) {
       submit.disabled = true; input.disabled = true; prefix.disabled = true; mode.disabled = true; rerank.disabled = true;
       status.textContent = 'To search this map, run repo-graph serve with the output directory shown by the scan, then open its local URL. Build meaning search once with repo-graph index OUTPUT --semantic. Offline diagrams remain available in the other tabs.';
     } else {
       status.textContent = 'Search the whole repository. Meaning search needs a locally embedded index.';
-      fetch('/api/status').then(response => response.json()).then(state => {
+      statusRequest.then(state => {
+        if (!state) { status.textContent = 'Search service is unavailable. Restart repo-graph serve.'; return; }
         for (const option of rerank.options) option.disabled = !(state.rerankers || ['none']).includes(option.value);
         rerank.value = (state.rerankers || ['none']).includes(lastRerank) ? lastRerank : 'none'; explain();
         if (!state.semantic) { mode.value = 'keyword'; mode.options[0].disabled = true; mode.options[1].disabled = true; if (!lastResults) status.textContent = 'Keyword index ready. Enable meaning search with repo-graph index OUTPUT --semantic, then restart this viewer.'; }
@@ -420,11 +446,11 @@ __VIEW_HELPERS__
   function renderSystem() {
     document.getElementById('export-csv').disabled = false;
     scopePath = ''; page = 0;
-    parts = (data.system?.nodes || []).filter(node => (node.name + ' ' + node.summary).toLowerCase().includes(query));
+    const overview = RepoViews.systemOverview(data.system,query);
+    parts = overview.nodes;
     scopeEntries = parts;
     byId = new Map(parts.map((node,index) => [node.id,{...node,index}]));
-    const visible = new Set(parts.map(node => node.id));
-    links = (data.system?.edges || []).filter(edge => visible.has(edge.source) && visible.has(edge.target)).slice(0,40);
+    links = overview.edges;
     counts = RepoViews.metrics(data.system?.edges || []);
     selected = null;
     renderBreadcrumb(true);
@@ -432,7 +458,7 @@ __VIEW_HELPERS__
     document.getElementById('page-label').textContent = 'Whole repository';
     document.getElementById('scope').textContent = 'System overview';
     document.getElementById('map-title').textContent = 'System architecture';
-    document.getElementById('map-subtitle').textContent = `${parts.length} source areas · observed imports · roles inferred from directory structure`;
+    document.getElementById('map-subtitle').textContent = `${parts.length} source areas${overview.omittedAreas ? ' · '+overview.omittedAreas+' omitted at area limit' : ''} · ${links.length} of ${overview.relations} grouped import relations · ${overview.imports.toLocaleString()} captured imports. Directory roles are inferred; calls are not shown.`;
     document.getElementById('stat-components').textContent = parts.length;
     document.getElementById('stat-links').textContent = links.length;
     svg.style.display = 'block'; document.getElementById('data-panel').hidden = true;
@@ -522,9 +548,10 @@ __VIEW_HELPERS__
       const wire = make('path',attrs,world);
       if (edge.relation === 'imports' && edge.count > 1) {
         const point = wire.getPointAtLength(wire.getTotalLength() / 2);
-        const label = `${edge.count} links`;
+        const label = `${edge.count} imports`;
         const g = make('g',{class:'edge-label-wrap','data-source':edge.source,'data-target':edge.target},world);
-        make('rect',{x:point.x - 27,y:point.y - 10,width:54,height:19,rx:9,class:'edge-label'},g);
+        const labelWidth = Math.max(54,label.length*7+16);
+        make('rect',{x:point.x-labelWidth/2,y:point.y-10,width:labelWidth,height:19,rx:9,class:'edge-label'},g);
         const text = make('text',{x:point.x,y:point.y + 3,'text-anchor':'middle',class:'edge-label-text'},g);
         text.textContent = label;
       }
@@ -554,7 +581,8 @@ __VIEW_HELPERS__
     if (svg.style.display === 'none' || !positions.size) return;
     const boxes = [...positions.values()], x = Math.min(...boxes.map(box => box.x)), y = Math.min(...boxes.map(box => box.y));
     const width = Math.max(...boxes.map(box => box.x+box.width))-x, height = Math.max(...boxes.map(box => box.y+box.height))-y;
-    const top = selected ? 190 : 145, w = svg.clientWidth-64, h = svg.clientHeight-top-70;
+    const heading = document.querySelector('.stage-heading').getBoundingClientRect?.();
+    const top = Math.max(selected ? 190 : 145,heading ? heading.bottom-svg.getBoundingClientRect().top+24 : 0), w = svg.clientWidth-64, h = svg.clientHeight-top-70;
     scale = Math.max(.15,Math.min(1.1,w/width,h/height));
     tx = 32+(w-width*scale)/2-x*scale; ty = top+(h-height*scale)/2-y*scale; transform();
   }
@@ -610,7 +638,7 @@ __VIEW_HELPERS__
     const rule = document.createElement('div'); rule.className = 'accent-rule'; rule.style.background = color(node.id); host.appendChild(rule);
     const related = (viewMode === 'system' ? data.system.edges : data.scope_edges[scopePath] || []).filter(e => e.source === node.id || e.target === node.id);
     const metrics = document.createElement('div'); metrics.className = 'detail-metrics';
-    for (const [value,label] of [[node.count,'FILES'],[related.length,'CONNECTIONS']]) { const box = document.createElement('div'); const strong = document.createElement('strong'); strong.textContent = value; const span = document.createElement('span'); span.textContent = label; box.append(strong,span); metrics.appendChild(box); }
+    for (const [value,label] of [[node.count,'FILES'],[related.length,'IMPORT RELATIONS'],[related.reduce((sum,edge) => sum+edge.count,0),'CAPTURED IMPORTS']]) { const box = document.createElement('div'); const strong = document.createElement('strong'); strong.textContent = value; const span = document.createElement('span'); span.textContent = label; box.append(strong,span); metrics.appendChild(box); }
     host.appendChild(metrics);
     if (node.role) { const role = document.createElement('p'); role.className = 'eyebrow'; role.textContent = `${node.kind === 'system' ? 'Component role' : 'Jev role'} · ${node.role}`; host.appendChild(role); }
     if (node.kind === 'system') {
@@ -640,7 +668,7 @@ __VIEW_HELPERS__
       host.appendChild(section);
     };
     addSection('Sample source paths',node.files);
-    addSection('Import connections',related.slice(0,20).map(e => ({id:e.source === node.id ? e.target : e.source,count:e.count,direction:e.source === node.id ? '→' : '←'})),true);
+    addSection(`Import relations (${Math.min(20,related.length)} of ${related.length})`,related.slice(0,20).map(e => ({id:e.source === node.id ? e.target : e.source,count:e.count,direction:e.source === node.id ? '→' : '←'})),true);
   }
   let drag = null;
   svg.addEventListener('pointerdown',event => { if (event.target.closest('.node')) return; drag = {x:event.clientX,y:event.clientY,tx,ty}; svg.setPointerCapture(event.pointerId); svg.classList.add('dragging'); });

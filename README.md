@@ -203,6 +203,13 @@ different model report unavailable and can be queried through the CLI.
 
 ## Views and search
 
+After `analyze`, run `map` with the same `--output` to capture index readiness
+and coverage in the offline view. The coverage panel distinguishes failed
+attempts from retained ready artifacts, shows supported and unsupported files,
+and preserves unknown live freshness. A served view reads current captured
+status from the same index; an offline export contains bounded counts and
+versions, without symbol facts, parser snippets or raw diagnostics.
+
 System groups up to 12 source areas and their observed imports. Explore offers
 card, tree, radial and file-count treemap layouts. Data includes a table and
 directed dependency matrix; export filtered scope data as CSV or the viewport

@@ -98,6 +98,83 @@ const RepoViews = (() => {
     for (const node of nodes) rows.push([node.name,node.kind,node.count,counts.get(node.id)?.incoming || 0,counts.get(node.id)?.outgoing || 0,node.role || '',JSON.stringify(node.paths || [node.name])]);
     return rows.map(row => row.map(cell).join(',')).join('\r\n') + '\r\n';
   }
-  return {metrics,ordered,layout,csv};
+  function systemOverview(system, query='') {
+    const all = system?.nodes || [], nodes = all.slice(0,12).filter(node =>
+      (node.name + ' ' + (node.summary || '')).toLowerCase().includes(query));
+    const ids = new Set(nodes.map(node => node.id));
+    const edges = (system?.edges || []).filter(edge => ids.has(edge.source) && ids.has(edge.target));
+    return {nodes,edges:edges.slice(0,40),relations:edges.length,
+      imports:edges.reduce((sum,edge) => sum + edge.count,0),omittedAreas:Math.max(0,all.length-12)};
+  }
+  function indexStatus(raw, offline=false) {
+    // Presentation consumes captured status only. Counts never establish readiness or live freshness.
+    const count = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString() : 'unknown';
+    const text = value => typeof value === 'string' ? value.slice(0,128) : 'unknown';
+    const states = new Set(['ready','not_scanned','not_indexed','updating','interrupted','failed','stale','publication_uncertain','unavailable','unknown_legacy']);
+    const state = part => states.has(part?.state) ? part.state.replaceAll('_',' ') : 'unknown';
+    const structural = raw?.structural, receipt = structural?.receipt, coverage = receipt?.coverage;
+    const valid = raw?.status === 'ok';
+    const ready = valid && structural?.artifact_ready === true;
+    const freshness = offline ? `Captured freshness: ${['current','stale'].includes(structural?.freshness) ? structural.freshness : 'unknown'} · Live freshness unobserved` :
+      structural?.freshness === 'current' ? 'Freshness: current against supplied source identity' :
+      structural?.freshness === 'stale' ? 'Freshness: stale' : 'Live freshness unobserved';
+    const summary = [`Structural: ${valid ? state(structural) : 'unavailable'}${ready ? ' · captured artifact ready' : ''}`,freshness];
+    if (coverage) {
+      const files = coverage.file_status || coverage.status_counts || {};
+      summary.push(`${count(coverage.files_total)} admitted files · ${count(files.parsed ?? 0)} parsed · ${count(files.partial_parse ?? 0)} partial · ${count(coverage.files_unsupported)} unsupported`);
+      const sites = coverage.sites_by_role_certainty || {};
+      summary.push(`Unknown sites: ${count(sites.call?.unresolved ?? 0)} calls · ${count(sites.reference?.unresolved ?? 0)} references`);
+    } else summary.push('Structural coverage unavailable');
+    const details = [], errors = [];
+    if (!raw) errors.push('No captured structural status. Serve the index to read its status.');
+    else if (!valid) errors.push(raw.status === 'bounded_stop' ? 'Status read stopped at its storage deadline.' : 'Index status unavailable.');
+    if (coverage) {
+      const labels = {parsed:'Parsed',partial_parse:'Partial parse',unsupported_language:'Unsupported',excluded_size:'Excluded by size',configuration:'Configuration',go_filename_excluded:'Go filename excluded',source_error:'Source errors',pending:'Pending'};
+      for (const [key,value] of Object.entries(coverage.file_status || coverage.status_counts || {}).slice(0,32))
+        details.push(`${labels[key] || 'Other file status'}: ${count(value)}`);
+      details.push(`Parser errors: ${count(coverage.parser_error_count)}`);
+      if (coverage.parser_error_count > 0) errors.push(`${count(coverage.parser_error_count)} parser errors; partial files remain visible.`);
+      if (coverage.file_status?.excluded_size > 0) errors.push(`${count(coverage.file_status.excluded_size)} files excluded by size.`);
+      details.push('Coverage is the admitted inventory. Discovery skips outside it were not measured.');
+      for (const [language,group] of Object.entries(coverage.by_language || {}).slice(0,32)) {
+        const values = group.file_status || {};
+        details.push(`${text(language)}: ${count(group.files_total)} files · ${count(values.parsed ?? 0)} parsed · ${count(values.partial_parse ?? 0)} partial · ${count(values.unsupported_language ?? 0)} unsupported`);
+      }
+      if (coverage.language_overflow?.languages > 0) details.push(`${count(coverage.language_overflow.languages)} additional languages · ${count(coverage.language_overflow.files_total)} files`);
+      for (const role of ['call','reference']) {
+        const sites = coverage.sites_by_role_certainty?.[role] || {};
+        details.push(`${role === 'call' ? 'Call' : 'Reference'} sites: ${count(sites.resolved ?? 0)} resolved · ${count(sites.candidate ?? 0)} candidate · ${count(sites.unresolved ?? 0)} unresolved`);
+      }
+    }
+    const identities = structural?.identities || {};
+    for (const key of ['generation','repository_identity','source_identity','analyzer_identity','config_identity'])
+      if (/^[0-9a-f]{64}$/.test(identities[key] || '')) details.push(`${key.replaceAll('_',' ')}: ${identities[key]}`);
+    const versions = receipt?.versions;
+    if (versions) {
+      details.push(`Schema: ${text(versions.schema)} · rules: ${text(versions.rules)}`);
+      for (const [language,version] of Object.entries(versions.grammars || {}).slice(0,32)) details.push(`Grammar ${text(language)}: ${text(version)}`);
+    }
+    const revision = receipt?.revision_dirty;
+    details.push(`Revision: ${/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(revision?.revision || '') ? revision.revision : 'unknown'} · dirty: ${revision?.dirty === true ? 'yes at capture' : revision?.dirty === false ? 'no at capture' : 'unobserved'}`);
+    const reasons = {source_changed_before_publication:'source changed before publication',repository_replaced_before_publication:'repository replaced before publication',cancelled:'cancelled',deadline_exceeded:'deadline exceeded'};
+    for (const [label,part] of [['Structural',structural],['File semantic',raw?.semantic_index],['Function evidence',raw?.function_evidence]]) {
+      details.push(`${label}: ${state(part)} · artifact ${valid && part?.artifact_ready === true ? 'ready' : 'unavailable'} · query ${valid && part?.query_available === true && !offline ? 'available' : 'unavailable offline or backend absent'}`);
+      const attempt = part?.last_attempt;
+      if (attempt && ['failed','interrupted','updating','publication_uncertain'].includes(attempt.status)) {
+        const attribution = ['captured_repository','unpublished_repository'].includes(part.attempt_attribution) ? '' : 'unrelated or unverified ';
+        errors.push(`${label}: ${attribution}${attempt.status.replaceAll('_',' ')}${reasons[attempt.reason] ? ' · '+reasons[attempt.reason] : ''}.`);
+      }
+    }
+    const semantic = raw?.semantic_index, functions = raw?.function_evidence;
+    details.push(`File semantic model: ${text(semantic?.model)} · backend ${semantic?.backend_available === true && !offline ? 'available' : semantic?.backend_available === false ? 'absent' : 'unobserved'}`);
+    if (functions) details.push(`Function semantic: ${state({state:functions.semantic_state})} · model ${text(functions.model)} · query ${valid && functions.semantic_query_available === true && !offline ? 'available' : 'unavailable'}`);
+    const catalog = raw?.semantic_index?.catalog_receipt;
+    if (catalog) {
+      details.push(`File keyword catalogue: ${count(catalog.documents)} documents · ${count(catalog.truncated)} truncated · ${count(catalog.failed)} failed`);
+      if (catalog.truncated > 0 || catalog.failed > 0) errors.push(`File keyword catalogue: ${count(catalog.truncated)} truncated · ${count(catalog.failed)} failed.`);
+    }
+    return {summary,details,errors,ready};
+  }
+  return {metrics,ordered,layout,csv,systemOverview,indexStatus};
 })();
 if (typeof module !== 'undefined') module.exports = RepoViews;

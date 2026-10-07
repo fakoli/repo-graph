@@ -319,6 +319,47 @@ def system_view(tree: dict[str, dict], dependencies: list[dict], roles: dict[str
                                       for (a, b), n in sorted(edges.items(), key=lambda item: (-item[1], item[0]))]}
 
 
+def offline_index_status(output: Path) -> dict:
+    """Export captured readiness and counts, without facts or raw diagnostics."""
+    from repo_graph.search import index_status
+    captured = index_status(output)
+    result = {key: captured[key] for key in ('status', 'error_kind') if key in captured}
+    result['capture_kind'] = 'offline'
+    fields = ('state', 'artifact_ready', 'query_available', 'freshness', 'freshness_basis',
+              'identities', 'receipt_knowledge', 'attempt_attribution', 'model', 'backend_available',
+              'keyword_query_available', 'semantic_artifact_ready', 'semantic_query_available', 'semantic_state')
+    for name in ('structural', 'semantic_index', 'function_evidence'):
+        component = captured[name]
+        row = {key: component[key] for key in fields if key in component}
+        receipt = component.get('receipt') or {}
+        row['receipt'] = {}
+        for key, allowed in (('versions', ('schema', 'rules', 'grammars')),
+                             ('revision_dirty', ('revision', 'dirty', 'knowledge', 'content_identity'))):
+            if key in receipt:
+                row['receipt'][key] = {field: receipt[key][field] for field in allowed if field in receipt[key]}
+        if 'coverage' in receipt:
+            allowed = ('files_total', 'files_supported', 'files_unsupported', 'status_counts', 'file_status',
+                       'by_language', 'language_overflow', 'sites_by_role_certainty', 'parser_error_count',
+                       'parser_error_samples_truncated', 'inventory_scope', 'discovery_skipped_files',
+                       'discovery_skip_knowledge')
+            row['receipt']['coverage'] = {key: receipt['coverage'][key] for key in allowed if key in receipt['coverage']}
+            if 'by_language' in row['receipt']['coverage']:
+                row['receipt']['coverage']['by_language'] = {language:
+                    {field: data[field] for field in ('files_total', 'file_status') if field in data}
+                    for language, data in row['receipt']['coverage']['by_language'].items()}
+        attempt = component.get('last_attempt')
+        row['last_attempt'] = ({key: attempt[key] for key in ('status', 'error_kind') if key in attempt}
+                               if attempt else None)
+        if component.get('catalog_receipt'):
+            row['catalog_receipt'] = {key: component['catalog_receipt'][key]
+                for key in ('documents', 'truncated', 'failed', 'scanned', 'reused', 'deleted')
+                if key in component['catalog_receipt']}
+        result[name] = row
+    if len(json.dumps(result, ensure_ascii=False, separators=(',', ':')).encode()) > 65536:
+        raise ValueError('Offline index status exceeds 65536 bytes')
+    return result
+
+
 def write_page(path: Path, data: dict) -> None:
     template = Path(__file__).resolve().parent / "assets" / "diagram.html"
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
@@ -426,10 +467,11 @@ def main(argv=None) -> int:
     graph = {"schema": 1, "name": display_name, "file_count": len(files), "files": files,
              "tree": tree, "dependencies": dependencies, "scope_edges": edges,
              "scan": scan, "jev": jev_status, "roles": roles,
-             "system": system_view(tree, dependencies, roles), "search": search}
+             "system": system_view(tree, dependencies, roles), "search": search,
+             "index_status": offline_index_status(output)}
     graph_path = output / "graph.json"
     graph_path.write_text(json.dumps(graph, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    view = {key: graph[key] for key in ("name", "file_count", "tree", "scope_edges", "scan", "jev", "roles", "system", "search")}
+    view = {key: graph[key] for key in ("name", "file_count", "tree", "scope_edges", "scan", "jev", "roles", "system", "search", "index_status")}
     for name in ("architecture.html", "graph.html"):
         write_page(output / name, view)
     diagram = mermaid(tree, edges)

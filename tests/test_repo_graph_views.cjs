@@ -42,6 +42,50 @@ assert.ok(csv.includes('"\'=unsafe,""quoted"""'));
 assert.equal(nodes[1].id,'n0'); // Sorting never mutates the inventory.
 console.log('View geometry, proportional areas, import metrics, sorting and CSV safety passed');
 
+const systemNodes=nodes.slice(1).map(node=>({...node,kind:'system'}));
+const systemEdges=systemNodes.slice(0,12).flatMap(a=>systemNodes.slice(0,12).filter(b=>b!==a).map(b=>({source:a.id,target:b.id,count:2,relation:'imports'})));
+const overview=views.systemOverview({nodes:systemNodes,edges:systemEdges});
+assert.equal(overview.nodes.length,12);
+assert.equal(overview.edges.length,40);
+assert.equal(overview.relations,132);
+assert.equal(overview.imports,264);
+assert.equal(overview.omittedAreas,11);
+assert.equal(views.systemOverview({nodes:systemNodes,edges:systemEdges},'no-such-area').relations,0);
+const capturedStatus={status:'ok',structural:{state:'ready',artifact_ready:true,query_available:true,freshness:'unknown',identities:{generation:'a'.repeat(64)},receipt_knowledge:'captured',receipt:{
+  coverage:{files_total:62,files_unsupported:1,file_status:{parsed:60,unsupported_language:1,configuration:1},parser_error_count:0,
+    by_language:{python:{files_total:60,file_status:{parsed:60}}},sites_by_role_certainty:{call:{resolved:5,candidate:2,unresolved:3},reference:{unresolved:1}}},
+  versions:{schema:'structural-v2',rules:'fixture-rules',grammars:{python:'fixture-grammar'}},revision_dirty:{revision:'b'.repeat(40),dirty:null,knowledge:'captured_revision'}}},
+  semantic_index:{state:'not_indexed',artifact_ready:false,query_available:false,catalog_receipt:{documents:62,truncated:0,failed:0}},
+  function_evidence:{state:'ready',artifact_ready:true,query_available:true,semantic_state:'not_indexed',semantic_query_available:false}};
+const flatten=status=>[...status.summary,...status.details,...status.errors].join('\n');
+assert.equal(views.indexStatus(capturedStatus,true).ready,true);
+assert.match(flatten(views.indexStatus(capturedStatus,true)),/62 admitted files.*60 parsed/);
+assert.match(flatten(views.indexStatus(capturedStatus,true)),/3 calls.*1 references/);
+assert.match(flatten(views.indexStatus(capturedStatus,true)),/dirty: unobserved/);
+assert.doesNotMatch(flatten(views.indexStatus(capturedStatus,true)),/query available/);
+for (const state of ['updating','interrupted','failed','stale','publication_uncertain','unknown_legacy']) {
+  const status=structuredClone(capturedStatus); status.structural.state=state;
+  status.structural.last_attempt={status:state,reason:'RAW_PRIVATE_CANARY',error:'RAW_PRIVATE_CANARY',traceback:'RAW_PRIVATE_CANARY'};
+  status.structural.attempt_attribution='captured_repository';
+  assert.match(flatten(views.indexStatus(status)),new RegExp(state.replaceAll('_',' ')));
+  assert.doesNotMatch(flatten(views.indexStatus(status)),/RAW_PRIVATE_CANARY/);
+}
+const stale=structuredClone(capturedStatus); stale.structural.freshness='stale';
+assert.match(flatten(views.indexStatus(stale)),/Freshness: stale/);
+assert.doesNotMatch(flatten(views.indexStatus(stale,true)),/Freshness: stale/);
+for (const freshness of ['current','stale','unknown']) {
+  const status=structuredClone(capturedStatus);status.structural.freshness=freshness;
+  assert.match(flatten(views.indexStatus(status,true)),new RegExp('Captured freshness: '+freshness+' · Live freshness unobserved'));
+}
+const partial=structuredClone(capturedStatus); partial.structural.receipt.coverage.file_status.partial_parse=2;partial.structural.receipt.coverage.parser_error_count=4;
+partial.semantic_index.catalog_receipt={documents:62,truncated:3,failed:1};
+assert.match(views.indexStatus(partial).errors.join(' '),/4 parser errors/);
+assert.match(views.indexStatus(partial).errors.join(' '),/3 truncated.*1 failed/);
+assert.equal(views.indexStatus({status:'bounded_stop',structural:{artifact_ready:true}}).ready,false);
+assert.match(views.indexStatus({status:'bounded_stop'}).errors.join(' '),/storage deadline/);
+assert.match(flatten(views.indexStatus(null)),/coverage unavailable/);
+console.log('Captured status, unknown freshness, failure privacy and bounded truthful System counts passed');
+
 // Exercise the actual event wiring without a browser or a network dependency.
 const fs = require('node:fs'), vm = require('node:vm');
 class Element {
@@ -64,6 +108,9 @@ const helpers=fs.readFileSync(require('node:path').join(__dirname,'../repo_graph
 const elements=new Map([...template.matchAll(/id="([^"]+)"/g)].map(match=>[match[1],new Element()]));
 const extra=new Map(), get=id=>elements.get(id);
 const fixture={name:'Synthetic',file_count:62,roles:{},jev:'off',tree:{'':{count:62,children:['docs','src'],direct:['main.py'],sample:['main.py']},docs:{count:1,children:[],direct:['docs/guide.md'],sample:['docs/guide.md']},src:{count:60,children:[],direct:[],sample:[]}},scope_edges:{src:[{source:'src/c00',target:'src/c25',count:7,relation:'imports'}]},system:{nodes:[{id:'system:0',name:'Sources',kind:'system',count:60,layer:1,role:'runtime',files:[],paths:['src'],summary:'Source packages'}],edges:[]}};
+fixture.index_status=capturedStatus;
+fixture.system.nodes.push({id:'system:1',name:'Docs',kind:'system',count:1,layer:2,role:'documentation',files:['docs/guide.md'],paths:['docs'],summary:'Documentation'});
+fixture.system.edges.push({source:'system:0',target:'system:1',count:7,relation:'imports'});
 for(let i=0;i<60;i++) { const path='src/c'+String(i).padStart(2,'0'); fixture.tree.src.children.push(path); fixture.tree[path]={count:1,children:[],direct:[path+'/file.py'],sample:[path+'/file.py']}; }
 get('graph-data').textContent=JSON.stringify(fixture);
 const document={
@@ -93,13 +140,21 @@ assert.equal(get('data-panel').children[0].children.at(-1).children.length,23);
 get('search').value='no-such-path';get('search').fire('input');
 assert.equal(get('component-list').childElementCount,0);
 switchView('system');
-assert.equal(get('component-list').childElementCount,1);
+assert.equal(get('component-list').childElementCount,2);
+assert.match(get('map-subtitle').textContent,/1 of 1 grouped import relations.*7 captured imports/);
+assert.match(get('index-heading').textContent,/captured export/);
+assert.match(get('index-summary').children.map(node=>node.textContent).join(' '),/captured artifact ready.*Live freshness unobserved/);
 get('component-list').children[0].fire('click');
 assert.ok(get('inspector-content').children.length > 0);
 assert.ok(get('workspace').className.includes('has-selection'));
 assert.match(get('selection-location').textContent,/Sources/);
 assert.equal(get('tab-system').attributes.tabindex,'0');
 assert.equal(get('tab-explore').attributes.tabindex,'-1');
+const renderedText=node=>node.textContent+' '+node.children.map(renderedText).join(' ');
+assert.match(renderedText(get('inspector-content')).replace(/\s+/g,' '),/1 IMPORT RELATIONS.*7 CAPTURED IMPORTS/);
+const sourceButton=get('inspector-content').querySelectorAll('.component-item').find(button=>button.textContent==='src →');
+sourceButton.fire('click');
+assert.equal(get('breadcrumb').children.at(-1).textContent,'src');
 switchView('atlas');
 get('home').fire('click');
 assert.equal(get('breadcrumb').children.at(-1).textContent,'Synthetic');
