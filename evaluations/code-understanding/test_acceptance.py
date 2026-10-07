@@ -5,13 +5,54 @@ import io
 import json
 from pathlib import Path
 import shutil
+import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from evaluations import acceptance as gate
 from evaluations import analysis, real_calls
+
+
+class AdapterEvidence(unittest.TestCase):
+    def test_archive_bytes_inventory_projection_and_failure_identifiers(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            parent = Path(scratch)
+            directory = 'queries-' + 'a' * 32
+            archive = parent / directory
+            archive.mkdir()
+            raw = gate.canonical({'status': 'failed', 'modes': []})
+            (archive / 'report.json').write_bytes(raw)
+            reference = {'path': 'report.json', 'sha256': gate.digest(raw), 'bytes': len(raw)}
+            wrapper = {'full_private_report': json.loads(raw), 'archive': {
+                'directory': directory, 'files': [reference], 'bytes': len(raw)}}
+            portable = analysis.compact_adapter_result(wrapper, 'queries')
+            actual, files, _ = gate._proof_archive(portable, 'queries', parent)
+            self.assertEqual(actual['status'], 'failed')
+            self.assertEqual(files['report.json'], reference)
+            (archive / 'unlisted.json').write_bytes(b'{}')
+            with self.assertRaises(ValueError):
+                gate._proof_archive(portable, 'queries', parent)
+            (archive / 'unlisted.json').unlink()
+            changed = copy.deepcopy(portable)
+            changed['status'] = 'passed'
+            with self.assertRaises(ValueError):
+                gate._proof_archive(changed, 'queries', parent)
+            (archive / 'report.json').write_bytes(raw + b' ')
+            with self.assertRaises(ValueError):
+                gate._proof_archive(portable, 'queries', parent)
+        for path in ('../outside', '/absolute', 'double//slash', 'back\\slash'):
+            with self.assertRaises(ValueError):
+                gate._proof_path(path)
+        private = 'SYNTHETIC_PRIVATE_IDENTIFIER_123456'
+        observed = gate._proof_observed({'results': [{'id': private, 'status': 'failed',
+            'attempts': {'base_serial': {'status': 'partial'}}}]}, 'updates')
+        self.assertEqual(len(observed), 1)
+        self.assertEqual(observed[0]['recorded_status'], 'failed')
+        self.assertEqual(observed[0]['attempt_statuses'], {'base_serial': 'partial'})
+        self.assertNotIn(private, json.dumps(observed))
 
 
 class FreezeInputs(unittest.TestCase):
@@ -20,6 +61,17 @@ class FreezeInputs(unittest.TestCase):
             source = SimpleNamespace(read=lambda *args, **kwargs: (raw, '0' * 64, SimpleNamespace(st_size=len(raw))))
             with self.assertRaises(ValueError):
                 gate.read_json(source, 'synthetic.json')
+
+    def test_comparison_report_cap_does_not_raise_manifest_cap(self):
+        raw = json.dumps({'proof': 'x' * (1024 * 1024)}).encode()
+        source = SimpleNamespace(read=lambda *args, **kwargs: (raw, '0' * 64, SimpleNamespace(st_size=len(raw))))
+        with self.assertRaises(ValueError):
+            gate.read_json(source, 'manifest.json')
+        report, _ = gate.read_json(source, 'engine-comparison.json', 2 * 1024 * 1024)
+        self.assertEqual(len(report['proof']), 1024 * 1024)
+        partial = SimpleNamespace(read=lambda *args, **kwargs: (b'{}', '0' * 64, SimpleNamespace(st_size=3)))
+        with self.assertRaises(ValueError):
+            gate.read_json(partial, 'engine-comparison.json', 2 * 1024 * 1024)
 
     def setUp(self):
         self.scratch = tempfile.TemporaryDirectory(prefix='repo-graph-freeze-test-')

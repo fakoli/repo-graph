@@ -372,6 +372,11 @@ def compact_attempt(attempt):
         return {key: value[key] for key in names.split() if key in value}
     result = select(attempt, 'status generation source_identity semantic_facts_sha256 counts '
                     'previous_generation error_kind stop_reason mode concurrency cache_or_ready_snapshot_published')
+    if 'facts_artifact' in attempt:
+        result['facts_artifact'] = select(attempt['facts_artifact'], 'path sha256 bytes')
+    if 'snapshot_state' in attempt:
+        result['snapshot_state'] = select(attempt['snapshot_state'],
+            'generation matches_returned_generation fresh_facts_retained')
     inventory = attempt.get('inventory', [])
     result['inventory_sha256'] = hashlib.sha256(json.dumps(inventory, sort_keys=True,
         separators=(',', ':')).encode()).hexdigest()
@@ -407,7 +412,7 @@ def compact_attempt(attempt):
            ('process_peak_rss_bytes', 'process_user_seconds', 'process_system_seconds')})
         for worker in queue.get('worker_resources', [])]
     result['resources']['queued']['worker_isolation'] = [select(row or {},
-        'python_isolated_mode bytecode_writes_disabled user_site_disabled private_environment own_session_and_group')
+        'python_isolated_mode bytecode_writes_disabled user_site_disabled private_environment own_session_and_group controller_death_signal')
         for row in queue.get('worker_isolation', [])]
     return result
 
@@ -416,33 +421,44 @@ def compact_adapter_result(report, kind):
     """Full responses stay in a bound private archive; portable occurrence proofs remain."""
     def select(value, names):
         return {key: value[key] for key in names.split() if key in value}
+    archive = report.get('archive')
+    report = report.get('full_private_report', report)
     result = select(report, 'status archive measured_commit measured_commit_before measured_commit_after '
         'implementation implementation_hashes_before implementation_hashes_after input_binding '
         'committed_inputs_stable_after source_lock_sha256 preparation_checks elapsed_seconds '
         'elapsed_seconds_observed parent_lifetime_peak_rss_bytes query_rule_version mode_equivalence '
         'engine_selected qualification_complete scope ceilings')
+    if archive is not None:
+        result['archive'] = archive
+    for name in ('binding_before', 'binding_after'):
+        if isinstance(report.get(name), dict):
+            result[name] = select(report[name], 'measured_commit implementation implementation_sha256 input_binding '
+                'root_identity implementation_stable loaded_controller_sha256 load_scope commit_scope')
+    result.update(select(report, 'implementation_load_scope'))
+    if 'driver_failure' in report:
+        result['driver_failure'] = select(report['driver_failure'], 'error_kind')
     result['failures'] = [select(row, 'stage id error_kind') for row in report.get('failures', [])]
     if kind == 'updates':
-        result['results'] = [dict(select(row, 'id language status error_kind archive'),
+        result['results'] = [dict(select(row, 'id language status error_kind archive source_owner_identity'),
             attempts={name: compact_attempt(attempt) for name, attempt in row.get('attempts', {}).items()})
-            for row in report['results']]
+            for row in report.get('results', [])]
         result['resource_scope'] = 'Parent lifetime RSS and individual worker lifetime RSS; no combined owned-process peak'
     elif kind == 'queries':
         result['source'] = select(report.get('source', {}),
             'path sha256 bytes owner_identity copy_verified_with_SourceRoot')
         result['modes'] = []
-        for mode in report['modes']:
+        for mode in report.get('modes', []):
             item = select(mode, 'mode configured_concurrency status actual_base_workers_started source_fact_grade queue_parallelism_observation')
             item['base_refresh'] = compact_attempt(mode['base_refresh']) if 'base_refresh' in mode else None
             item['failures'] = [select(row, 'id error_kind') for row in mode.get('failures', [])]
             item['queries'] = []
-            for entry in mode['queries']:
+            for entry in mode.get('queries', []):
                 query = select(entry, 'id status error_kind rows examined_total pages page_sizes cursor_binding_checks '
                     'first_response_rows first_response_work resumed_cached_work cancellation_callback_calls '
                     'old_cursor_rejected_against_new_generation old_physical_seed_refused topology_unchanged '
                     'generation_changed old_snapshot_coherent old_generation new_generation archive clock_scope')
                 query['responses'] = []
-                for response in entry['responses']:
+                for response in entry.get('responses', []):
                     page = response['response']
                     compact = select(page, 'generation examined_relationships returned_entities returned_edges '
                                           'total_count truncated stop_reason')
@@ -457,6 +473,60 @@ def compact_adapter_result(report, kind):
                     query['changed_refresh'] = compact_attempt(entry['changed_refresh'])
                 item['queries'].append(query)
             result['modes'].append(item)
+    elif kind == 'missing_backend':
+        result.update(select(report, 'implementation_sha256 implementation_stable owned_runtime_removed '
+            'component_metadata_and_logs_retained excluded_runtime_directories limits limitations '
+            'loaded_controller_sha256 load_scope commit_scope'))
+        result['stages'] = [dict(select(row, 'stage status returncode stop_reason elapsed_seconds error_kind'),
+            cleanup=select(row['cleanup'], 'signals leader_reaped group_absent returncode')
+                if row.get('cleanup') is not None else None) for row in report.get('stages', [])]
+        result['runtime_cleanup'] = [select(row, 'path removed error_kind')
+                                     for row in report.get('runtime_cleanup', [])]
+        for key in ('runtime_registration_failure', 'runtime_cleanup_failure', 'log_or_probe_failure',
+                    'publication_failure', 'stale_receipt_removal_failure', 'archive_failure'):
+            if key in report:
+                result[key] = select(report[key], 'error_kind')
+        probe = report.get('probe') or {}
+        result['probe'] = select(probe, 'schema_version status checks pre_bootstrap_distributions '
+            'pre_bootstrap_absent_optional_backend absent_optional_backend '
+            'source_checkout_metadata_after_bootstrap')
+        result['probe']['cli'] = [select(row, 'command returncode') for row in probe.get('cli', [])]
+        core = probe.get('core', {})
+        result['probe']['core'] = select(core, 'file_count jev')
+        for key in ('scan', 'search'):
+            result['probe']['core'][key] = select(core.get(key, {}),
+                'scanned reused truncated code_files documents deleted seconds generation failed secure_reads')
+        result['probe']['core']['keyword'] = select(core.get('keyword', {}), 'mode documents results')
+        result['probe']['resources'] = select(probe.get('resources', {}),
+            'elapsed_seconds process_peak_rss_bytes process_user_seconds process_system_seconds '
+            'reaped_children_peak_rss_bytes reaped_children_user_seconds reaped_children_system_seconds')
+        isolation = probe.get('isolation', {})
+        result['probe']['isolation'] = {key: isolation.get(key) is True for key in
+            ('python_isolated_mode', 'bytecode_writes_disabled', 'user_site_disabled', 'pip_module_spec_absent')}
+        result['probe']['isolation']['own_session_and_group'] = (type(isolation.get('pid')) is int and
+            isolation['pid'] == isolation.get('sid') == isolation.get('pgrp'))
+        paths = isolation.get('private_environment', {})
+        expected = {'HOME': 'home', 'XDG_CONFIG_HOME': 'config', 'XDG_CACHE_HOME': 'cache',
+                    'XDG_DATA_HOME': 'data', 'TMPDIR': 'tmp'}
+        result['probe']['isolation']['private_environment_confined'] = (isinstance(paths, dict) and
+            set(paths) == set(expected) and isinstance(isolation.get('job_directory'), str) and
+            all(isinstance(paths[key], str) and Path(paths[key]) == Path(isolation['job_directory']) / name
+                for key, name in expected.items()))
+        result['probe']['isolation']['separate_venv_prefix'] = (isinstance(isolation.get('sys_prefix'), str) and
+            isinstance(isolation.get('sys_base_prefix'), str) and isolation['sys_prefix'] != isolation['sys_base_prefix'])
+        result['probe']['components'] = []
+        for row in probe.get('components', []):
+            item = select(row, 'mode configured_concurrency candidate_snapshot_is_none candidate_cache_entries')
+            item['candidate'] = compact_attempt(row['candidate'])
+            queue = row['queue']
+            item['queue'] = select(queue, 'status stop_reason collected')
+            item['queue']['cleanup'] = [select(row,
+                'signals leader_reaped group_absent returncode requests mailboxes_removed')
+                for row in queue.get('cleanup', [])]
+            item['queue']['attempt'] = compact_attempt({'status': queue['status'],
+                'collector_failures': queue.get('failures', []), 'cleanup': queue.get('cleanup', []),
+                'resources': {'queued': queue.get('resources', {})}})
+            result['probe']['components'].append(item)
     else:
         raise ValueError('Unknown finite adapter result kind')
     return result
@@ -465,12 +535,15 @@ def compact_adapter_result(report, kind):
 def compare_component(source_map, work_root=None):
     """Run source-only experiments; absent capabilities cannot select an owner."""
     from evaluations.real_calls import compare_real_calls
-    from evaluations.engine_checks import run_checks
+    from evaluations.engine_checks import run_checks, run_updates, run_queries, run_missing_backend
     captured = comparison_identity()
     syntax, screen = component(), screen_engines()
     real = compare_real_calls(source_map)
     with worker_directory(source_map, work_root) as directory:
         lifecycle = run_checks(evidence_directory=directory)
+        updates = compact_adapter_result(run_updates(evidence_directory=directory), 'updates')
+        queries = compact_adapter_result(run_queries(evidence_directory=directory), 'queries')
+        missing = compact_adapter_result(run_missing_backend(evidence_directory=directory), 'missing_backend')
     if comparison_identity() != captured:
         raise ValueError('Comparison inputs or implementation changed between stages')
     checks = lifecycle['check_results']
@@ -489,9 +562,12 @@ def compare_component(source_map, work_root=None):
         {'id': 'evidence_uncertainty', 'status': 'passed' if syntax['status'] == 'passed' and
             all(c['status'] == 'passed' for c in real['case_results'] if not c['supported']) else 'failed',
          'scope': 'Exact source ranges/provenance and conservative uncertainty; missing candidate targets reported separately'},
-        {'id': 'optional_installation', 'status': 'blocked',
-         'reason': 'Pinned optional wheels executed in isolation; actual absent-backend core-runtime check remains required'},
-        *[c for c in checks if c['id'] in ('incremental_equivalence', 'bounded_query_work')],
+        {'id': 'optional_installation', 'status': missing['status'],
+         'scope': 'Actual stdlib-only source-checkout core/component paths; native harness distribution remains separate'},
+        {'id': 'incremental_equivalence', 'status': updates['status'],
+         'scope': 'All36 frozen updates, both modes versus clean same-owner rebuild; unsupported semantics retained'},
+        {'id': 'bounded_query_work', 'status': queries['status'],
+         'scope': 'Ten frozen query assertions in each mode; exact physical occurrences, pages, work and bytes retained'},
     ]
     return {'schema_version': 1, 'experiment': 'component-engine-comparison', 'status': 'blocked',
         'engine_selected': False, 'selected_owner': None, 'qualification_complete': False,
@@ -499,15 +575,17 @@ def compare_component(source_map, work_root=None):
         'implementation': {k: captured[k] for k in ('commit', 'sha256')},
         'scope': 'Finite component comparison; no product owner selected',
         'component': syntax, 'real_calls': real, 'lifecycle': lifecycle, 'source_screen': screen,
+        'updates': updates, 'queries': queries, 'missing_backend': missing,
         'case_results': gates, 'coverage_failures': syntax['coverage_failures'],
         'blocking_gates': [c['id'] for c in gates if c['status'] != 'passed'],
         'decision': {'native': 'unqualified', 'reusable': 'source-rejected or install-blocked; no reusable engine executed',
                      'owner': 'unselected', 'automatic_rewrite': False},
-        'remaining_gates': ['optional missing-backend runtime check', 'qualified incremental updates', 'bounded query adapter',
+        'remaining_gates': ['measured resource budgets before owner selection',
                             'scale/update/query measurements', 'agent', 'independent human UX', 'distribution', 'release'],
         'limitations': ['Parser syntax alone is not call resolution; individual binding/unknown/candidate results retained.',
             'Passing an experiment would not qualify the later human-facing product.',
-            'Missing incremental/query capability and failing supported-language recall prevent selection.']}
+            'Component mode equivalence does not establish supported semantics, large-corpus throughput or combined process RSS.',
+            'Source-quality failures and unqualified reference resource budgets prevent selection.']}
 
 
 def compact_profile_result(result):
@@ -728,11 +806,14 @@ def main(argv=None):
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
     parser.add_argument('--suite', choices=['component'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
-    parser.add_argument('--max-result-bytes', type=int, default=1024 * 1024)
+    parser.add_argument('--max-result-bytes', type=int,
+                        help='finite report cap: 2 MiB for comparison, 1 MiB otherwise')
     parser.add_argument('--max-files', type=int, default=128)
     parser.add_argument('--max-source-bytes', type=int, default=4 * 1024 * 1024)
     parser.add_argument('--max-nodes', type=int, default=200_000)
     args = parser.parse_args(argv)
+    if args.max_result_bytes is None:
+        args.max_result_bytes = (2 if args.compare else 1) * 1024 * 1024
     if args.freeze_budgets and not args.profile:
         parser.error('--freeze-budgets requires --profile')
     if args.profile_report and not args.profile:

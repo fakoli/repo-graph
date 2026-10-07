@@ -19,6 +19,44 @@ AVAILABLE = all(importlib.util.find_spec(name) is not None for name in (
 
 
 class PortableAdapterProofTests(unittest.TestCase):
+    def test_source_cleanup_preserves_an_observed_replacement(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            parent = Path(scratch)
+            with self.assertRaisesRegex(ValueError, 'captured owner'):
+                with engine_checks._adapter_source(parent) as source:
+                    original = source.resolve()
+                    original.rename(parent / 'retained-original')
+                    original.mkdir()
+                    (original / 'canary').write_bytes(b'synthetic replacement')
+            self.assertEqual((original / 'canary').read_bytes(), b'synthetic replacement')
+            self.assertTrue((parent / 'retained-original').is_dir())
+
+    def test_missing_backend_failure_projection_keeps_evidence_without_private_state(self):
+        private = 'SYNTHETIC_PRIVATE'
+        raw = {'status': 'failed', 'stages': [{'stage': 'venv_setup', 'returncode': None,
+            'cleanup': None, 'error_kind': 'OSError', 'job': private, 'stderr': private}],
+            'driver_failure': {'error_kind': 'OSError', 'message': private},
+            'probe': None, 'owned_runtime_removed': False}
+        kept = compact_adapter_result(raw, 'missing_backend')
+        self.assertEqual(kept['status'], 'failed')
+        self.assertEqual(kept['driver_failure'], {'error_kind': 'OSError'})
+        self.assertEqual(kept['stages'], [{'stage': 'venv_setup', 'returncode': None,
+            'cleanup': None, 'error_kind': 'OSError'}])
+        self.assertEqual(kept['probe']['components'], [])
+        self.assertFalse(kept['probe']['isolation']['own_session_and_group'])
+        self.assertNotIn(private, json.dumps(kept))
+
+    def test_wrapper_admission_failure_is_retained_without_partial_result_loss(self):
+        for kind, key in (('updates', 'results'), ('queries', 'modes')):
+            raw = {'status': 'failed', 'full_private_report': {'status': 'failed',
+                'driver_failure': {'error_kind': 'ValueError', 'message': 'SYNTHETIC_PRIVATE'}},
+                'archive': {'directory': 'updates-test', 'files': [], 'bytes': 0}}
+            kept = compact_adapter_result(raw, kind)
+            self.assertEqual(kept['driver_failure'], {'error_kind': 'ValueError'})
+            self.assertEqual(kept[key], [])
+            self.assertEqual(kept['archive'], raw['archive'])
+            self.assertNotIn('SYNTHETIC_PRIVATE', json.dumps(kept))
+
     def test_failure_and_occurrence_evidence_survives_without_private_payloads(self):
         private = 'SYNTHETIC_PRIVATE_PAYLOAD'
         attempt = {'status': 'failed', 'error_kind': 'RuntimeError', 'mode': 'queued', 'concurrency': 2,
