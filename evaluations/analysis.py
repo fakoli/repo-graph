@@ -753,26 +753,38 @@ def queries(root=ROOT, budget=None):
                                 kw['limits'] = limits
                             page = snapshot.query(seed, depth=assertion.get('depth', 1), **kw)
                             size = len(encoded(page))
+                            symbols = kw.get('operation', 'callees') == 'symbol'
+                            handles = ({row['id'] for row in page['rows']} if symbols else
+                                {handle['id'] for row in page['rows'] for handle in
+                                 (row['caller'], row['target']) if handle is not None})
                             entry['responses'].append({'response': page, 'serialized_response_bytes': size,
                                 'query_elapsed_seconds': time.monotonic() - begun,
                                 'limits': asdict(limits), 'requested_limits': requested_limits,
-                                'cold_setup_charged_seconds': cold_cost})
+                                'cold_setup_charged_seconds': cold_cost,
+                                'independently_counted_symbol_handles': len(handles),
+                                'independently_counted_nonseed_entities': len(handles - {seed})})
                             assert size <= limits.max_response_bytes
                             assert page['examined_relationships'] <= limits.max_examined_relationships
-                            assert page['returned_entities'] <= limits.max_entities and page['returned_edges'] <= limits.max_edges
+                            assert len(handles) <= limits.max_entities
+                            assert page['returned_symbol_handles'] == len(handles)
+                            assert page['returned_entities'] == len(handles - {seed})
+                            assert page['returned_edges'] <= limits.max_edges
                             assert page['excerpt_bytes'] <= limits.max_excerpt_bytes
                             assert page['generation'] == receipt['generation'] and page['source_identity'] == receipt['source_identity']
                             for row in page['rows']:
-                                actual = sites_by_id[row['site']['id']]
-                                assert physical(row['site']) == physical(actual)
-                                assert row['site']['source_sha256'] == actual['provenance']['source_sha256']
-                                assert row['site']['role'] == actual['role']
-                                assert row['certainty'] == actual['certainty']
-                                assert row['targets_exhaustive'] == actual['targets_exhaustive']
-                                assert row['reason'] == actual['reason']
-                                assert (row['caller']['id'] if row['caller'] else None) == actual['caller']
-                                assert row['target'] is not None and row['target']['id'] in actual['targets']
-                                for handle in (row['caller'], row['target']):
+                                if not symbols:
+                                    actual = sites_by_id[row['site']['id']]
+                                    assert physical(row['site']) == physical(actual)
+                                    assert row['site']['source_sha256'] == actual['provenance']['source_sha256']
+                                    assert row['site']['role'] == actual['role']
+                                    assert row['certainty'] == actual['certainty']
+                                    assert row['targets_exhaustive'] == actual['targets_exhaustive']
+                                    assert row['reason'] == actual['reason']
+                                    assert (row['caller']['id'] if row['caller'] else None) == actual['caller']
+                                    assert row['target'] is not None and row['target']['id'] in actual['targets']
+                                for handle in ((row,) if symbols else (row['caller'], row['target'])):
+                                    if handle is None:
+                                        continue
                                     declaration = definitions_by_id[handle['id']]
                                     assert physical(handle) == physical(declaration)
                                     assert handle['name'] == declaration['name'] and not handle['name_truncated']
@@ -860,6 +872,7 @@ def queries(root=ROOT, budget=None):
                             assert page['examined_relationships'] == assertion['expected_examined_relationships']
                             assert len(page['rows']) == assertion['expected_occurrence_relations']
                             assert page['returned_entities'] == len(assertion['expected_nonseed_vertices']) and page['cursor'] is None
+                            assert page['returned_symbol_handles'] == len(assertion['expected_nonseed_vertices']) + 1
                             assert {row['target']['name'] for row in page['rows'] if row['target']['id'] != seed} == set(assertion['expected_nonseed_vertices'])
                             assert any(row['target']['id'] == seed for row in page['rows'])
                         elif qid == 'Q-PY-CANCEL-BEFORE':
@@ -924,7 +937,7 @@ def queries(root=ROOT, budget=None):
                 entry['cold_snapshot_case_elapsed_seconds'] = time.monotonic() - started
             report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['queries']) else 'failed'
             observed.append([{key: page['response'][key] for key in ('rows', 'generation', 'source_identity',
-                'examined_relationships', 'returned_entities', 'returned_edges', 'excerpt_bytes', 'total_count',
+                'examined_relationships', 'returned_entities', 'returned_symbol_handles', 'returned_edges', 'excerpt_bytes', 'total_count',
                 'truncated', 'stop_reason')} for row in report['queries'] for page in row['responses']])
             report['queries'] = [{'id': row['id'], 'question_id': row['question_id'], 'status': row['status']}
                                  for row in report['queries']]

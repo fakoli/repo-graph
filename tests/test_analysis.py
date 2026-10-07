@@ -591,6 +591,14 @@ print(json.dumps(outcomes))
     def test_persisted_sql_occurrence_pages_keep_unknowns_and_all_operation_kinds(self):
         from repo_graph import analysis_queries
         from repo_graph.analysis_queries import SQLSnapshot, Limits, encoded
+        def check_handles(page, seed=None, *, symbols=False, maximum=50):
+            handles = ({row['id'] for row in page['rows']} if symbols else
+                {handle['id'] for row in page['rows'] for handle in
+                 (row['caller'], row['target']) if handle is not None})
+            self.assertLessEqual(len(handles), maximum)
+            self.assertEqual(page['returned_symbol_handles'], len(handles))
+            self.assertEqual(page['returned_entities'], len(handles - {seed}))
+            return handles
         text = ''.join('def leaf_%02d(): return %d\n' % (i, i) for i in range(40))
         text += 'def hub(callback):\n' + ''.join('    leaf_%02d()\n' % i for i in range(40))
         text += '    callback()\n    return leaf_00\n'
@@ -612,6 +620,7 @@ print(json.dumps(outcomes))
                         self.assertLessEqual(len(encoded(page)), 32768)
                         self.assertEqual(page['excerpt_bytes'], 0)
                         self.assertEqual(page['generation'], receipt['generation'])
+                        check_handles(page, names['hub'])
                         rows.extend(page['rows'])
                         pages.append(page)
                         cursor = page['cursor']
@@ -637,6 +646,7 @@ print(json.dumps(outcomes))
                     symbols = snapshot.query(operation='symbol')
                     self.assertEqual(len(symbols['rows']), 43)
                     self.assertEqual(symbols['examined_symbols'], 43)
+                    check_handles(symbols, symbols=True)
                     first_calls = snapshot.query(names['hub'], operation='call')
                     self.assertTrue(first_calls['truncated'])
                     self.assertEqual(first_calls['stop_reason'], 'response_byte_budget_exceeded')
@@ -645,12 +655,17 @@ print(json.dumps(outcomes))
                     references = snapshot.query(operation='reference')
                     self.assertEqual(len(calls['rows']), 41)
                     self.assertEqual(len(references['rows']), 1)
+                    check_handles(calls, names['hub'])
+                    check_handles(references)
                     callers = snapshot.query(names['leaf_00'], operation='callers')
                     self.assertEqual(callers['rows'][0]['caller']['id'], names['hub'])
+                    check_handles(callers, names['leaf_00'])
                     for operation in ('reachable', 'impact'):
                         cycle = snapshot.query(names['left'], operation=operation, depth=2)
                         self.assertEqual(len(cycle['rows']), 2)
                         self.assertEqual(cycle['returned_entities'], 1)
+                        self.assertEqual(cycle['returned_symbol_handles'], 2)
+                        check_handles(cycle, names['left'])
                         self.assertIsNone(cycle['cursor'])
                         self.assertEqual(len(snapshot.query(names['left'], operation=operation, depth=1)['rows']), 1)
                     first = snapshot.query(names['hub'], depth=1, limits=Limits(max_edges=1))
@@ -666,6 +681,70 @@ print(json.dumps(outcomes))
                     with self.assertRaises(ValueError):
                         snapshot.query(names['hub'], depth=1, cursor=first['cursor'])
         self.assertEqual(mode_rows[0], mode_rows[1])
+
+        # Every global occurrence returns both its caller and target declaration.
+        disjoint = ''.join('def a%02d(): return %d\ndef b%02d(): return a%02d()\n' %
+                           (i, i, i, i) for i in range(30))
+        disjoint += 'def unknown(callback): return callback()\n'
+        write_sources(self.root, {'disjoint.py': disjoint})
+        disjoint_rows = []
+        for mode, concurrency in (('serial', 1), ('queued', 2)):
+            with self.subTest(mode=mode, coverage='all_returned_handles'):
+                index = StructuralIndex(self.root, self.scratch / ('handles-' + mode))
+                self.ready(index, ['disjoint.py'], mode=mode, concurrency=concurrency)
+                names = {row['name']: row['id'] for row in index.read_facts('definitions')}
+                with SQLSnapshot(index.output, index.owner, index.output_owner) as snapshot:
+                    page = snapshot.query(operation='call')
+                    self.assertEqual(page['stop_reason'], 'entity_budget_exceeded')
+                    self.assertEqual(len(page['rows']), 25)
+                    self.assertEqual(len(check_handles(page)), 50)
+                    rows, work = list(page['rows']), page['examined_relationships']
+                    for _ in range(4):
+                        if page['cursor'] is None:
+                            break
+                        page = snapshot.query(operation='call', cursor=page['cursor'])
+                        check_handles(page)
+                        rows.extend(page['rows'])
+                        work += page['examined_relationships']
+                    self.assertIsNone(page['cursor'])
+                    self.assertEqual(len(rows), 31)
+                    self.assertEqual(len({row['site']['id'] for row in rows}), 31)
+                    self.assertEqual(work, 31)
+                    self.assertEqual(page['total_count'], {'value': 31, 'kind': 'exact'})
+                    disjoint_rows.append(rows)
+
+                    unknown = snapshot.query(names['unknown'], operation='call', limits=Limits(max_entities=1))
+                    self.assertEqual(check_handles(unknown, names['unknown'], maximum=1), {names['unknown']})
+                    self.assertEqual(unknown['returned_entities'], 0)
+                    self.assertEqual(len(unknown['rows']), 1)
+                    self.assertIsNone(unknown['rows'][0]['target'])
+                    self.assertFalse(unknown['rows'][0]['targets_exhaustive'])
+                    self.assertEqual(unknown['rows'][0]['certainty'], 'unresolved')
+                    self.assertTrue(unknown['rows'][0]['reason'])
+                    self.assertIsNone(unknown['cursor'])
+
+                    blocked = snapshot.query(names['b00'], limits=Limits(max_entities=1))
+                    self.assertEqual(blocked['stop_reason'], 'entity_budget_exceeded')
+                    self.assertEqual(blocked['rows'], [])
+                    self.assertEqual(blocked['examined_relationships'], 1)
+                    check_handles(blocked, names['b00'], maximum=1)
+                    self.assertIsNotNone(blocked['cursor'])
+                    with patch.object(snapshot, '_next', side_effect=AssertionError('Pending retry must not reread storage')), \
+                            patch.object(snapshot, '_row', side_effect=AssertionError('Pending retry must not rematerialize')):
+                        resumed = snapshot.query(names['b00'], cursor=blocked['cursor'],
+                            limits=Limits(max_entities=2, max_edges=1))
+                    self.assertEqual(resumed['examined_relationships'], 0)
+                    self.assertEqual(len(resumed['rows']), 1)
+                    self.assertEqual(check_handles(resumed, names['b00'], maximum=2), {names['b00'], names['a00']})
+                    self.assertEqual(resumed['rows'][0], rows[0])
+                    terminal = snapshot.query(names['b00'], cursor=resumed['cursor'], limits=Limits(max_entities=2))
+                    self.assertEqual(terminal['rows'], [])
+                    self.assertEqual(terminal['examined_relationships'], 0)
+                    self.assertIsNone(terminal['cursor'])
+                    self.assertEqual(terminal['total_count'], {'value': 1, 'kind': 'exact'})
+                    with self.assertRaises(ValueError):
+                        snapshot.query(names['b00'], cursor=blocked['cursor'])
+        self.assertEqual(disjoint_rows[0], disjoint_rows[1])
 
     def test_persisted_sql_storage_cancellation_deadline_and_setup_release(self):
         from repo_graph import analysis_queries

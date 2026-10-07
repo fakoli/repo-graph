@@ -133,6 +133,9 @@ the documented finite product ceilings.
 Overrides are capped at depth 32, 256 entities and edges, 100,000 examined
 relationships, 1 MiB output, 64 KiB excerpts and 30 seconds. At most four
 snapshots and 32 continuation cursors are retained, with 60-second expiry.
+The entity budget covers every distinct returned caller/target symbol, including
+the seed when present. `returned_symbol_handles` reports that count;
+`returned_entities` keeps the seed-excluded count used by the frozen queries.
 
 A one-page local command closes its snapshot and returns no continuation cursor.
 `query OUTPUT --stdio` accepts JSON requests, one per line, keeping a bounded

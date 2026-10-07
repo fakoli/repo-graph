@@ -33,6 +33,13 @@ def encoded(value):
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
 
 
+def _row_entities(row):
+    """Declaration handles consume entities; physical occurrences consume edges."""
+    if 'site' not in row:
+        return {row['id']}
+    return {handle['id'] for handle in (row['caller'], row['target']) if handle is not None}
+
+
 @dataclass(frozen=True)
 class Limits:
     max_entities: int = 50
@@ -210,7 +217,8 @@ class Snapshot:
 
         def response(continuation=None, stop=None):
             return {'generation': self.generation, 'rows': rows, 'examined_relationships': examined,
-                    'returned_entities': len(entities), 'returned_edges': len(rows),
+                    'returned_entities': len(entities - {seed}), 'returned_symbol_handles': len(entities),
+                    'returned_edges': len(rows),
                     'total_count': {'value': state['matched'], 'kind': 'lower_bound' if frontier else 'exact'},
                     'cursor': continuation, 'truncated': bool(frontier), 'stop_reason': stop}
 
@@ -241,7 +249,7 @@ class Snapshot:
                 pending = {'row': self._row(key), 'target': target}
             else:
                 target = pending['target']
-            candidate_entities = entities | ({target} if target is not None and target != seed else set())
+            candidate_entities = entities | _row_entities(pending['row'])
             if len(candidate_entities) > limits.max_entities:
                 state['pending'] = pending
                 reason = 'entity_budget_exceeded'; break
@@ -291,6 +299,12 @@ def _selfcheck():
     assert [row['site']['id'] for row in rows] == ['site0', 'site1', 'site2']
     assert rows[1]['target'] is None and work == 3
     assert page['total_count'] == {'value': 3, 'kind': 'exact'}
+    held = Snapshot({'definitions': definitions, 'sites': sites}, digest, digest)
+    blocked = held.query('caller', limits=Limits(max_entities=1))
+    assert blocked['rows'] == [] and blocked['stop_reason'] == 'entity_budget_exceeded'
+    resumed = held.query('caller', cursor=blocked['cursor'], limits=Limits(max_entities=2, max_edges=1))
+    assert resumed['examined_relationships'] == 0 and resumed['returned_entities'] == 1
+    assert resumed['returned_symbol_handles'] == 2
     print('finite occurrence pagination self-check passed')
 
 
@@ -550,7 +564,8 @@ class SQLSnapshot(Snapshot):
             return {'generation': self.generation, 'repository_identity': self.repository_identity,
                 'source_identity': self.source_identity, 'analyzer_identity': self.analyzer_identity,
                 'rows': rows, 'examined_relationships': 0 if symbols else examined,
-                'examined_symbols': examined if symbols else 0, 'returned_entities': len(entities),
+                'examined_symbols': examined if symbols else 0,
+                'returned_entities': len(entities - {seed}), 'returned_symbol_handles': len(entities),
                 'returned_edges': 0 if symbols else len(rows), 'excerpt_bytes': 0,
                 'storage_progress_callbacks': 2 ** 64 if reserved else storage_callbacks,
                 'storage_setup_seconds': self.storage_setup_seconds if _setup is None else _setup[0],
@@ -605,8 +620,7 @@ class SQLSnapshot(Snapshot):
                             frontier[0][2] = position
                             continue
                     pending = {'row': row, 'target': target, 'position': position}
-                candidate_entities = entities | ({pending['target']} if pending['target'] is not None and
-                    (symbols or pending['target'] != seed) else set())
+                candidate_entities = entities | _row_entities(pending['row'])
                 if len(candidate_entities) > limits.max_entities:
                     state['pending'] = pending
                     reason = 'entity_budget_exceeded'
@@ -726,7 +740,7 @@ class Queries:
             'source_identity': snapshot.source_identity if snapshot else None,
             'analyzer_identity': snapshot.analyzer_identity if snapshot else None,
             'rows': [], 'examined_relationships': 0, 'examined_symbols': 0,
-            'returned_entities': 0, 'returned_edges': 0, 'excerpt_bytes': 0,
+            'returned_entities': 0, 'returned_symbol_handles': 0, 'returned_edges': 0, 'excerpt_bytes': 0,
             'storage_progress_callbacks': 0, 'storage_setup_seconds': elapsed,
             'snapshot_copy_seconds': 0.0, 'total_count': {'value': None, 'kind': 'unknown'},
             'cursor': None, 'truncated': True, 'stop_reason': reason}
