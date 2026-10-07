@@ -34,6 +34,18 @@ def site(result, source):
 
 
 class BackendTests(unittest.TestCase):
+    def test_required_comparison_command_uses_configured_evidence_root(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            directory = Path(scratch)
+            environment = {'REPO_GRAPH_EVAL_SOURCE_MAP': str(directory / 'source-map.json'),
+                           'REPO_GRAPH_EVAL_WORK_ROOT': str(directory / 'evidence')}
+            with patch.dict(os.environ, environment, clear=True), \
+                    patch.object(analysis, 'compare_component', return_value={'status': 'passed'}) as compare, \
+                    patch.object(analysis, 'write_result', return_value=0), \
+                    patch.object(analysis, 'record_task'), redirect_stdout(io.StringIO()):
+                self.assertEqual(analysis.main(['--compare', '--suite', 'component']), 0)
+            compare.assert_called_once_with(directory / 'source-map.json', directory / 'evidence', None)
+
     def test_source_git_admission_is_read_only_serial_and_preserves_failure_stage(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)

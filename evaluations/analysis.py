@@ -1052,7 +1052,8 @@ def main(argv=None):
     parser.add_argument('--freeze-budgets', action='store_true')
     parser.add_argument('--source-map', type=Path, default=os.environ.get('REPO_GRAPH_EVAL_SOURCE_MAP'),
                         help='private pinned source map; alternatively REPO_GRAPH_EVAL_SOURCE_MAP')
-    parser.add_argument('--work-root', type=Path, help='private directory outside all source roots')
+    parser.add_argument('--work-root', type=Path, default=os.environ.get('REPO_GRAPH_EVAL_WORK_ROOT'),
+                        help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
     parser.add_argument('--suite', choices=['component'], default='component')
