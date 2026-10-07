@@ -66,27 +66,35 @@ def inventory(cases, judgments):
 
 def checkout_identity(root, revision):
     """Read-only Git identity checks; diagnostic text and local paths stay private."""
-    base = ['git', '--no-pager', '--no-replace-objects', '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null']
+    base = ['git', '--no-pager', '--no-replace-objects', '-c', 'core.fsmonitor=false',
+            '-c', 'core.hooksPath=/dev/null', '-c', 'core.preloadIndex=false', '-c', 'index.threads=1']
+    stage = 'source_root'
     try:
         with SourceRoot(root) as source:
             if not source.secure:
                 return {'status': 'secure_source_root_unavailable'}
             options = dict(cwd=Path('/proc/self/fd') / str(source.fd), pass_fds=(source.fd,),
                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                           stderr=subprocess.DEVNULL, timeout=20, check=True)
+                           stderr=subprocess.DEVNULL, timeout=20, check=True,
+                           env=dict(os.environ, GIT_OPTIONAL_LOCKS='0'))
+            stage = 'git_top_level'
             top = Path(os.fsdecode(subprocess.run(base + ['rev-parse', '--show-toplevel'], **options).stdout.rstrip(b'\n')))
             with SourceRoot(top) as git_root:
                 if git_root.identity != source.identity:
                     return {'status': 'source_root_not_git_top_level'}
+            stage = 'git_revision'
             head = subprocess.run(base + ['rev-parse', 'HEAD'], **options).stdout.decode('ascii').strip()
             if head != revision:
                 return {'status': 'revision_mismatch', 'actual_revision': head}
             # Git ignores are not revision membership; each discovered blob is bound separately below.
+            stage = 'git_status'
             dirty = subprocess.run(base + ['status', '--porcelain=v1', '--untracked-files=normal'], **options).stdout
             return {'status': 'dirty_checkout' if dirty else 'verified', 'actual_revision': head,
                     'root_identity': source.identity, 'clean': not bool(dirty)}
-    except (OSError, subprocess.SubprocessError, UnicodeError):
-        return {'status': 'checkout_identity_unavailable'}
+    except (OSError, subprocess.SubprocessError, UnicodeError) as error:
+        return {'status': 'checkout_identity_unavailable', 'stage': stage,
+                'error_kind': type(error).__name__,
+                'returncode': error.returncode if isinstance(error, subprocess.CalledProcessError) else None}
 
 
 def revision_blob_identity(source, revision, path, raw):
@@ -101,13 +109,20 @@ def revision_blob_identity(source, revision, path, raw):
     try:
         result = subprocess.run(['git', '--no-pager', '--no-replace-objects', '--literal-pathspecs',
             '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null',
+            '-c', 'core.preloadIndex=false', '-c', 'index.threads=1',
             'ls-tree', '--full-tree', '-z', revision, '--', path],
             cwd=Path('/proc/self/fd') / str(source.fd), pass_fds=(source.fd,),
-            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20)
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20,
+            env=dict(os.environ, GIT_OPTIONAL_LOCKS='0'))
     except (OSError, subprocess.SubprocessError) as error:
-        raise ValueError('Revision blob metadata unavailable') from error
+        return {'status': 'unavailable', 'stage': 'git_revision_blob',
+                'error_kind': type(error).__name__,
+                'returncode': error.returncode if isinstance(error, subprocess.CalledProcessError) else None}
     expected_path = os.fsencode(path)
-    if result.returncode or len(result.stdout) > len(expected_path) + 128:
+    if result.returncode:
+        return {'status': 'unavailable', 'stage': 'git_revision_blob',
+                'error_kind': 'CalledProcessError', 'returncode': result.returncode}
+    if len(result.stdout) > len(expected_path) + 128:
         raise ValueError('Revision blob metadata unavailable or exceeds bound')
     entry, separator, named_path = result.stdout.partition(b'\t')
     fields = entry.split()
@@ -278,6 +293,11 @@ def extract_selected(selected, roots, budget, dependencies=None):
                             continue
                         if context is not None:
                             receipt['revision_blob'] = revision_blob_identity(source, revision, item['path'], raw)
+                            if receipt['revision_blob']['status'] != 'verified':
+                                control['qualified'] = False
+                                receipt.update(status='source_read_error', **{key: receipt['revision_blob'][key]
+                                    for key in ('stage', 'error_kind', 'returncode')})
+                                continue
                         receipt.update(status='verified', bytes=len(raw), sha256=sha)
                         verified_bytes[repository, item['path']] = raw
                         # No expected range, target, supportedness, certainty, or text crosses this boundary.

@@ -34,6 +34,37 @@ def site(result, source):
 
 
 class BackendTests(unittest.TestCase):
+    def test_source_git_admission_is_read_only_serial_and_preserves_failure_stage(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            revision = 'a' * 40
+            responses = [SimpleNamespace(stdout=os.fsencode(root) + b'\n'),
+                         SimpleNamespace(stdout=(revision + '\n').encode()),
+                         SimpleNamespace(stdout=b'')]
+            with patch.object(real_calls.subprocess, 'run', side_effect=responses) as invoked:
+                receipt = real_calls.checkout_identity(root, revision)
+            self.assertEqual(receipt['status'], 'verified')
+            for call in invoked.call_args_list:
+                self.assertIn('core.preloadIndex=false', call.args[0])
+                self.assertIn('index.threads=1', call.args[0])
+                self.assertEqual(call.kwargs['env']['GIT_OPTIONAL_LOCKS'], '0')
+                self.assertTrue(call.kwargs['pass_fds'])
+            failed = responses[:2] + [subprocess.CalledProcessError(128, 'synthetic', stderr=b'SYNTHETIC_PRIVATE')]
+            with patch.object(real_calls.subprocess, 'run', side_effect=failed):
+                receipt = real_calls.checkout_identity(root, revision)
+            self.assertEqual(receipt, {'status': 'checkout_identity_unavailable',
+                'stage': 'git_status', 'error_kind': 'CalledProcessError', 'returncode': 128})
+            self.assertNotIn('SYNTHETIC_PRIVATE', json.dumps(receipt))
+            with real_calls.SourceRoot(root) as owned:
+                with patch.object(real_calls.subprocess, 'run', return_value=SimpleNamespace(returncode=128, stdout=b'')):
+                    receipt = real_calls.revision_blob_identity(owned, revision, 'tiny.go', b'package tiny\n')
+                self.assertEqual(receipt, {'status': 'unavailable', 'stage': 'git_revision_blob',
+                    'error_kind': 'CalledProcessError', 'returncode': 128})
+                with patch.object(real_calls.subprocess, 'run', side_effect=subprocess.TimeoutExpired('synthetic', 20)):
+                    receipt = real_calls.revision_blob_identity(owned, revision, 'tiny.go', b'package tiny\n')
+                self.assertEqual(receipt['error_kind'], 'TimeoutExpired')
+                self.assertIsNone(receipt['returncode'])
+
     def test_go_filename_policy_is_pinned_and_does_not_guess_platforms(self):
         names = {'api_client.go': 'neutral', 'api_op_GetItem.go': 'neutral',
                  'x_unknownplatform.go': 'neutral', 'linux.go': 'neutral',
