@@ -1,0 +1,1334 @@
+{
+  "schema_version": 1,
+  "candidate_manifest_sha256": "0617c74053f358547b190c9be046c356e8d1f6675d0bd16dcfaab408b5fa624d",
+  "review": {
+    "kind": "independent_ai",
+    "model": "gpt-6-astra",
+    "independent": true,
+    "source_reviewed": true,
+    "reviewer": "independent-astra-source-reviewer",
+    "evidence_reference": "independent-ai-source-review-receipt"
+  },
+  "judgments": [
+    {
+      "id": "PY-DJ-LOCAL-01",
+      "targets": [
+        "django:django/shortcuts.py#resolve_url"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "reason": "redirect has no local binding for resolve_url; the module defines it at line 176 and has no competing assignment. The call binds to that declaration.",
+      "assumptions": [
+        "Normal completed module initialization; no external monkey-patching or dynamic rebinding."
+      ],
+      "evidence": [
+        {
+          "repository_id": "django",
+          "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+          "path": "django/shortcuts.py",
+          "file_sha256": "2f46fc4d61f5f68545b4ee58fd325a1d75a0e883e58ac36be934cee4ea27db7b",
+          "git_blob_sha1": "0f6f9d9fa65af687c39c930ce0de588d879eb135",
+          "range": {
+            "utf8_bytes": {
+              "start": 1893,
+              "end_exclusive": 1925
+            },
+            "start": {
+              "line": 62,
+              "utf8_byte_column": 8
+            },
+            "end_exclusive": {
+              "line": 62,
+              "utf8_byte_column": 40
+            }
+          },
+          "source_url": "https://github.com/django/django/blob/3b7ae042cef02a09caab70ba54077a6f4cffac80/django/shortcuts.py#L62-L62",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "f2402c6c7ad5d82d4beef9c552999294c624bdeddaf4228fee6c11e5f65ecc6d"
+        },
+        {
+          "repository_id": "django",
+          "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+          "path": "django/shortcuts.py",
+          "file_sha256": "2f46fc4d61f5f68545b4ee58fd325a1d75a0e883e58ac36be934cee4ea27db7b",
+          "git_blob_sha1": "0f6f9d9fa65af687c39c930ce0de588d879eb135",
+          "range": {
+            "utf8_bytes": {
+              "start": 983,
+              "end_exclusive": 2007
+            },
+            "start": {
+              "line": 33,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 66,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/django/django/blob/3b7ae042cef02a09caab70ba54077a6f4cffac80/django/shortcuts.py#L33-L65",
+          "excerpt_sha256": "32b94145fe69b1ff836e732e91179b85f9f34d375478ff782ff18f46739d9075",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "django",
+          "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+          "path": "django/shortcuts.py",
+          "file_sha256": "2f46fc4d61f5f68545b4ee58fd325a1d75a0e883e58ac36be934cee4ea27db7b",
+          "git_blob_sha1": "0f6f9d9fa65af687c39c930ce0de588d879eb135",
+          "range": {
+            "utf8_bytes": {
+              "start": 5766,
+              "end_exclusive": 6963
+            },
+            "start": {
+              "line": 176,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 215,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/django/django/blob/3b7ae042cef02a09caab70ba54077a6f4cffac80/django/shortcuts.py#L176-L214",
+          "excerpt_sha256": "953ab4d6b4a75c7952cadc9fee67f14969c330ec0a6d170704bc0c43220d54a1",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "PY-OD-LOCAL-01",
+      "targets": [
+        "odoo:odoo/tools/func.py#reset_cached_properties"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "reason": "lazy_property.reset_all has no local binding for reset_cached_properties; the module-level declaration at line 23 supplies the bare-name call. The warning text misspells the name but does not affect binding.",
+      "assumptions": [
+        "Normal module initialization; no external monkey-patching of module globals."
+      ],
+      "evidence": [
+        {
+          "repository_id": "odoo",
+          "revision": "2d9fd5562a0ef1f7f587eb393cc3bd293b047cca",
+          "path": "odoo/tools/func.py",
+          "file_sha256": "8f860a182298d18712d7df95f5e59544dc021d87b103888b548500f1de1b6630",
+          "git_blob_sha1": "d7a43736da671409f788b0191932481d290da501",
+          "range": {
+            "utf8_bytes": {
+              "start": 1280,
+              "end_exclusive": 1313
+            },
+            "start": {
+              "line": 47,
+              "utf8_byte_column": 8
+            },
+            "end_exclusive": {
+              "line": 47,
+              "utf8_byte_column": 41
+            }
+          },
+          "source_url": "https://github.com/odoo/odoo/blob/2d9fd5562a0ef1f7f587eb393cc3bd293b047cca/odoo/tools/func.py#L47-L47",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "5066e137eca8302732c1bd718a2bbc7515250d714ce221624d1cd06ea431c886"
+        },
+        {
+          "repository_id": "odoo",
+          "revision": "2d9fd5562a0ef1f7f587eb393cc3bd293b047cca",
+          "path": "odoo/tools/func.py",
+          "file_sha256": "8f860a182298d18712d7df95f5e59544dc021d87b103888b548500f1de1b6630",
+          "git_blob_sha1": "d7a43736da671409f788b0191932481d290da501",
+          "range": {
+            "utf8_bytes": {
+              "start": 464,
+              "end_exclusive": 1314
+            },
+            "start": {
+              "line": 23,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 48,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/odoo/odoo/blob/2d9fd5562a0ef1f7f587eb393cc3bd293b047cca/odoo/tools/func.py#L23-L47",
+          "excerpt_sha256": "f73da339e93db9064eda65a6c20d442e899f4fbe58fb0b7f474741f0323642f0",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "PY-OD-IMPORT-01",
+      "targets": [],
+      "certainty": "unresolved",
+      "supported": false,
+      "reason": "The source imports getsourcefile from inspect and does not shadow it. This identifies an import binding but not a pinned target definition: no Python runtime version, inspect source revision, or import-path environment was supplied. The proposed external target is not accepted as resolved.",
+      "assumptions": [
+        "No exact Python runtime or inspect module origin assumed; import syntax alone is not target-definition evidence."
+      ],
+      "evidence": [
+        {
+          "repository_id": "odoo",
+          "revision": "2d9fd5562a0ef1f7f587eb393cc3bd293b047cca",
+          "path": "odoo/tools/func.py",
+          "file_sha256": "8f860a182298d18712d7df95f5e59544dc021d87b103888b548500f1de1b6630",
+          "git_blob_sha1": "d7a43736da671409f788b0191932481d290da501",
+          "range": {
+            "utf8_bytes": {
+              "start": 3033,
+              "end_exclusive": 3054
+            },
+            "start": {
+              "line": 106,
+              "utf8_byte_column": 20
+            },
+            "end_exclusive": {
+              "line": 106,
+              "utf8_byte_column": 41
+            }
+          },
+          "source_url": "https://github.com/odoo/odoo/blob/2d9fd5562a0ef1f7f587eb393cc3bd293b047cca/odoo/tools/func.py#L106-L106",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "afc2e92917731fc9210dfa640b81894ac53a6ea416cc3da29ce7436fa3aca1b8"
+        },
+        {
+          "repository_id": "odoo",
+          "revision": "2d9fd5562a0ef1f7f587eb393cc3bd293b047cca",
+          "path": "odoo/tools/func.py",
+          "file_sha256": "8f860a182298d18712d7df95f5e59544dc021d87b103888b548500f1de1b6630",
+          "git_blob_sha1": "d7a43736da671409f788b0191932481d290da501",
+          "range": {
+            "utf8_bytes": {
+              "start": 0,
+              "end_exclusive": 266
+            },
+            "start": {
+              "line": 1,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 9,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/odoo/odoo/blob/2d9fd5562a0ef1f7f587eb393cc3bd293b047cca/odoo/tools/func.py#L1-L8",
+          "excerpt_sha256": "ae51626ccb85419103e71acbed1aa93e6ec5e35442e8fdcfd63cf9860859c732",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "odoo",
+          "revision": "2d9fd5562a0ef1f7f587eb393cc3bd293b047cca",
+          "path": "odoo/tools/func.py",
+          "file_sha256": "8f860a182298d18712d7df95f5e59544dc021d87b103888b548500f1de1b6630",
+          "git_blob_sha1": "d7a43736da671409f788b0191932481d290da501",
+          "range": {
+            "utf8_bytes": {
+              "start": 2685,
+              "end_exclusive": 3234
+            },
+            "start": {
+              "line": 96,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 113,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/odoo/odoo/blob/2d9fd5562a0ef1f7f587eb393cc3bd293b047cca/odoo/tools/func.py#L96-L112",
+          "excerpt_sha256": "6033ad7e697509aadb1f9d097ff2492beb744ed338d4ca16d42ebd4fa938725e",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "PY-DJ-DYNAMIC-01",
+      "targets": [],
+      "certainty": "unresolved",
+      "supported": false,
+      "reason": "_get_queryset may return the caller-supplied klass directly or an arbitrary manager.all() result. The hasattr check only establishes a get attribute, not its implementation. No receiver implementation is established by the reviewed source.",
+      "assumptions": [
+        "Open caller set; custom managers, querysets and duck-typed receivers are possible; no whole-program points-to claim."
+      ],
+      "evidence": [
+        {
+          "repository_id": "django",
+          "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+          "path": "django/shortcuts.py",
+          "file_sha256": "2f46fc4d61f5f68545b4ee58fd325a1d75a0e883e58ac36be934cee4ea27db7b",
+          "git_blob_sha1": "0f6f9d9fa65af687c39c930ce0de588d879eb135",
+          "range": {
+            "utf8_bytes": {
+              "start": 3200,
+              "end_exclusive": 3229
+            },
+            "start": {
+              "line": 102,
+              "utf8_byte_column": 15
+            },
+            "end_exclusive": {
+              "line": 102,
+              "utf8_byte_column": 44
+            }
+          },
+          "source_url": "https://github.com/django/django/blob/3b7ae042cef02a09caab70ba54077a6f4cffac80/django/shortcuts.py#L102-L102",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "26881990964258e910136fa4151088ea3db1d2c230708476f340335fbd55eb3f"
+        },
+        {
+          "repository_id": "django",
+          "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+          "path": "django/shortcuts.py",
+          "file_sha256": "2f46fc4d61f5f68545b4ee58fd325a1d75a0e883e58ac36be934cee4ea27db7b",
+          "git_blob_sha1": "0f6f9d9fa65af687c39c930ce0de588d879eb135",
+          "range": {
+            "utf8_bytes": {
+              "start": 2009,
+              "end_exclusive": 3506
+            },
+            "start": {
+              "line": 68,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 110,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/django/django/blob/3b7ae042cef02a09caab70ba54077a6f4cffac80/django/shortcuts.py#L68-L109",
+          "excerpt_sha256": "80cc808c447c57a0fa4f9b985f6f45d6b79da61641ad680a490490e160f90f24",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "GO-AWS-LOCAL-01",
+      "targets": [
+        "aws:internal/tfresource/retry.go#retryWhen"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "reason": "RetryWhen invokes the same-package generic retryWhen declaration at line 259. There is no local variable of that name; Go infers the type argument from f. The containing function is generic, while the call omits explicit type arguments.",
+      "assumptions": [
+        "The pinned package is valid under a compatible Go toolchain; generic type inference is supported; no alternate generated/build-overlay declaration."
+      ],
+      "evidence": [
+        {
+          "repository_id": "aws",
+          "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+          "path": "internal/tfresource/retry.go",
+          "file_sha256": "4f81f389d0747e5b80d455a161aa4200a77b41b2d7c494c488e2f743dc0915a5",
+          "git_blob_sha1": "af9a8d9272536b2b6964d5ef76e44c7d585cb92b",
+          "range": {
+            "utf8_bytes": {
+              "start": 1190,
+              "end_exclusive": 1227
+            },
+            "start": {
+              "line": 31,
+              "utf8_byte_column": 8
+            },
+            "end_exclusive": {
+              "line": 31,
+              "utf8_byte_column": 45
+            }
+          },
+          "source_url": "https://github.com/hashicorp/terraform-provider-aws/blob/82532de7103d4dbabe384749cfaf09fc4c0692ad/internal/tfresource/retry.go#L31-L31",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "436a422da0000c89adfb2ac417127bf11c9ae06e98248204b9abd165128e4edd"
+        },
+        {
+          "repository_id": "aws",
+          "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+          "path": "internal/tfresource/retry.go",
+          "file_sha256": "4f81f389d0747e5b80d455a161aa4200a77b41b2d7c494c488e2f743dc0915a5",
+          "git_blob_sha1": "af9a8d9272536b2b6964d5ef76e44c7d585cb92b",
+          "range": {
+            "utf8_bytes": {
+              "start": 916,
+              "end_exclusive": 1230
+            },
+            "start": {
+              "line": 28,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 33,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/hashicorp/terraform-provider-aws/blob/82532de7103d4dbabe384749cfaf09fc4c0692ad/internal/tfresource/retry.go#L28-L32",
+          "excerpt_sha256": "e6971e5877bc4ca6e06adf3743b43ce4018bd061e5d6b7a7862e9758098e2ed5",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "aws",
+          "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+          "path": "internal/tfresource/retry.go",
+          "file_sha256": "4f81f389d0747e5b80d455a161aa4200a77b41b2d7c494c488e2f743dc0915a5",
+          "git_blob_sha1": "af9a8d9272536b2b6964d5ef76e44c7d585cb92b",
+          "range": {
+            "utf8_bytes": {
+              "start": 8764,
+              "end_exclusive": 9037
+            },
+            "start": {
+              "line": 259,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 264,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/hashicorp/terraform-provider-aws/blob/82532de7103d4dbabe384749cfaf09fc4c0692ad/internal/tfresource/retry.go#L259-L263",
+          "excerpt_sha256": "8ab5c5ce7ccd29361b75b6a28ac95e5043925f2217c06035ef8ff0deb8a9c0f6",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "GO-AWS-IMPORT-01",
+      "targets": [
+        "aws-sdk-go-base:tfawserr/awserr.go#ErrCodeEquals"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "reason": "tfawserr is the unshadowed imported package. The pinned provider go.mod requires aws-sdk-go-base/v2 v2.0.0-beta.73; that tag resolves to commit fc880961f63439eb567c7c403c6dbbcd4b65e8c5, whose module path and exported ErrCodeEquals function were checked. The package-only proposed key is replaced by the defining source file.",
+      "assumptions": [
+        "Static dependency selection is the declared v2.0.0-beta.73 at the recorded commit; no workspace, vendor, replace, or transitive-version override. This review does not prove the active build dependency graph."
+      ],
+      "evidence": [
+        {
+          "repository_id": "aws",
+          "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+          "path": "internal/tfresource/retry.go",
+          "file_sha256": "4f81f389d0747e5b80d455a161aa4200a77b41b2d7c494c488e2f743dc0915a5",
+          "git_blob_sha1": "af9a8d9272536b2b6964d5ef76e44c7d585cb92b",
+          "range": {
+            "utf8_bytes": {
+              "start": 1598,
+              "end_exclusive": 1635
+            },
+            "start": {
+              "line": 37,
+              "utf8_byte_column": 5
+            },
+            "end_exclusive": {
+              "line": 37,
+              "utf8_byte_column": 42
+            }
+          },
+          "source_url": "https://github.com/hashicorp/terraform-provider-aws/blob/82532de7103d4dbabe384749cfaf09fc4c0692ad/internal/tfresource/retry.go#L37-L37",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "9fb94b59a0edff35c123a871cbf00eff524dcd7edf424fdb8ce0b6ec92946bf7"
+        },
+        {
+          "repository_id": "aws",
+          "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+          "path": "internal/tfresource/retry.go",
+          "file_sha256": "4f81f389d0747e5b80d455a161aa4200a77b41b2d7c494c488e2f743dc0915a5",
+          "git_blob_sha1": "af9a8d9272536b2b6964d5ef76e44c7d585cb92b",
+          "range": {
+            "utf8_bytes": {
+              "start": 91,
+              "end_exclusive": 405
+            },
+            "start": {
+              "line": 6,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 19,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/hashicorp/terraform-provider-aws/blob/82532de7103d4dbabe384749cfaf09fc4c0692ad/internal/tfresource/retry.go#L6-L18",
+          "excerpt_sha256": "6df7302c42aedac0cf8db112d14ccb11ff4b55741bae764e8ef5dce28c1c4c79",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "aws",
+          "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+          "path": "internal/tfresource/retry.go",
+          "file_sha256": "4f81f389d0747e5b80d455a161aa4200a77b41b2d7c494c488e2f743dc0915a5",
+          "git_blob_sha1": "af9a8d9272536b2b6964d5ef76e44c7d585cb92b",
+          "range": {
+            "utf8_bytes": {
+              "start": 1345,
+              "end_exclusive": 1689
+            },
+            "start": {
+              "line": 35,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 44,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/hashicorp/terraform-provider-aws/blob/82532de7103d4dbabe384749cfaf09fc4c0692ad/internal/tfresource/retry.go#L35-L43",
+          "excerpt_sha256": "ad5271f1521fc1576e42566c3eabe178408108a080556b18db0e184b26ac9cff",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "aws",
+          "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+          "path": "go.mod",
+          "file_sha256": "28fd21d4861cc1fa1b3b022d7e40d3af6cc6090d6ae75f59eeda9ff9b323f811",
+          "git_blob_sha1": "4d86393be4d4149ff9ccc7a988758c235044a167",
+          "range": {
+            "utf8_bytes": {
+              "start": 16767,
+              "end_exclusive": 16823
+            },
+            "start": {
+              "line": 302,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 303,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/hashicorp/terraform-provider-aws/blob/82532de7103d4dbabe384749cfaf09fc4c0692ad/go.mod#L302-L302",
+          "excerpt_sha256": "7bb0710b63ed2ccc78c279d146cedf7a72094033142d602b1adfafaf3cc84802",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "aws-sdk-go-base",
+          "revision": "fc880961f63439eb567c7c403c6dbbcd4b65e8c5",
+          "path": "go.mod",
+          "file_sha256": "0da14776435c0711438ea52f93fca58f7e5e633dba09485c7d02b49e37f7e6fe",
+          "git_blob_sha1": "b34bf1907ecb106fb0a40933c2d57675686ff806",
+          "range": {
+            "utf8_bytes": {
+              "start": 0,
+              "end_exclusive": 58
+            },
+            "start": {
+              "line": 1,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 4,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/hashicorp/aws-sdk-go-base/blob/fc880961f63439eb567c7c403c6dbbcd4b65e8c5/go.mod#L1-L3",
+          "excerpt_sha256": "6e4f52d3e54a276daa4e6097ccdc5962753c1947cb18d3c7bb4bbe46c09d15df",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "aws-sdk-go-base",
+          "revision": "fc880961f63439eb567c7c403c6dbbcd4b65e8c5",
+          "path": "tfawserr/awserr.go",
+          "file_sha256": "42948c5583e761a594474c4a31b3ee84a49203cf5ae6fe92b6c8398e97c453db",
+          "git_blob_sha1": "9ec5c3da3f9e15047cf7367042dffd65f3296fa8",
+          "range": {
+            "utf8_bytes": {
+              "start": 71,
+              "end_exclusive": 635
+            },
+            "start": {
+              "line": 4,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 26,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/hashicorp/aws-sdk-go-base/blob/fc880961f63439eb567c7c403c6dbbcd4b65e8c5/tfawserr/awserr.go#L4-L25",
+          "excerpt_sha256": "b4fe887944109da4091b340d8aeb1f65121e8314d7f82e3c98eb0753eb04885e",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "GO-K8S-ALIAS-01",
+      "targets": [
+        "kubernetes:pkg/util/hash/hash.go#DeepHashObject"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "reason": "hashutil aliases k8s.io/kubernetes/pkg/util/hash. The pinned module identifies k8s.io/kubernetes and the pinned hash.go defines exported DeepHashObject. ComputeHash does not shadow the alias. Corrected the proposed package-directory key to the defining file.",
+      "assumptions": [
+        "Pinned main-module source is used without workspace/build overlay replacement; valid Go package semantics."
+      ],
+      "evidence": [
+        {
+          "repository_id": "kubernetes",
+          "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+          "path": "pkg/controller/controller_utils.go",
+          "file_sha256": "e92c0053aaf3643bca8efafedd649975e6c8fc596ccc223539c8cc06b8e5cb76",
+          "git_blob_sha1": "8bdaa5cc144bc308566020a1ff9f333639859003",
+          "range": {
+            "utf8_bytes": {
+              "start": 54697,
+              "end_exclusive": 54754
+            },
+            "start": {
+              "line": 1397,
+              "utf8_byte_column": 1
+            },
+            "end_exclusive": {
+              "line": 1397,
+              "utf8_byte_column": 58
+            }
+          },
+          "source_url": "https://github.com/kubernetes/kubernetes/blob/35fc3af13807e70534fb11736bcccc013631efde/pkg/controller/controller_utils.go#L1397-L1397",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "df8905e1dc268e159db1ff45f1ff9f953f00ad663a9c728d1f3df084c3ca03b6"
+        },
+        {
+          "repository_id": "kubernetes",
+          "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+          "path": "pkg/controller/controller_utils.go",
+          "file_sha256": "e92c0053aaf3643bca8efafedd649975e6c8fc596ccc223539c8cc06b8e5cb76",
+          "git_blob_sha1": "8bdaa5cc144bc308566020a1ff9f333639859003",
+          "range": {
+            "utf8_bytes": {
+              "start": 1399,
+              "end_exclusive": 1763
+            },
+            "start": {
+              "line": 48,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 59,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/kubernetes/kubernetes/blob/35fc3af13807e70534fb11736bcccc013631efde/pkg/controller/controller_utils.go#L48-L58",
+          "excerpt_sha256": "02ae896e7e82257169e44f0d308b9688c5fecca65fa5bfdd236321654a7b2a40",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "kubernetes",
+          "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+          "path": "pkg/controller/controller_utils.go",
+          "file_sha256": "e92c0053aaf3643bca8efafedd649975e6c8fc596ccc223539c8cc06b8e5cb76",
+          "git_blob_sha1": "8bdaa5cc144bc308566020a1ff9f333639859003",
+          "range": {
+            "utf8_bytes": {
+              "start": 54578,
+              "end_exclusive": 55082
+            },
+            "start": {
+              "line": 1395,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 1408,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/kubernetes/kubernetes/blob/35fc3af13807e70534fb11736bcccc013631efde/pkg/controller/controller_utils.go#L1395-L1407",
+          "excerpt_sha256": "8a20ccafba00295ece12fdfa655a458aeb3dac21c2110618de7454b702f72013",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "kubernetes",
+          "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+          "path": "go.mod",
+          "file_sha256": "e889bc40421ef98f19eb7c604e2471719646b385c07a82866a26032b7f3c0b76",
+          "git_blob_sha1": "29fdc43604a09ebc09884247a2614d04417cfef3",
+          "range": {
+            "utf8_bytes": {
+              "start": 308,
+              "end_exclusive": 344
+            },
+            "start": {
+              "line": 7,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 10,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/kubernetes/kubernetes/blob/35fc3af13807e70534fb11736bcccc013631efde/go.mod#L7-L9",
+          "excerpt_sha256": "06e2cd79fd6330a671542c6a6e13d866153e6f0960dc70155d21a42750e764d1",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "kubernetes",
+          "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+          "path": "pkg/util/hash/hash.go",
+          "file_sha256": "ea60f15871653c2e4eb729f659af18570b8f8833472944c7d694b7beb09dadef",
+          "git_blob_sha1": "0971a8bb094f5ed39dc5fbaaab702a0b74e63a01",
+          "range": {
+            "utf8_bytes": {
+              "start": 571,
+              "end_exclusive": 982
+            },
+            "start": {
+              "line": 17,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 33,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/kubernetes/kubernetes/blob/35fc3af13807e70534fb11736bcccc013631efde/pkg/util/hash/hash.go#L17-L32",
+          "excerpt_sha256": "ae424dfb22d95bfc19385eeb62a3a4e6c7479be6e90744fc63f8c16e0007da64",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "GO-K8S-DYNAMIC-01",
+      "targets": [
+        "kubernetes:pkg/controller/controller_utils.go#FilterActiveReplicaSets.activeFilter"
+      ],
+      "certainty": "candidate",
+      "supported": false,
+      "reason": "filterFn is a function-valued parameter, so its target is not fixed by FilterReplicaSets. A reviewed caller passes its locally declared activeFilter closure, establishing one real candidate. Exported FilterReplicaSets permits other callers and callbacks; this set is nonexhaustive.",
+      "assumptions": [
+        "Candidate is the closure passed by FilterActiveReplicaSets; no closed-world caller analysis or exhaustive callback set."
+      ],
+      "evidence": [
+        {
+          "repository_id": "kubernetes",
+          "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+          "path": "pkg/controller/controller_utils.go",
+          "file_sha256": "e92c0053aaf3643bca8efafedd649975e6c8fc596ccc223539c8cc06b8e5cb76",
+          "git_blob_sha1": "8bdaa5cc144bc308566020a1ff9f333639859003",
+          "range": {
+            "utf8_bytes": {
+              "start": 43927,
+              "end_exclusive": 43944
+            },
+            "start": {
+              "line": 1110,
+              "utf8_byte_column": 5
+            },
+            "end_exclusive": {
+              "line": 1110,
+              "utf8_byte_column": 22
+            }
+          },
+          "source_url": "https://github.com/kubernetes/kubernetes/blob/35fc3af13807e70534fb11736bcccc013631efde/pkg/controller/controller_utils.go#L1110-L1110",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "9db69e4af46117d5f584280edf413f0a344661add59fb0c7ea4f6aa3d661d856"
+        },
+        {
+          "repository_id": "kubernetes",
+          "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+          "path": "pkg/controller/controller_utils.go",
+          "file_sha256": "e92c0053aaf3643bca8efafedd649975e6c8fc596ccc223539c8cc06b8e5cb76",
+          "git_blob_sha1": "8bdaa5cc144bc308566020a1ff9f333639859003",
+          "range": {
+            "utf8_bytes": {
+              "start": 43288,
+              "end_exclusive": 44013
+            },
+            "start": {
+              "line": 1096,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 1116,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/kubernetes/kubernetes/blob/35fc3af13807e70534fb11736bcccc013631efde/pkg/controller/controller_utils.go#L1096-L1115",
+          "excerpt_sha256": "afdb332e750ca06d9f3c5ef0fd1ebf3cc7064abd56ab0f76e6966e562abf28d5",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "JS-LOCAL-01",
+      "targets": [
+        "viewer:repo_graph/assets/views.js#ordered.sort_callback.score"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "reason": "score is the const arrow binding declared in the same sort callback immediately before score(b); no local shadow or rebinding intervenes. The key names the anonymous sort callback descriptively.",
+      "assumptions": [
+        "Execution reaches this callback and call; standard lexical binding semantics. The descriptive sort_callback scope identifies lines 13-16, not a runtime property."
+      ],
+      "evidence": [
+        {
+          "repository_id": "viewer",
+          "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+          "path": "repo_graph/assets/views.js",
+          "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+          "git_blob_sha1": "b4a21f9e0759f794dcb81d583245f9a00149a03a",
+          "range": {
+            "utf8_bytes": {
+              "start": 698,
+              "end_exclusive": 706
+            },
+            "start": {
+              "line": 15,
+              "utf8_byte_column": 36
+            },
+            "end_exclusive": {
+              "line": 15,
+              "utf8_byte_column": 44
+            }
+          },
+          "source_url": "https://github.com/fakoli/repo-graph/blob/b21a7c19fc3f068d3b0227ba1fa6acd5eda17280/repo_graph/assets/views.js#L15-L15",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "7361023b465f04e01dce50c439b8125e828e3ff86d2b29d0fe1eeebf32ce090c"
+        },
+        {
+          "repository_id": "viewer",
+          "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+          "path": "repo_graph/assets/views.js",
+          "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+          "git_blob_sha1": "b4a21f9e0759f794dcb81d583245f9a00149a03a",
+          "range": {
+            "utf8_bytes": {
+              "start": 445,
+              "end_exclusive": 764
+            },
+            "start": {
+              "line": 12,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 18,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/fakoli/repo-graph/blob/b21a7c19fc3f068d3b0227ba1fa6acd5eda17280/repo_graph/assets/views.js#L12-L17",
+          "excerpt_sha256": "b743f28ac83f6ba844b1a8f53628834f37c776a6ce05d846c10e4fa97f40c975",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "JS-LOCAL-02",
+      "targets": [
+        "viewer:repo_graph/assets/views.js#layout.split"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "reason": "The treemap block declares const split as an arrow and calls that binding in the same block after initialization. Recursive calls inside split retain the same binding.",
+      "assumptions": [
+        "Execution enters the treemap branch and reaches the call; layout.split names the block-local arrow at lines 26-35."
+      ],
+      "evidence": [
+        {
+          "repository_id": "viewer",
+          "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+          "path": "repo_graph/assets/views.js",
+          "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+          "git_blob_sha1": "b4a21f9e0759f794dcb81d583245f9a00149a03a",
+          "range": {
+            "utf8_bytes": {
+              "start": 1822,
+              "end_exclusive": 1848
+            },
+            "start": {
+              "line": 36,
+              "utf8_byte_column": 6
+            },
+            "end_exclusive": {
+              "line": 36,
+              "utf8_byte_column": 32
+            }
+          },
+          "source_url": "https://github.com/fakoli/repo-graph/blob/b21a7c19fc3f068d3b0227ba1fa6acd5eda17280/repo_graph/assets/views.js#L36-L36",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "b46080f89ec6dc5e08cd6392753d27c19dba02ea095713fdc5b9a98d1a48e291"
+        },
+        {
+          "repository_id": "viewer",
+          "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+          "path": "repo_graph/assets/views.js",
+          "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+          "git_blob_sha1": "b4a21f9e0759f794dcb81d583245f9a00149a03a",
+          "range": {
+            "utf8_bytes": {
+              "start": 764,
+              "end_exclusive": 1850
+            },
+            "start": {
+              "line": 18,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 37,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/fakoli/repo-graph/blob/b21a7c19fc3f068d3b0227ba1fa6acd5eda17280/repo_graph/assets/views.js#L18-L36",
+          "excerpt_sha256": "107e5a87901052f24260c7bc2b64fd359144db287c024067b668d1a1ec4ef535",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "JS-LOCAL-03",
+      "targets": [
+        "viewer:repo_graph/assets/views.js#layout.put"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "reason": "put is the initialized const arrow in layout at line 22, captured by the radial branch. No shadowing declaration occurs in that branch.",
+      "assumptions": [
+        "Execution enters the radial branch with a truthy root and reaches the call; lexical binding semantics."
+      ],
+      "evidence": [
+        {
+          "repository_id": "viewer",
+          "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+          "path": "repo_graph/assets/views.js",
+          "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+          "git_blob_sha1": "b4a21f9e0759f794dcb81d583245f9a00149a03a",
+          "range": {
+            "utf8_bytes": {
+              "start": 2070,
+              "end_exclusive": 2093
+            },
+            "start": {
+              "line": 41,
+              "utf8_byte_column": 16
+            },
+            "end_exclusive": {
+              "line": 41,
+              "utf8_byte_column": 39
+            }
+          },
+          "source_url": "https://github.com/fakoli/repo-graph/blob/b21a7c19fc3f068d3b0227ba1fa6acd5eda17280/repo_graph/assets/views.js#L41-L41",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "a59f52342d778dc91a3bfc64e74f50c111ef6f931e8e8733720cbd1a19197bca"
+        },
+        {
+          "repository_id": "viewer",
+          "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+          "path": "repo_graph/assets/views.js",
+          "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+          "git_blob_sha1": "b4a21f9e0759f794dcb81d583245f9a00149a03a",
+          "range": {
+            "utf8_bytes": {
+              "start": 764,
+              "end_exclusive": 1094
+            },
+            "start": {
+              "line": 18,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 24,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/fakoli/repo-graph/blob/b21a7c19fc3f068d3b0227ba1fa6acd5eda17280/repo_graph/assets/views.js#L18-L23",
+          "excerpt_sha256": "a9fd37d5bd3939e87885d15a01a06cb61cb38735b2cd697b4523a64602c17dff",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "viewer",
+          "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+          "path": "repo_graph/assets/views.js",
+          "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+          "git_blob_sha1": "b4a21f9e0759f794dcb81d583245f9a00149a03a",
+          "range": {
+            "utf8_bytes": {
+              "start": 1850,
+              "end_exclusive": 2267
+            },
+            "start": {
+              "line": 37,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 43,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/fakoli/repo-graph/blob/b21a7c19fc3f068d3b0227ba1fa6acd5eda17280/repo_graph/assets/views.js#L37-L42",
+          "excerpt_sha256": "e7710d6fcdadddb9ddd0309e1be51e39588ddf1da6636326610f3bc00dd1dd2f",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "JS-DYNAMIC-01",
+      "targets": [],
+      "certainty": "unresolved",
+      "supported": false,
+      "reason": "counts is an unconstrained parameter of ordered. counts.get is a property read on that receiver; the file does not establish its concrete receiver or method implementation for all calls. A Map assumption would invent exactness.",
+      "assumptions": [
+        "Open caller set; no inferred Map identity, prototype stability, or whole-program receiver analysis."
+      ],
+      "evidence": [
+        {
+          "repository_id": "viewer",
+          "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+          "path": "repo_graph/assets/views.js",
+          "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+          "git_blob_sha1": "b4a21f9e0759f794dcb81d583245f9a00149a03a",
+          "range": {
+            "utf8_bytes": {
+              "start": 586,
+              "end_exclusive": 605
+            },
+            "start": {
+              "line": 14,
+              "utf8_byte_column": 61
+            },
+            "end_exclusive": {
+              "line": 14,
+              "utf8_byte_column": 80
+            }
+          },
+          "source_url": "https://github.com/fakoli/repo-graph/blob/b21a7c19fc3f068d3b0227ba1fa6acd5eda17280/repo_graph/assets/views.js#L14-L14",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "457556ef30a5225ba3a029a42f5764f4e52d3613db1344a82c62c0de5fb15ed9"
+        },
+        {
+          "repository_id": "viewer",
+          "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+          "path": "repo_graph/assets/views.js",
+          "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+          "git_blob_sha1": "b4a21f9e0759f794dcb81d583245f9a00149a03a",
+          "range": {
+            "utf8_bytes": {
+              "start": 445,
+              "end_exclusive": 764
+            },
+            "start": {
+              "line": 12,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 18,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/fakoli/repo-graph/blob/b21a7c19fc3f068d3b0227ba1fa6acd5eda17280/repo_graph/assets/views.js#L12-L17",
+          "excerpt_sha256": "b743f28ac83f6ba844b1a8f53628834f37c776a6ce05d846c10e4fa97f40c975",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "viewer",
+          "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+          "path": "repo_graph/assets/views.js",
+          "file_sha256": "8e919615d520634e43d0f583359112064ba0d5e5e6b1f62f73a27980152507ae",
+          "git_blob_sha1": "b4a21f9e0759f794dcb81d583245f9a00149a03a",
+          "range": {
+            "utf8_bytes": {
+              "start": 5923,
+              "end_exclusive": 6031
+            },
+            "start": {
+              "line": 101,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 104,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/fakoli/repo-graph/blob/b21a7c19fc3f068d3b0227ba1fa6acd5eda17280/repo_graph/assets/views.js#L101-L103",
+          "excerpt_sha256": "93140369934483e166e066567dcfcc25d3343a452bd755480e3e861b91cbc949",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "TS-LOCAL-01",
+      "targets": [
+        "extensions:packages/pi-brag/src/paths.ts#domainSkillSearchDirs"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "reason": "findDomainSkill calls the same module's exported function declaration domainSkillSearchDirs; its parameters and locals do not shadow that binding.",
+      "assumptions": [
+        "Normal TypeScript/ES module lexical semantics; no source transformation changing binding identity."
+      ],
+      "evidence": [
+        {
+          "repository_id": "extensions",
+          "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+          "path": "packages/pi-brag/src/paths.ts",
+          "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+          "git_blob_sha1": "9abbc4218d519545f8962236381490a4535c93b6",
+          "range": {
+            "utf8_bytes": {
+              "start": 3873,
+              "end_exclusive": 3905
+            },
+            "start": {
+              "line": 110,
+              "utf8_byte_column": 20
+            },
+            "end_exclusive": {
+              "line": 110,
+              "utf8_byte_column": 52
+            }
+          },
+          "source_url": "https://github.com/fakoli/anvil-extensions/blob/260a06f7394d56521e0d0d2a04cf58abe858cd56/packages/pi-brag/src/paths.ts#L110-L110",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "a151a1fbe32f599db56b57413a394b25f8ac124d8752ea05883874fda702ed3f"
+        },
+        {
+          "repository_id": "extensions",
+          "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+          "path": "packages/pi-brag/src/paths.ts",
+          "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+          "git_blob_sha1": "9abbc4218d519545f8962236381490a4535c93b6",
+          "range": {
+            "utf8_bytes": {
+              "start": 3410,
+              "end_exclusive": 4030
+            },
+            "start": {
+              "line": 98,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 116,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/fakoli/anvil-extensions/blob/260a06f7394d56521e0d0d2a04cf58abe858cd56/packages/pi-brag/src/paths.ts#L98-L115",
+          "excerpt_sha256": "13d74afdd88967349fad0517e0cbc09eddfa59d5f48e4bd07c6d78ebfab8d0f9",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "TS-LOCAL-02",
+      "targets": [
+        "extensions:packages/pi-brag/src/paths.ts#augmentPath"
+      ],
+      "certainty": "resolved",
+      "supported": true,
+      "reason": "childEnv calls the module-level augmentPath declaration. Passing opts affects augmentPath's internal behavior, not the target of this outer direct call.",
+      "assumptions": [
+        "Normal TypeScript/ES module lexical semantics; no source transformation changing binding identity."
+      ],
+      "evidence": [
+        {
+          "repository_id": "extensions",
+          "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+          "path": "packages/pi-brag/src/paths.ts",
+          "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+          "git_blob_sha1": "9abbc4218d519545f8962236381490a4535c93b6",
+          "range": {
+            "utf8_bytes": {
+              "start": 5976,
+              "end_exclusive": 6003
+            },
+            "start": {
+              "line": 171,
+              "utf8_byte_column": 13
+            },
+            "end_exclusive": {
+              "line": 171,
+              "utf8_byte_column": 40
+            }
+          },
+          "source_url": "https://github.com/fakoli/anvil-extensions/blob/260a06f7394d56521e0d0d2a04cf58abe858cd56/packages/pi-brag/src/paths.ts#L171-L171",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "adda642c7e64dd65ef7f929e64adcf08aa804853acc065a1184cedf33a5f13f5"
+        },
+        {
+          "repository_id": "extensions",
+          "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+          "path": "packages/pi-brag/src/paths.ts",
+          "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+          "git_blob_sha1": "9abbc4218d519545f8962236381490a4535c93b6",
+          "range": {
+            "utf8_bytes": {
+              "start": 4718,
+              "end_exclusive": 5375
+            },
+            "start": {
+              "line": 132,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 158,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/fakoli/anvil-extensions/blob/260a06f7394d56521e0d0d2a04cf58abe858cd56/packages/pi-brag/src/paths.ts#L132-L157",
+          "excerpt_sha256": "6bd534b233c184cfbe94b41617569a11a95ca5ea70e7485d076c5e8a5ab0c231",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "extensions",
+          "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+          "path": "packages/pi-brag/src/paths.ts",
+          "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+          "git_blob_sha1": "9abbc4218d519545f8962236381490a4535c93b6",
+          "range": {
+            "utf8_bytes": {
+              "start": 5681,
+              "end_exclusive": 6020
+            },
+            "start": {
+              "line": 165,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 173,
+              "utf8_byte_column": 1
+            }
+          },
+          "source_url": "https://github.com/fakoli/anvil-extensions/blob/260a06f7394d56521e0d0d2a04cf58abe858cd56/packages/pi-brag/src/paths.ts#L165-L173",
+          "excerpt_sha256": "44e816fb8f5c176bab17dc3b7ef467d26f8be4bbc8c93b6a180810b4f589c778",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "TS-IMPORT-01",
+      "targets": [],
+      "certainty": "unresolved",
+      "supported": false,
+      "reason": "existsSync is an unshadowed named import from node:fs. The corpus supplies no exact Node runtime source/version or loader environment, so this review cannot identify a pinned definition. The proposed external symbol key is not accepted as resolved.",
+      "assumptions": [
+        "No exact Node build/version or loader customization assumed; recognizing a builtin import does not verify a target blob."
+      ],
+      "evidence": [
+        {
+          "repository_id": "extensions",
+          "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+          "path": "packages/pi-brag/src/paths.ts",
+          "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+          "git_blob_sha1": "9abbc4218d519545f8962236381490a4535c93b6",
+          "range": {
+            "utf8_bytes": {
+              "start": 2088,
+              "end_exclusive": 2109
+            },
+            "start": {
+              "line": 65,
+              "utf8_byte_column": 18
+            },
+            "end_exclusive": {
+              "line": 65,
+              "utf8_byte_column": 39
+            }
+          },
+          "source_url": "https://github.com/fakoli/anvil-extensions/blob/260a06f7394d56521e0d0d2a04cf58abe858cd56/packages/pi-brag/src/paths.ts#L65-L65",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "b6a792386e3a2801503c180d71dc2b7293e1462204ea3220d5f964178cee42f0"
+        },
+        {
+          "repository_id": "extensions",
+          "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+          "path": "packages/pi-brag/src/paths.ts",
+          "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+          "git_blob_sha1": "9abbc4218d519545f8962236381490a4535c93b6",
+          "range": {
+            "utf8_bytes": {
+              "start": 419,
+              "end_exclusive": 620
+            },
+            "start": {
+              "line": 9,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 13,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/fakoli/anvil-extensions/blob/260a06f7394d56521e0d0d2a04cf58abe858cd56/packages/pi-brag/src/paths.ts#L9-L12",
+          "excerpt_sha256": "e3cc5144fed29fb4ae7c5dec1f821fa8d0cb6f79c6aa346d71b177238170d91e",
+          "role": "binding_containing_scope_or_target_definition"
+        },
+        {
+          "repository_id": "extensions",
+          "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+          "path": "packages/pi-brag/src/paths.ts",
+          "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+          "git_blob_sha1": "9abbc4218d519545f8962236381490a4535c93b6",
+          "range": {
+            "utf8_bytes": {
+              "start": 1980,
+              "end_exclusive": 3186
+            },
+            "start": {
+              "line": 64,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 91,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/fakoli/anvil-extensions/blob/260a06f7394d56521e0d0d2a04cf58abe858cd56/packages/pi-brag/src/paths.ts#L64-L90",
+          "excerpt_sha256": "d1ab0f46a64ec753f7b1640c8ce90802daf4a0773cf553ea9c865b3e5681ca7f",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    },
+    {
+      "id": "TS-DYNAMIC-01",
+      "targets": [
+        "extensions:packages/pi-brag/src/paths.ts#augmentPath.exists.default_callback"
+      ],
+      "certainty": "candidate",
+      "supported": false,
+      "reason": "exists is initialized from opts.exists or a local fallback arrow at lines 138-144. That arrow is one source-backed candidate when opts.exists is nullish, but caller injection permits other functions. The candidate is the wrapper arrow, not its nested existsSync call.",
+      "assumptions": [
+        "Open caller set; no assumption that opts.exists is absent. default_callback is a descriptive key for the right operand of the nullish-coalescing initializer."
+      ],
+      "evidence": [
+        {
+          "repository_id": "extensions",
+          "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+          "path": "packages/pi-brag/src/paths.ts",
+          "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+          "git_blob_sha1": "9abbc4218d519545f8962236381490a4535c93b6",
+          "range": {
+            "utf8_bytes": {
+              "start": 5229,
+              "end_exclusive": 5240
+            },
+            "start": {
+              "line": 150,
+              "utf8_byte_column": 16
+            },
+            "end_exclusive": {
+              "line": 150,
+              "utf8_byte_column": 27
+            }
+          },
+          "source_url": "https://github.com/fakoli/anvil-extensions/blob/260a06f7394d56521e0d0d2a04cf58abe858cd56/packages/pi-brag/src/paths.ts#L150-L150",
+          "role": "candidate_call_site",
+          "excerpt_sha256": "0caa0e5be32e8e5b4639dc0c64639c95b096bad3ccce0066d3f15a8525d5a3d1"
+        },
+        {
+          "repository_id": "extensions",
+          "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+          "path": "packages/pi-brag/src/paths.ts",
+          "file_sha256": "51b119c0f5e522e5c410e3dcc9f79e88af913a0e7555d636f02e6003cbfaeb02",
+          "git_blob_sha1": "9abbc4218d519545f8962236381490a4535c93b6",
+          "range": {
+            "utf8_bytes": {
+              "start": 4718,
+              "end_exclusive": 5375
+            },
+            "start": {
+              "line": 132,
+              "utf8_byte_column": 0
+            },
+            "end_exclusive": {
+              "line": 158,
+              "utf8_byte_column": 0
+            }
+          },
+          "source_url": "https://github.com/fakoli/anvil-extensions/blob/260a06f7394d56521e0d0d2a04cf58abe858cd56/packages/pi-brag/src/paths.ts#L132-L157",
+          "excerpt_sha256": "6bd534b233c184cfbe94b41617569a11a95ca5ea70e7485d076c5e8a5ab0c231",
+          "role": "binding_containing_scope_or_target_definition"
+        }
+      ]
+    }
+  ]
+}

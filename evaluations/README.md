@@ -1,5 +1,46 @@
 # Repository retrieval and UX evaluations
 
+## Code-understanding input preparation
+
+The synthetic [fixture manifest](code-understanding/fixtures.json) records
+separate Python, Go, JavaScript and TypeScript cases, source ranges, uncertainty,
+questions and update scenarios. [Corpus pins](code-understanding/corpora.json)
+and [real-call candidates](code-understanding/real-calls.json) retain all sixteen
+selected sites. Their proposed targets are unreviewed. No engine comparison,
+incremental-equivalence result or independent human evaluation is claimed.
+
+Check the prepared inputs:
+
+```bash
+uv run python evaluations/acceptance.py --prepare
+```
+
+This checks full source hashes, UTF-8 ranges, target IDs, explicit uncertainty
+and the committed input lock. A preparation success does not pass the freeze
+gate. Run its regression checks with
+`uv run python -m unittest discover -s evaluations/code-understanding -p test_acceptance.py -v`.
+
+The user authorizes an independent Astra AI source reviewer for the sixteen
+initial real-call sites. The locked [policy](code-understanding/source-review-policy.json)
+and [source key](code-understanding/source-review.json) record that exception.
+The validator accepts the specified independent AI provenance and rejects human
+labels, missing/model-mismatched reviews, incomplete judgments or changed pins.
+The coordinator audits the actual delegated review receipt. These comparisons
+are against an AI-reviewed source key; they are not independent human results.
+
+Lock reviewed inputs with `--prepare --seal-inputs`, review and commit them,
+then run the required gate:
+
+```bash
+uv run python evaluations/acceptance.py --gate freeze
+```
+
+Every locked input must match one captured Git commit. Preparation never passes
+T004. Changed judgments require a new reviewed lock. Missing independent review
+leaves comparisons unrun. Reports retain actual per-check outcomes and source
+receipt hashes. ADR 0006 numeric targets remain acceptance targets, not results.
+T027 independent human UX and human agent-answer grading remain separate gates.
+
 ## Unified harness packaging (0.6.0)
 
 `repo-graph init` delegates installation to native Pi, Codex and Claude managers.

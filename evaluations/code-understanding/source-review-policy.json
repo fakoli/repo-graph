@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "scope": "T004",
+  "review_kind": "independent_ai",
+  "model": "gpt-6-astra",
+  "authorization": "explicit_user_override",
+  "human_evaluation": false,
+  "human_ux_gate": "T027_required"
+}
