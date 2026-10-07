@@ -17,6 +17,8 @@ class Server(ThreadingHTTPServer):
                 self.artifacts.__exit__()
             if hasattr(self, 'engine'):
                 self.engine.close()
+            if hasattr(self, 'queries'):
+                self.queries.close()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -67,13 +69,19 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if not self.trusted(): self.respond(403, {'error':'Untrusted origin'}); return
-        if self.path != '/api/search': self.respond(404, {'error':'Not found'}); return
+        if self.path not in ('/api/search', '/api/query'): self.respond(404, {'error':'Not found'}); return
         if self.headers.get('Content-Type') != 'application/json':
             self.respond(415, {'error':'Use application/json'}); return
         try:
             length = int(self.headers.get('Content-Length', '0'))
             if not 0 < length <= 8192: raise ValueError('Request must be 1–8192 bytes')
             payload = json.loads(self.rfile.read(length))
+            if self.path == '/api/query':
+                if self.headers.get('X-Repo-Graph-Output', self.server.engine.owner) != self.server.engine.owner:
+                    self.respond(409, {'error': 'Query server belongs to another output directory'}); return
+                from .analysis_queries import encoded
+                result = self.server.queries.run(payload)
+                self.respond(200, encoded(result)); return
             query = payload['query']; mode = payload.get('mode', 'hybrid')
             if not isinstance(query, str) or not isinstance(payload.get('prefix', ''), str):
                 raise ValueError('Query and prefix must be text')
@@ -112,6 +120,8 @@ def create_server(engine, port=0, *, local_reranker=None, allow_jev=False):
         server.server_close()
         raise
     server.engine = engine
+    from .analysis_queries import Queries
+    server.queries = Queries(engine.output, owner=engine.owner)
     server.local_reranker, server.allow_jev = local_reranker, allow_jev
     # ponytail: one expensive search at a time; status, artifacts and plain keywords remain responsive.
     server.search_slot = BoundedSemaphore(1)

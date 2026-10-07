@@ -1,13 +1,75 @@
 """Small, bounded agent interface."""
 import argparse
 from contextlib import closing
+from http.client import HTTPConnection, HTTPException
 import json
 from pathlib import Path
 import sqlite3
 import sys
+from urllib.parse import urlsplit
 
 from . import builder
 from .search import Embeddings, Search, connect, embed_index, MODEL
+
+
+def _remote_query(address, payload, owner):
+    """The CLI can continue the loopback server's captured query session."""
+    url = urlsplit(address)
+    if (url.scheme != 'http' or url.hostname != '127.0.0.1' or
+            url.username or url.password or url.path not in ('', '/') or url.query or url.fragment or
+            url.port is None or not 1 <= url.port <= 65535):
+        raise ValueError('Use the serving address http://127.0.0.1:PORT')
+    from .analysis_queries import encoded
+    body = encoded(payload)
+    if len(body) > 8192:
+        raise ValueError('Query request exceeds 8192 bytes')
+    with closing(HTTPConnection('127.0.0.1', url.port, timeout=5)) as connection:
+        connection.request('POST', '/api/query', body, {'Content-Type': 'application/json',
+                                                     'X-Repo-Graph-Output': owner})
+        response = connection.getresponse()
+        raw = response.read(1048577)
+        if len(raw) > 1048576:
+            raise ValueError('Query response exceeds the product ceiling')
+        result = json.loads(raw)
+        if response.status != 200:
+            raise ValueError(result.get('error', 'Structural query failed'))
+        return result
+
+
+def _query_command(parsed, output):
+    from .analysis_queries import Queries, encoded
+    payload = dict(operation=parsed.operation, seed=parsed.seed, depth=parsed.depth,
+                   prefix=parsed.prefix, scope=parsed.scope, role=parsed.role)
+    if parsed.limits is not None:
+        payload['limits'] = json.loads(parsed.limits)
+    if parsed.cursor is not None:
+        if not parsed.server:
+            raise ValueError('Cross-command cursors need --server; --stdio retains local sessions')
+        payload['cursor'] = parsed.cursor
+    def emit(result):
+        print(encoded(result).decode(), flush=True)
+    with Queries(output) as queries:
+        if not parsed.stdio:
+            result = _remote_query(parsed.server, payload, queries.owner) if parsed.server else queries.run(payload)
+            if not parsed.server:
+                result['cursor'] = None  # The one-page process closes its snapshot.
+            emit(result)
+            return 0
+        # ponytail: JSON lines keep a finite session alive; use the server for cross-process pagination.
+        failed = False
+        while True:
+            line = sys.stdin.buffer.readline(8194)
+            if not line:
+                break
+            if len(line) > 8193 or not line.endswith(b'\n') and len(line) > 8192:
+                raise ValueError('Query request exceeds 8192 bytes')
+            try:
+                request = json.loads(line)
+                emit(_remote_query(parsed.server, request, queries.owner) if parsed.server else queries.run(request))
+            except (OSError, RuntimeError, ValueError, TypeError, sqlite3.Error) as error:
+                emit({'error': str(error)})
+                failed = True
+        return int(failed)
 
 
 def main(argv=None):
@@ -20,6 +82,21 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='Local diagrams and incremental repository search')
     subs = parser.add_subparsers(dest='command', required=True)
     subs.add_parser('map', help='Map a local repository or public HTTPS URL (map --help for flags)')
+    analyze = subs.add_parser('analyze', help='Incrementally capture structural facts (requires the analysis extra)')
+    analyze.add_argument('repository', type=Path)
+    analyze.add_argument('--output', required=True, type=Path)
+    analyze.add_argument('--mode', choices=['serial', 'queued'], default='serial')
+    analyze.add_argument('--workers', type=int, default=1)
+    query = subs.add_parser('query', help='Bounded structural queries; --stdio or --server retains pagination')
+    query.add_argument('output', type=Path)
+    query.add_argument('--operation', choices=['symbol', 'reference', 'call', 'callees', 'callers', 'reachable', 'impact'], default='symbol')
+    query.add_argument('--seed'); query.add_argument('--depth', type=int, default=2)
+    query.add_argument('--prefix', default=''); query.add_argument('--scope', default='')
+    query.add_argument('--role', choices=['call', 'reference', 'all'], default='call')
+    query.add_argument('--limits', help='JSON object reducing or overriding finite query limits')
+    query.add_argument('--stdio', action='store_true', help='Read JSON requests and write bounded JSON responses, one per line')
+    query.add_argument('--server', help='Reuse a loopback server session at http://127.0.0.1:PORT')
+    query.add_argument('--cursor', help='Continue a --server query with the same filters')
     init = subs.add_parser('init', help='Install this product through native harness managers')
     init.add_argument('--harness', choices=['all', 'pi', 'codex', 'claude'], default='all')
     init.add_argument('--scope', choices=['user', 'project'], default='user')
@@ -51,8 +128,22 @@ def main(argv=None):
                                 ref=parsed.ref, dry_run=parsed.dry_run)
             print(json.dumps(result, ensure_ascii=False)); return 0
         output = parsed.output.expanduser().resolve()
+        if parsed.command == 'analyze':
+            from .analysis import StructuralIndex
+            root = parsed.repository.expanduser().resolve()
+            if output == root or root in output.parents:
+                raise ValueError('Choose an output directory outside the analyzed source root')
+            coverage = {}
+            paths = builder.repo_files(root, coverage=coverage)
+            if coverage.get('failed'):
+                raise ValueError('Inventory contains unreadable or unsafe paths; no structural generation published')
+            result = StructuralIndex(root, output).refresh(paths, mode=parsed.mode, concurrency=parsed.workers)
+            print(json.dumps(result, ensure_ascii=False))
+            return 0 if result['status'] == 'ready' else 1
         if not (output / 'search.db').is_file():
             raise ValueError('No search index here. Run repo-graph map REPO first and use its output directory.')
+        if parsed.command == 'query':
+            return _query_command(parsed, output)
         embedder = None
         if parsed.command == 'index':
             if not (parsed.semantic or parsed.reranker):
@@ -80,5 +171,5 @@ def main(argv=None):
             reranker = LocalReranker() if parsed.rerank == 'local' else JevReranker(output) if parsed.rerank == 'jev' else None
             result = engine.run(parsed.query, mode=parsed.mode, limit=parsed.limit, prefix=parsed.prefix, reranker=reranker)
         print(json.dumps(result, ensure_ascii=False)); return 0
-    except (OSError, RuntimeError, ValueError, sqlite3.Error) as error:
+    except (OSError, RuntimeError, ValueError, sqlite3.Error, HTTPException) as error:
         print(f'repo-graph: {error}', file=sys.stderr); return 1

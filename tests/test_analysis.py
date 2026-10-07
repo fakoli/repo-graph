@@ -588,6 +588,130 @@ print(json.dumps(outcomes))
         self.assertEqual(facts(reopened), retained)
 
 
+    def test_persisted_sql_occurrence_pages_keep_unknowns_and_all_operation_kinds(self):
+        from repo_graph import analysis_queries
+        from repo_graph.analysis_queries import SQLSnapshot, Limits, encoded
+        text = ''.join('def leaf_%02d(): return %d\n' % (i, i) for i in range(40))
+        text += 'def hub(callback):\n' + ''.join('    leaf_%02d()\n' % i for i in range(40))
+        text += '    callback()\n    return leaf_00\n'
+        sources = {'fanout.py': text, 'cycle.py': 'def left(): return right()\ndef right(): return left()\n'}
+        write_sources(self.root, sources)
+        mode_rows = []
+        for mode, concurrency in (('serial', 1), ('queued', 2)):
+            with self.subTest(mode=mode):
+                index = StructuralIndex(self.root, self.scratch / mode)
+                receipt = self.ready(index, sources, mode=mode, concurrency=concurrency)
+                declarations = list(index.read_facts('definitions'))
+                names = {row['name']: row['id'] for row in declarations}
+                retained = list(index.read_facts('sites'))
+                with SQLSnapshot(index.output, index.owner, index.output_owner) as snapshot:
+                    cursor, rows, pages = None, [], []
+                    for _ in range(50):
+                        page = snapshot.query(names['hub'], role='all', cursor=cursor,
+                            limits=Limits(max_edges=1, max_excerpt_bytes=0))
+                        self.assertLessEqual(len(encoded(page)), 32768)
+                        self.assertEqual(page['excerpt_bytes'], 0)
+                        self.assertEqual(page['generation'], receipt['generation'])
+                        rows.extend(page['rows'])
+                        pages.append(page)
+                        cursor = page['cursor']
+                        if cursor is None:
+                            break
+                    self.assertIsNone(cursor)
+                    self.assertEqual(len(rows), 42)
+                    self.assertEqual(len({(row['site']['id'], row['target']['id'] if row['target'] else None) for row in rows}), 42)
+                    self.assertEqual(sum(page['examined_relationships'] for page in pages), 42)
+                    self.assertEqual(pages[-1]['total_count'], {'value': 42, 'kind': 'exact'})
+                    unknown = [row for row in rows if row['certainty'] == 'unresolved']
+                    self.assertEqual(len(unknown), 1)
+                    self.assertIsNone(unknown[0]['target'])
+                    self.assertFalse(unknown[0]['targets_exhaustive'])
+                    self.assertTrue(unknown[0]['reason'])
+                    for row in rows:
+                        actual = next(site for site in retained if site['id'] == row['site']['id'])
+                        self.assertEqual(row['site']['range'], actual['range'])
+                        self.assertEqual(row['site']['source_sha256'], actual['provenance']['source_sha256'])
+                        self.assertEqual(row['site']['role'], actual['role'])
+                        self.assertEqual(row['caller']['id'], actual['caller'])
+                    mode_rows.append(rows)
+                    symbols = snapshot.query(operation='symbol')
+                    self.assertEqual(len(symbols['rows']), 43)
+                    self.assertEqual(symbols['examined_symbols'], 43)
+                    first_calls = snapshot.query(names['hub'], operation='call')
+                    self.assertTrue(first_calls['truncated'])
+                    self.assertEqual(first_calls['stop_reason'], 'response_byte_budget_exceeded')
+                    self.assertLessEqual(len(encoded(first_calls)), 32768)
+                    calls = snapshot.query(names['hub'], operation='call', limits=Limits(max_response_bytes=65536))
+                    references = snapshot.query(operation='reference')
+                    self.assertEqual(len(calls['rows']), 41)
+                    self.assertEqual(len(references['rows']), 1)
+                    callers = snapshot.query(names['leaf_00'], operation='callers')
+                    self.assertEqual(callers['rows'][0]['caller']['id'], names['hub'])
+                    for operation in ('reachable', 'impact'):
+                        cycle = snapshot.query(names['left'], operation=operation, depth=2)
+                        self.assertEqual(len(cycle['rows']), 2)
+                        self.assertEqual(cycle['returned_entities'], 1)
+                        self.assertIsNone(cycle['cursor'])
+                        self.assertEqual(len(snapshot.query(names['left'], operation=operation, depth=1)['rows']), 1)
+                    first = snapshot.query(names['hub'], depth=1, limits=Limits(max_edges=1))
+                    with patch.object(snapshot, '_row', side_effect=AssertionError('Must reject before materialization')):
+                        for change in ({'scope': 'cycle'}, {'prefix': 'leaf'}, {'role': 'all'},
+                                       {'operation': 'callers'}, {'depth': 2}):
+                            with self.assertRaises(ValueError):
+                                snapshot.query(names['hub'], cursor=first['cursor'], **dict({'depth': 1}, **change))
+                        with patch.object(analysis_queries, 'QUERY_RULE_VERSION', 'synthetic-version-change'), self.assertRaises(ValueError):
+                            snapshot.query(names['hub'], depth=1, cursor=first['cursor'])
+                    resumed = snapshot.query(names['hub'], depth=1, cursor=first['cursor'], limits=Limits(max_edges=1))
+                    self.assertEqual(resumed['rows'][0], rows[1])
+                    with self.assertRaises(ValueError):
+                        snapshot.query(names['hub'], depth=1, cursor=first['cursor'])
+        self.assertEqual(mode_rows[0], mode_rows[1])
+
+    def test_persisted_sql_storage_cancellation_deadline_and_setup_release(self):
+        from repo_graph import analysis_queries
+        from repo_graph.analysis_queries import SQLSnapshot, Limits
+        write_sources(self.root, {'main.py': ''.join('def leaf_%d(): return %d\n' % (i, i) for i in range(12)) +
+                       'def hub(): return leaf_0()\n'})
+        expensive = ('SELECT sum(a.start_byte*b.start_byte*c.start_byte*d.start_byte*e.start_byte*f.start_byte) '
+            'FROM structural_symbols a CROSS JOIN structural_symbols b CROSS JOIN structural_symbols c '
+            'CROSS JOIN structural_symbols d CROSS JOIN structural_symbols e CROSS JOIN structural_symbols f')
+        for mode, concurrency in (('serial', 1), ('queued', 2)):
+            with self.subTest(mode=mode):
+                index = StructuralIndex(self.root, self.scratch / mode)
+                self.ready(index, ['main.py'], mode=mode, concurrency=concurrency)
+                hub = next(row['id'] for row in index.read_facts('definitions') if row['name'] == 'hub')
+                with patch.object(analysis_queries, 'connect', wraps=search.connect) as observed:
+                    with self.assertRaises(InterruptedError):
+                        SQLSnapshot(index.output, index.owner, index.output_owner, cancel=lambda: True)
+                    self.assertEqual(observed.call_count, 0)
+                polls = [0]
+                def setup_cancel():
+                    polls[0] += 1
+                    return polls[0] > 5
+                with self.assertRaises(InterruptedError):
+                    SQLSnapshot(index.output, index.owner, index.output_owner, cancel=setup_cancel)
+                self.assertFalse(search.SNAPSHOT_LOCK.locked())
+                with SQLSnapshot(index.output, index.owner, index.output_owner) as snapshot:
+                    stopped = snapshot.query(hub, cancel=lambda: True)
+                    self.assertEqual(stopped['examined_relationships'], 0)
+                    self.assertEqual(stopped['stop_reason'], 'cancelled')
+                    self.assertIsNone(stopped['cursor'])
+                    polls[0] = 0
+                    def cancel():
+                        polls[0] += 1
+                        return polls[0] > 20
+                    with patch.object(snapshot, '_next', side_effect=lambda *args: snapshot._read(expensive)):
+                        cancelled = snapshot.query(hub, cancel=cancel)
+                        expired = snapshot.query(hub, limits=Limits(timeout_seconds=.002))
+                    for page, reason in ((cancelled, 'cancelled'), (expired, 'deadline_exceeded')):
+                        self.assertEqual(page['stop_reason'], reason)
+                        self.assertGreater(page['storage_progress_callbacks'], 0)
+                        self.assertEqual(page['rows'], [])
+                        self.assertIsNone(page['cursor'])
+                        self.assertEqual(page['total_count'], {'value': 0, 'kind': 'lower_bound'})
+                    self.assertEqual(len(snapshot.query(hub)['rows']), 1)
+
+
 class StructuralValidationTests(unittest.TestCase):
     def test_structural_reporting_preserves_other_tasks_and_replaces_stale_success(self):
         from evaluations import analysis
@@ -601,8 +725,9 @@ class StructuralValidationTests(unittest.TestCase):
                 'counts': {'checks': 1}, 'case_results': [{'id': 'receiver', 'status': 'passed'}],
                 'failures': [], 'coverage_failures': [{'id': 'receiver', 'status': 'failed',
                     'dimension': 'receiver_target_enumeration'}]}
-            for suite, task in (('constructs', 'T010'), ('incremental', 'T011')):
-                prior = {'T009': retained, 'T010': {'status': 'passed', 'source_identity': 'retained-construct-proof'}}
+            for suite, task in (('constructs', 'T010'), ('incremental', 'T011'), ('queries', 'T012')):
+                prior = {'T009': retained, 'T010': {'status': 'passed', 'source_identity': 'retained-construct-proof'},
+                         'T011': {'status': 'passed', 'source_identity': 'retained-update-proof'}}
                 path.write_text(json.dumps({'schema_version': 1, 'tasks': prior}))
                 with self.subTest(suite=suite), patch.object(analysis, 'ROOT', root), \
                         patch.object(analysis, suite, return_value=dict(result)), redirect_stdout(io.StringIO()):
@@ -610,8 +735,8 @@ class StructuralValidationTests(unittest.TestCase):
                 report = json.loads(path.read_text())
                 self.assertEqual(report['tasks']['T009'], retained)
                 self.assertEqual(report['tasks'][task]['coverage_failures'], result['coverage_failures'])
-                if task == 'T011':
-                    self.assertEqual(report['tasks']['T010'], prior['T010'])
+                for other in prior.keys() - {task}:
+                    self.assertEqual(report['tasks'][other], prior[other])
                 for error in (ValueError('invalid frozen source'), RuntimeError('unexpected producer failure')):
                     path.write_text(json.dumps({'schema_version': 1, 'tasks': dict(prior, **{task: result})}))
                     with self.subTest(suite=suite, error=type(error).__name__), patch.object(analysis, 'ROOT', root), \
@@ -621,8 +746,18 @@ class StructuralValidationTests(unittest.TestCase):
                     self.assertEqual(report['tasks']['T009'], retained)
                     self.assertEqual(report['tasks'][task]['status'], 'failed')
                     self.assertEqual(report['tasks'][task]['error_kind'], type(error).__name__)
-                    if task == 'T011':
-                        self.assertEqual(report['tasks']['T010'], prior['T010'])
+                    for other in prior.keys() - {task}:
+                        self.assertEqual(report['tasks'][other], prior[other])
+                if task == 'T012':
+                    alternate = root / 'query-check.json'
+                    alternate.write_text(json.dumps(result))
+                    saved = path.read_bytes()
+                    with patch.object(analysis, 'ROOT', root), \
+                            patch.object(analysis, suite, side_effect=RuntimeError('unexpected alternate-output failure')), \
+                            redirect_stdout(io.StringIO()):
+                        self.assertEqual(analysis.main(['--suite', suite, '--output', alternate.name]), 1)
+                    self.assertEqual(json.loads(alternate.read_text())['status'], 'failed')
+                    self.assertEqual(path.read_bytes(), saved)
 
     def test_invalid_inventory_queue_and_limit_arguments_are_rejected(self):
         with tempfile.TemporaryDirectory() as scratch:

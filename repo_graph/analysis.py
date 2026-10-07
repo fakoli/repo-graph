@@ -225,6 +225,22 @@ def _schema(db):
       PRIMARY KEY(site_id,target_id));
     CREATE INDEX IF NOT EXISTS structural_target ON structural_relationships(target_id,site_id);
     ''')
+    # Internal occurrence columns are query projections of these same facts.
+    for table, columns in (
+        ('structural_symbols', {'start_byte': 'INTEGER NOT NULL DEFAULT 0', 'end_byte': 'INTEGER NOT NULL DEFAULT 0'}),
+        ('structural_relationships', {'caller_id': "TEXT NOT NULL DEFAULT ''", 'site_start': 'INTEGER NOT NULL DEFAULT 0',
+         'site_end': 'INTEGER NOT NULL DEFAULT 0', 'target_path': "TEXT NOT NULL DEFAULT ''",
+         'target_start': 'INTEGER NOT NULL DEFAULT -1', 'target_end': 'INTEGER NOT NULL DEFAULT -1'})):
+        present = {row['name'] for row in db.execute('PRAGMA table_info(' + table + ')')}
+        for name, definition in columns.items():
+            if name not in present:
+                db.execute('ALTER TABLE ' + table + ' ADD COLUMN ' + name + ' ' + definition)
+    db.executescript('''
+    CREATE INDEX IF NOT EXISTS structural_symbol_order ON structural_symbols(path,start_byte,end_byte,id);
+    CREATE INDEX IF NOT EXISTS structural_outgoing ON structural_relationships(caller_id,path,site_start,site_end,role,target_path,target_start,target_end,site_id,target_id);
+    CREATE INDEX IF NOT EXISTS structural_incoming ON structural_relationships(target_id,path,site_start,site_end,role,target_path,target_start,target_end,site_id);
+    CREATE INDEX IF NOT EXISTS structural_occurrence_order ON structural_relationships(path,site_start,site_end,role,target_path,target_start,target_end,site_id,target_id);
+    ''')
 
 
 class StructuralIndex:
@@ -268,7 +284,7 @@ class StructuralIndex:
         with closing(connect(self.output, readonly=True, owner=self.output_owner)) as db:
             self._metadata(db)
             if kind == 'relationships':
-                for row in db.execute('SELECT * FROM structural_relationships ORDER BY site_id,target_id'):
+                for row in db.execute("SELECT site_id,target_id,path,role,certainty FROM structural_relationships WHERE target_id<>'' ORDER BY site_id,target_id"):
                     yield dict(row)
             else:
                 for row in db.execute('SELECT path,data FROM ' + tables[kind] + ' ORDER BY path,ordinal'):
@@ -368,8 +384,8 @@ class StructuralIndex:
                         db.execute('DELETE FROM structural_symbols WHERE path=?', (file.path,))
                         db.execute('DELETE FROM structural_scopes WHERE path=?', (file.path,))
                         db.execute('DELETE FROM structural_imports WHERE path=?', (file.path,))
-                        db.executemany('INSERT INTO structural_symbols VALUES(?,?,?,?)',
-                            ((d['id'], file.path, i, encoded(d)) for i, d in enumerate(definitions)))
+                        db.executemany('INSERT INTO structural_symbols VALUES(?,?,?,?,?,?)',
+                            ((d['id'], file.path, i, encoded(d), d['range']['start_byte'], d['range']['end_byte']) for i, d in enumerate(definitions)))
                         db.executemany('INSERT INTO structural_scopes VALUES(?,?,?)',
                             ((file.path, i, encoded(s)) for i, s in enumerate(scopes)))
                         db.executemany('INSERT INTO structural_imports VALUES(?,?,?)',
@@ -470,8 +486,13 @@ class StructuralIndex:
                     resources['bindings_files_resolved'] += 1
                     for i, site in enumerate(file.sites):
                         db.execute('INSERT INTO structural_sites VALUES(?,?,?,?,?)', (site['id'], path, i, site['role'], encoded(site)))
-                        db.executemany('INSERT INTO structural_relationships VALUES(?,?,?,?,?)',
-                            ((site['id'], target, path, site['role'], site['certainty']) for target in site['targets']))
+                        for target in site['targets'] or ['']:
+                            definition = _Definitions(db)[target] if target else None
+                            span = definition['range'] if definition else {'start_byte': -1, 'end_byte': -1}
+                            db.execute('INSERT INTO structural_relationships VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                                (site['id'], target, path, site['role'], site['certainty'], site['caller'] or '',
+                                 site['range']['start_byte'], site['range']['end_byte'],
+                                 definition['path'] if definition else '', span['start_byte'], span['end_byte']))
                 files.consumer = None
                 check()
                 manifest = hashlib.sha256(encoded({'repository': self.owner, 'analyzer': analyzer, 'config': config}))

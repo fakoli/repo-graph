@@ -125,7 +125,9 @@ class IndexConnection(sqlite3.Connection):
         except Exception: pass
 
 
-def _snapshot(boundary, output, owner, cache, readonly):
+def _snapshot(boundary, output, owner, cache, readonly, check=None):
+    if check is not None:
+        check()
     if not boundary.secure:
         raise OSError('Secure index access is unavailable on this platform')
     if owner is not None and boundary.identity != owner:
@@ -140,7 +142,15 @@ def _snapshot(boundary, output, owner, cache, readonly):
         if token is not None:
             with boundary.open('search.db') as source, path.open('xb') as target:
                 before = _token(os.fstat(source.fileno()))
-                shutil.copyfileobj(source, target, 64 * 1024)
+                while True:
+                    if check is not None:
+                        check()
+                    chunk = source.read(64 * 1024)
+                    if not chunk:
+                        break
+                    target.write(chunk)
+                if check is not None:
+                    check()
                 if before != token or _token(os.fstat(source.fileno())) != before:
                     raise RuntimeError('Index changed during snapshot copy; retry')
         _fresh(boundary, output, token)
@@ -180,20 +190,48 @@ def synopsis(path: str, source: str) -> str:
     return title + "\n" + "\n".join(lines)
 
 
-def connect(output: Path, *, readonly: bool = False, owner: str | None = None, cache=None) -> sqlite3.Connection:
+def connect(output: Path, *, readonly: bool = False, owner: str | None = None, cache=None,
+            check=None) -> sqlite3.Connection:
+    if check is not None and not callable(check):
+        raise ValueError('Callable index storage check required')
+    if check is not None:
+        check()
     boundary = SourceRoot(output)
     db = None
     temporary = None
+    storage_stop = None
+    def progress():
+        nonlocal storage_stop
+        try:
+            check()
+            return 0
+        except BaseException as error:
+            storage_stop = error
+            return 1
     try:
         # ponytail: one streamed copy per index generation; measure cold I/O before adding another backend.
-        with SNAPSHOT_LOCK:
-            temporary, token = _snapshot(boundary, output, owner, cache, readonly)
+        if check is None:
+            SNAPSHOT_LOCK.acquire()
+        else:
+            while True:
+                check()
+                if SNAPSHOT_LOCK.acquire(timeout=0.01):
+                    break
+        try:
+            temporary, token = _snapshot(boundary, output, owner, cache, readonly, check)
             path = Path(temporary.name) / 'search.db'
             db = sqlite3.connect(path.as_uri() + '?mode=ro&immutable=1' if readonly else str(path),
-                                 uri=readonly, timeout=30, factory=IndexConnection)
+                                 uri=readonly, timeout=30, factory=IndexConnection,
+                                 check_same_thread=not readonly)
             db.temporary = temporary
             db.cache = cache
+            if readonly and check is not None:
+                db.set_progress_handler(progress, 64)
             _fresh(boundary, output, token)
+            if check is not None:
+                check()
+        finally:
+            SNAPSHOT_LOCK.release()
         if readonly:
             boundary.__exit__()
         else:
@@ -234,10 +272,15 @@ def connect(output: Path, *, readonly: bool = False, owner: str | None = None, c
         identities = dict(db.execute("SELECT key,value FROM meta WHERE key IN ('repository','structural_repository')"))
         if len(identities) == 2 and identities['repository'] != identities['structural_repository']:
             raise RuntimeError('Shared index contains conflicting repository identities; use a new output directory')
+        if readonly and check is not None:
+            check()
+            db.set_progress_handler(None, 0)
         return db
     except BaseException:
         db.failed = True
         db.close()
+        if storage_stop is not None:
+            raise storage_stop
         raise
 
 

@@ -5,6 +5,7 @@ uv sync --python 3.12 --extra analysis
 uv run python evaluations/analysis.py --engine tree-sitter --suite component
 uv run python evaluations/analysis.py --suite constructs
 uv run python evaluations/analysis.py --suite incremental
+uv run python evaluations/analysis.py --suite queries
 
 No provider calls, real-corpus download, daemon, dynamic imports of source code,
 or runtime product installation occurs. Experimental selection requires all component and finite-cost proofs.
@@ -378,7 +379,8 @@ def record_structural(root, task, result, maximum):
     if (type(report) is not dict or type(report.get('schema_version')) is not int or
             report['schema_version'] != 1 or type(report.get('tasks')) is not dict or 'T009' not in report['tasks']):
         raise ValueError('Existing T009 facts evidence required')
-    if task not in ('T010', 'T011') or task == 'T011' and 'T010' not in report['tasks']:
+    preceding = {'T010': 'T009', 'T011': 'T010', 'T012': 'T011'}
+    if task not in preceding or preceding[task] not in report['tasks']:
         raise ValueError('Known structural task and its preceding proof required')
     report['tasks'][task] = result
     return write_result(root, FACTS_OUTPUT, report, maximum)
@@ -606,6 +608,346 @@ def incremental(root=ROOT, budget=None):
         'environment': environment(), 'qualification_complete': False, 'limits_qualified': False,
         'scope': 'Frozen36 synthetic updates, persisted serial1/queued2 versus independent clean output on the same source owner; '
                  'expected impacts graded after production; type flow, contract semantics, corpus, scale and human qualification unmeasured'}
+
+
+def queries(root=ROOT, budget=None):
+    """Grade locked query questions against captured, persisted SQL snapshots."""
+    from dataclasses import asdict, replace
+    from unittest.mock import patch
+    from repo_graph.analysis import IndexLimits, StructuralIndex
+    from repo_graph.analysis_queries import SQLSnapshot, Limits, encoded
+    from repo_graph import analysis_queries
+    from evaluations.engine_checks import _adapter_error, _adapter_materialize
+    from evaluations.supplement_preparation import LOCK, ORACLE, SOURCE, prepare_check
+    root, budget = Path(root), budget or Budget(timeout_seconds=20)
+    prepared = prepare_check(root)
+    with SourceRoot(root) as owner:
+        manifest, _ = read_json(owner, SOURCE)
+        lock, lock_sha = read_json(owner, LOCK)
+    record = next(row for row in manifest['files'] if row['path'].endswith('/python/fanout.py'))
+    source_path, raw = record['path'], record['content_utf8'].encode('utf-8')
+    metadata = {key: record[key] for key in ('path', 'language', 'kind', 'sha256', 'bytes')}
+    code_paths = ('evaluations/analysis.py', 'evaluations/engine_checks.py',
+        'evaluations/supplement_preparation.py', 'evaluations/bounded_queries.py',
+        'repo_graph/analysis.py', 'repo_graph/analysis_native.py', 'repo_graph/analysis_queue.py',
+        'repo_graph/analysis_queries.py', 'repo_graph/cli.py', 'repo_graph/server.py',
+        'repo_graph/search.py', 'repo_graph/source.py',
+        'repo_graph/__init__.py', 'tests/test_analysis.py', 'pyproject.toml', 'uv.lock')
+    with SourceRoot(ROOT) as owner:
+        before = {path: owner.read(path, 2 * 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=20).strip()
+    modes, results, checks, observed = [], [], [], []
+
+    def physical(item):
+        span = item['range']
+        return (item['path'], span['start_byte'], span['end_byte'], span['start_line'], span['end_line'])
+
+    def row_key(row):
+        return (physical(row['site']), row['caller']['id'] if row['caller'] else None,
+                row['target']['id'] if row['target'] else None)
+
+    def no_bodies(value):
+        if isinstance(value, dict):
+            assert not {'text', 'content', 'excerpt', 'body', 'content_utf8'} & set(value)
+            for child in value.values():
+                no_bodies(child)
+        elif isinstance(value, list):
+            for child in value:
+                no_bodies(child)
+
+    def denied(action):
+        try:
+            action()
+        except ValueError:
+            return True
+        raise AssertionError('Changed or expired cursor accepted')
+
+    with tempfile.TemporaryDirectory(prefix='repo-graph-queries-') as temporary:
+        directory = Path(temporary)
+        source = directory / 'source'
+        source.mkdir()
+        for mode, concurrency in (('serial', 1), ('queued', 2)):
+            label = mode + str(concurrency)
+            _adapter_materialize(source, {source_path: raw})
+            index = StructuralIndex(source, directory / mode, budget=budget,
+                limits=IndexLimits(max_files=budget.max_files, max_source_bytes=budget.max_total_bytes,
+                                   total_wall_seconds=budget.timeout_seconds))
+            receipt = index.refresh([metadata], mode=mode, concurrency=concurrency)
+            report = {'mode': mode, 'concurrency': concurrency, 'index': receipt, 'queries': []}
+            modes.append(report)
+            assert receipt['status'] == 'ready', receipt
+            produced = {kind: list(index.read_facts(kind)) for kind in
+                        ('definitions', 'sites', 'imports', 'scopes', 'relationships')}
+            report['metadata'] = index.metadata()
+            report['normalized_facts_sha256'] = hashlib.sha256(encoded(produced)).hexdigest()
+            # Grader oracle is opened only after the owner has published real facts.
+            with SourceRoot(root) as owner:
+                oracle = read_json(owner, ORACLE)[0]['query']
+            assert oracle['source_path'] == source_path and oracle['source_sha256'] == metadata['sha256']
+            assert len(oracle['assertions']) == 10 and len({item['id'] for item in oracle['assertions']}) == 10
+            grade_failures, key_to_id = [], {}
+            definitions = {physical(row): row for row in produced['definitions']}
+            sites = {physical(row): row for row in produced['sites']}
+            if (len(produced['definitions']) != len(oracle['declarations']) or
+                    set(definitions) != {physical(row) for row in oracle['declarations']}):
+                grade_failures.append({'dimension': 'declaration_inventory'})
+            if (len(produced['sites']) != len(oracle['invocations']) or
+                    set(sites) != {physical(row['site']) for row in oracle['invocations']}):
+                grade_failures.append({'dimension': 'occurrence_inventory'})
+            for expected in oracle['declarations']:
+                actual = definitions.get(physical(expected))
+                if actual is not None:
+                    key_to_id[expected['key']] = actual['id']
+                if (actual is None or actual['name'] != expected['name'] or actual['text'] != expected['text'] or
+                        actual['provenance']['source_sha256'] != expected['source_sha256'] or
+                        raw[expected['name_range']['start_byte']:expected['name_range']['end_byte']].decode('utf-8') != expected['name']):
+                    grade_failures.append({'dimension': 'source_declaration', 'key': expected['key']})
+            for expected in oracle['invocations']:
+                actual = sites.get(physical(expected['site']))
+                if (actual is None or actual['text'] != expected['site']['text'] or
+                        actual['provenance']['source_sha256'] != metadata['sha256'] or actual['role'] != 'call' or
+                        actual['certainty'] != 'resolved' or actual['targets_exhaustive'] is not True or
+                        actual['caller'] != key_to_id.get(expected['caller_key']) or
+                        actual['targets'] != [key_to_id.get(expected['target_key'])]):
+                    grade_failures.append({'dimension': 'source_binding', 'site': physical(expected['site'])})
+            checks.append({'id': label + ':source_physical_fact_grade',
+                'status': 'failed' if grade_failures else 'passed', 'failures': grade_failures,
+                'definitions': len(definitions), 'sites': len(sites), 'gold_passed_to_owner': False})
+            expected_hub = sorted((item for item in oracle['invocations'] if item['caller_key'] == 'PY.fanout.hub'),
+                                  key=lambda item: physical(item['site']))
+            expected_keys = [(physical(item['site']), key_to_id.get(item['caller_key']), key_to_id.get(item['target_key']))
+                             for item in expected_hub]
+            names = {row['name']: row['id'] for row in produced['definitions']}
+            definitions_by_id = {row['id']: row for row in produced['definitions']}
+            sites_by_id = {row['id']: row for row in produced['sites']}
+            for assertion in oracle['assertions']:
+                entry = {'id': label + ':' + assertion['id'], 'question_id': assertion['id'],
+                         'mode': label, 'status': 'running', 'responses': []}
+                report['queries'].append(entry)
+                results.append(entry)
+                started = time.monotonic()
+                try:
+                    ticks = [0.0]
+                    options = {'clock': lambda: ticks[0]} if assertion['id'] == 'Q-PY-DEADLINE' else {}
+                    setup_started = time.monotonic()
+                    setup_limits = Limits(**assertion.get('limits', assertion.get('limits_per_page', {})))
+                    with SQLSnapshot(index.output, index.owner, index.output_owner, limits=setup_limits, **options) as snapshot:
+                        entry['snapshot_setup'] = {'storage_setup_seconds': snapshot.storage_setup_seconds,
+                            'snapshot_copy_seconds': snapshot.snapshot_copy_seconds,
+                            'generation': snapshot.generation, 'source_identity': snapshot.source_identity}
+                        assert snapshot.generation == receipt['generation']
+                        assert snapshot.source_identity == receipt['source_identity']
+                        seed, qid = names[assertion['seed']], assertion['id']
+
+                        def observe(**kw):
+                            limits = kw.get('limits', Limits())
+                            begun = time.monotonic()
+                            requested_limits = asdict(limits)
+                            cold_cost = 0
+                            if not entry['responses'] and qid != 'Q-PY-DEADLINE':
+                                cold_cost = begun - setup_started
+                                remaining = limits.timeout_seconds - cold_cost
+                                if remaining <= 0:
+                                    raise InterruptedError('Cold setup exhausted whole query deadline')
+                                limits = replace(limits, timeout_seconds=remaining)
+                                kw['limits'] = limits
+                            page = snapshot.query(seed, depth=assertion.get('depth', 1), **kw)
+                            size = len(encoded(page))
+                            entry['responses'].append({'response': page, 'serialized_response_bytes': size,
+                                'query_elapsed_seconds': time.monotonic() - begun,
+                                'limits': asdict(limits), 'requested_limits': requested_limits,
+                                'cold_setup_charged_seconds': cold_cost})
+                            assert size <= limits.max_response_bytes
+                            assert page['examined_relationships'] <= limits.max_examined_relationships
+                            assert page['returned_entities'] <= limits.max_entities and page['returned_edges'] <= limits.max_edges
+                            assert page['excerpt_bytes'] <= limits.max_excerpt_bytes
+                            assert page['generation'] == receipt['generation'] and page['source_identity'] == receipt['source_identity']
+                            for row in page['rows']:
+                                actual = sites_by_id[row['site']['id']]
+                                assert physical(row['site']) == physical(actual)
+                                assert row['site']['source_sha256'] == actual['provenance']['source_sha256']
+                                assert row['site']['role'] == actual['role']
+                                assert row['certainty'] == actual['certainty']
+                                assert row['targets_exhaustive'] == actual['targets_exhaustive']
+                                assert row['reason'] == actual['reason']
+                                assert (row['caller']['id'] if row['caller'] else None) == actual['caller']
+                                assert row['target'] is not None and row['target']['id'] in actual['targets']
+                                for handle in (row['caller'], row['target']):
+                                    declaration = definitions_by_id[handle['id']]
+                                    assert physical(handle) == physical(declaration)
+                                    assert handle['name'] == declaration['name'] and not handle['name_truncated']
+                                    assert handle['source_sha256'] == declaration['provenance']['source_sha256']
+                            no_bodies(page)
+                            return page
+
+                        def complete(values):
+                            cursor, rows, work, sizes = None, [], 0, []
+                            for _ in range(16):
+                                page = observe(cursor=cursor, limits=Limits(**values))
+                                rows.extend(page['rows'])
+                                work += page['examined_relationships']
+                                sizes.append(len(page['rows']))
+                                cursor = page['cursor']
+                                if cursor is None:
+                                    assert not page['truncated']
+                                    return rows, work, sizes, page
+                            raise AssertionError('Bounded continuation attempts exhausted')
+
+                        if qid in ('Q-PY-ALL-CALLEES', 'Q-PY-OUTPUT-PAGES'):
+                            rows, work, sizes, page = complete(assertion.get('limits', assertion.get('limits_per_page')))
+                            assert [row_key(row) for row in rows] == expected_keys
+                            assert len({row_key(row) for row in rows}) == len(expected_keys)
+                            assert page['total_count'] == {'value': len(expected_keys), 'kind': 'exact'}
+                            assert work == assertion.get('expected_examined_relationships_across_continuations',
+                                                        assertion.get('expected_total_examined_relationships'))
+                            if qid == 'Q-PY-OUTPUT-PAGES':
+                                assert sizes == assertion['expected_page_sizes']
+                                first = observe(limits=Limits(max_edges=17))
+                                rejects = []
+                                with patch.object(snapshot, '_row', side_effect=AssertionError('Cursor rejection must precede materialization')):
+                                    for binding, change in (('role', {'role': 'all'}), ('scope', {'scope': 'tests/fixtures/code-understanding/python/'}),
+                                            ('prefix', {'prefix': 'leaf_0'}), ('operation', {'operation': 'callers'}), ('depth', {'depth': 2})):
+                                        denied(lambda change=change: snapshot.query(seed, cursor=first['cursor'],
+                                            **dict({'depth': 1}, **change)))
+                                        rejects.append({'binding': binding, 'status': 'rejected_before_materialization'})
+                                    with patch.object(analysis_queries, 'QUERY_RULE_VERSION', 'synthetic-query-rule-change'):
+                                        denied(lambda: snapshot.query(seed, depth=1, cursor=first['cursor']))
+                                    rejects.append({'binding': 'query_rule', 'status': 'rejected_before_materialization'})
+                                now = [0.0]
+                                with SQLSnapshot(index.output, index.owner, index.output_owner, clock=lambda: now[0]) as expiring:
+                                    exp = expiring.query(seed, depth=1, limits=Limits(max_edges=17))
+                                    now[0] = 61.0
+                                    with patch.object(expiring, '_row', side_effect=AssertionError('Expired cursor must not materialize')):
+                                        denied(lambda: expiring.query(seed, depth=1, cursor=exp['cursor']))
+                                rejects.append({'binding': 'expiry', 'status': 'rejected_before_materialization'})
+                                entry['cursor_binding_checks'] = rejects
+                            entry.update(rows=len(rows), examined_total=work, page_sizes=sizes)
+                        elif qid == 'Q-PY-WORK-EXHAUSTION':
+                            page = observe(limits=Limits(**assertion['limits']))
+                            assert len(page['rows']) == assertion['expected_returned_rows']
+                            assert page['examined_relationships'] == assertion['expected_examined_relationships']
+                            assert page['stop_reason'] == assertion['required_stop_reason'] and page['truncated']
+                            assert page['total_count']['kind'] == 'lower_bound'
+                            resumed = observe(cursor=page['cursor'], limits=Limits(max_edges=1))
+                            assert row_key(resumed['rows'][0]) == expected_keys[assertion['next_unemitted_row_index']]
+                        elif qid == 'Q-PY-FILTERED-WORK':
+                            prefix = assertion['filter']['target_name_prefix']
+                            page = observe(prefix=prefix, limits=Limits(**assertion['limits']))
+                            assert page['examined_relationships'] == assertion['expected_examined_relationships']
+                            assert len(page['rows']) == assertion['expected_returned_rows']
+                            assert page['truncated'] and page['total_count'] == {'value': 0, 'kind': 'lower_bound'}
+                            full = observe(prefix=prefix, limits=Limits(max_edges=120, max_entities=120, max_examined_relationships=120))
+                            assert len(full['rows']) == assertion['matching_rows_in_complete_source_oracle']
+                            assert full['examined_relationships'] == len(expected_keys)
+                        elif qid == 'Q-PY-RESPONSE-BYTES':
+                            with patch.object(snapshot, '_next', wraps=snapshot._next) as storage:
+                                try:
+                                    page = observe(limits=Limits(**assertion['limits']))
+                                except ValueError as error:
+                                    assert 'minimum envelope' in str(error)
+                                    assert storage.call_count == 0
+                                    entry['minimum_envelope_refused_before_relationship_work'] = True
+                                else:
+                                    assert page['examined_relationships'] < len(expected_keys) and page['cursor']
+                                    position = len(page['rows'])
+                                    resumed = observe(cursor=page['cursor'], limits=Limits(max_edges=1))
+                                    assert row_key(resumed['rows'][0]) == expected_keys[position]
+                                    assert resumed['examined_relationships'] == 0
+                                    entry.update(first_response_rows=position, first_response_work=page['examined_relationships'],
+                                                 resumed_cached_work=resumed['examined_relationships'])
+                        elif qid == 'Q-PY-CYCLE-REACHABILITY':
+                            page = observe(operation=assertion['operation'], limits=Limits(**assertion['limits']))
+                            assert page['examined_relationships'] == assertion['expected_examined_relationships']
+                            assert len(page['rows']) == assertion['expected_occurrence_relations']
+                            assert page['returned_entities'] == len(assertion['expected_nonseed_vertices']) and page['cursor'] is None
+                            assert {row['target']['name'] for row in page['rows'] if row['target']['id'] != seed} == set(assertion['expected_nonseed_vertices'])
+                            assert any(row['target']['id'] == seed for row in page['rows'])
+                        elif qid == 'Q-PY-CANCEL-BEFORE':
+                            page = observe(cancel=lambda: True)
+                            assert page['examined_relationships'] == assertion['expected_examined_relationships']
+                            assert len(page['rows']) == assertion['expected_returned_rows']
+                            assert page['stop_reason'] == assertion['required_stop_reason'] and page['cursor'] is None
+                        elif qid in ('Q-PY-CANCEL-DURING', 'Q-PY-DEADLINE'):
+                            inspected, original = [0], snapshot._next
+                            def inspect(*args):
+                                row = original(*args)
+                                if row is not None:
+                                    inspected[0] += 1
+                                    ticks[0] = float(inspected[0])
+                                return row
+                            with patch.object(snapshot, '_next', side_effect=inspect):
+                                page = (observe(cancel=lambda: inspected[0] >= 3) if qid == 'Q-PY-CANCEL-DURING' else
+                                        observe(limits=Limits(timeout_seconds=3)))
+                            assert page['examined_relationships'] <= assertion['maximum_examined_relationships']
+                            assert len(page['rows']) <= assertion.get('maximum_returned_rows', 3)
+                            assert page['stop_reason'] == assertion['required_stop_reason'] and page['cursor'] is None
+                            entry['inspected_relationships_before_stop'] = inspected[0]
+                            if qid == 'Q-PY-DEADLINE':
+                                entry['clock_scope'] = 'Injected inspection ticks; real cold setup/query times reported separately, no latency qualification.'
+                            else:
+                                usable = observe(limits=Limits(max_edges=1))
+                                assert row_key(usable['rows'][0]) == expected_keys[0]
+                        elif qid == 'Q-PY-STALE-GENERATION':
+                            page = observe(limits=Limits(max_edges=17))
+                            change = manifest['query_freshness_update']
+                            changed = change['after_content_utf8'].encode('utf-8')
+                            assert change['before_content_utf8'].encode('utf-8') == raw
+                            assert hashlib.sha256(changed).hexdigest() == assertion['source_change']['sha256_after']
+                            _adapter_materialize(source, {source_path: changed})
+                            new = index.refresh([dict(metadata, sha256=hashlib.sha256(changed).hexdigest(), bytes=len(changed))],
+                                                mode=mode, concurrency=concurrency)
+                            entry['changed_refresh'] = new
+                            assert new['status'] == 'ready' and new['source_identity'] != receipt['source_identity']
+                            assert new['generation'] != receipt['generation']
+                            fresh_facts = {kind: list(index.read_facts(kind)) for kind in ('definitions', 'sites')}
+                            def topology(view):
+                                by_id = {row['id']: row['name'] for row in view['definitions']}
+                                return sorted((by_id[row['caller']], tuple(by_id[target] for target in row['targets']), row['role'], row['text'])
+                                              for row in view['sites'])
+                            assert topology(produced) == topology(fresh_facts)
+                            fresh_names = {row['name']: row['id'] for row in fresh_facts['definitions']}
+                            with SQLSnapshot(index.output, index.owner, index.output_owner) as fresh:
+                                with patch.object(fresh, '_row', side_effect=AssertionError('Stale seed/cursor cannot materialize')):
+                                    denied(lambda: fresh.query(fresh_names['hub'], depth=1, cursor=page['cursor']))
+                                    denied(lambda: fresh.query(seed, depth=1))
+                            retained = observe(cursor=page['cursor'], limits=Limits(max_edges=1))
+                            assert row_key(retained['rows'][0]) == expected_keys[17]
+                            assert retained['rows'][0]['site']['source_sha256'] == metadata['sha256']
+                            entry.update(topology_unchanged=True, old_snapshot_coherent=True,
+                                         old_generation=receipt['generation'], new_generation=new['generation'])
+                        else:
+                            raise AssertionError('Unhandled frozen query question')
+                    entry['status'] = 'passed'
+                except Exception as error:
+                    entry.update(status='failed', error_kind=type(error).__name__, reason='Persisted query assertion failed')
+                    print(json.dumps({'id': entry['id'], **_adapter_error(error)}), file=sys.stderr)
+                entry['cold_snapshot_case_elapsed_seconds'] = time.monotonic() - started
+            report['status'] = 'passed' if all(row['status'] == 'passed' for row in report['queries']) else 'failed'
+            observed.append([{key: page['response'][key] for key in ('rows', 'generation', 'source_identity',
+                'examined_relationships', 'returned_entities', 'returned_edges', 'excerpt_bytes', 'total_count',
+                'truncated', 'stop_reason')} for row in report['queries'] for page in row['responses']])
+            report['queries'] = [{'id': row['id'], 'question_id': row['question_id'], 'status': row['status']}
+                                 for row in report['queries']]
+    checks.append({'id': 'serial_queued_persisted_query_parity', 'status': 'passed' if
+        observed[0] == observed[1] and modes[0]['normalized_facts_sha256'] == modes[1]['normalized_facts_sha256'] and
+        modes[0]['index']['generation'] == modes[1]['index']['generation'] else 'failed'})
+    with SourceRoot(ROOT) as owner:
+        after = {path: owner.read(path, 2 * 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    checks.append({'id': 'implementation_stable', 'status': 'passed' if before == after else 'failed'})
+    failures = [row for row in results + checks if row['status'] != 'passed']
+    return {'schema_version': 1, 'suite': 'queries', 'status': 'failed' if failures else 'passed',
+        'source_identity': {'supplement_lock_sha256': lock_sha, 'locked_inputs_sha256': lock['sha256'],
+            'source': metadata, 'implementation': {'commit': revision, 'sha256': before}},
+        'implementation_after': {'commit': revision, 'sha256': after}, 'preparation': prepared,
+        'query_rule_version': analysis_queries.QUERY_RULE_VERSION, 'default_query_limits': asdict(Limits()),
+        'case_results': results, 'checks': checks, 'failures': failures, 'coverage_failures': [], 'modes': modes,
+        'counts': {'locked_questions_per_mode': 10, 'queries': len(results),
+            'passed_queries': sum(row['status'] == 'passed' for row in results),
+            'checks': len(results) + len(checks), 'passed': len(results) + len(checks) - len(failures)},
+        'environment': environment(), 'qualification_complete': False, 'limits_qualified': False,
+        'scope': 'Locked20 synthetic query cases through actual serial1/queued2 persisted SQL snapshots; '
+                 'source facts graded after publication, cold setup and query costs retained; '
+                 'full product, corpus, scale, human and release qualification unmeasured'}
 
 
 def screen_engines(root=ROOT):
@@ -1403,21 +1745,21 @@ def main(argv=None):
                         help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
-    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental'], default='component')
+    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
-                        help='finite report cap: 2 MiB for comparison/incremental, 1 MiB otherwise')
+                        help='finite report cap: 2 MiB for comparison/incremental/queries, 1 MiB otherwise')
     parser.add_argument('--max-files', type=int, default=128)
     parser.add_argument('--max-source-bytes', type=int, default=4 * 1024 * 1024)
     parser.add_argument('--max-nodes', type=int, default=200_000)
     args = parser.parse_args(argv)
-    structural_task = {'constructs': 'T010', 'incremental': 'T011'}.get(args.suite)
+    structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012'}.get(args.suite)
     if not (args.engine or args.screen_engines or args.compare or args.profile) and structural_task is None:
         parser.error('an engine, screening, comparison or profiling mode is required for component')
     if structural_task and (args.screen_engines or args.compare or args.profile):
         parser.error(args.suite + ' uses the shared structural owner directly')
     if args.max_result_bytes is None:
-        args.max_result_bytes = (2 if args.compare or args.suite == 'incremental' else 1) * 1024 * 1024
+        args.max_result_bytes = (2 if args.compare or args.suite in ('incremental', 'queries') else 1) * 1024 * 1024
     if args.freeze_budgets and not args.profile:
         parser.error('--freeze-budgets requires --profile')
     if args.preselection_cost_report and not args.compare:
@@ -1434,7 +1776,8 @@ def main(argv=None):
         if args.max_result_bytes <= 0:
             raise ValueError('Output budget must be positive')
         if structural_task:
-            result = (constructs if args.suite == 'constructs' else incremental)(ROOT, Budget(max_files=args.max_files,
+            producer = {'constructs': constructs, 'incremental': incremental, 'queries': queries}[args.suite]
+            result = producer(ROOT, Budget(max_files=args.max_files,
                 max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes))
             result['resources'] = {args.suite + '_elapsed_seconds': time.perf_counter() - started}
             size = (record_structural(ROOT, structural_task, result, args.max_result_bytes) if args.output == FACTS_OUTPUT else
@@ -1496,12 +1839,15 @@ def main(argv=None):
         print(json.dumps(result, separators=(',', ':')))
         return 2
     except Exception as error:
-        if structural_task and args.output == FACTS_OUTPUT:
+        if structural_task:
             result = {'schema_version': 1, 'suite': args.suite, 'status': 'failed',
                 'error_kind': type(error).__name__, 'source_identity': None, 'case_results': [],
                 'coverage_failures': [], 'qualification_complete': False, 'limits_qualified': False}
             try:
-                record_structural(ROOT, structural_task, result, args.max_result_bytes)
+                if args.output == FACTS_OUTPUT:
+                    record_structural(ROOT, structural_task, result, args.max_result_bytes)
+                else:
+                    write_result(ROOT, args.output, result, args.max_result_bytes)
             except (OSError, ValueError):
                 pass
         if args.compare or args.profile:

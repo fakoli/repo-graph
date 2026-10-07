@@ -1,4 +1,6 @@
 from contextlib import closing
+from contextlib import redirect_stdout
+import io
 import json
 from pathlib import Path
 import tempfile
@@ -18,6 +20,138 @@ from repo_graph import source as source_module
 
 
 class SearchTests(unittest.TestCase):
+    def test_cancelled_snapshot_copy_and_lock_keep_original_artifact(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch)
+            with closing(search.connect(out)) as db, db:
+                db.execute("INSERT INTO docs(path,stamp,digest,body,terms) VALUES('large.py','','x',?,'x')", ('x' * 200000,))
+            before = (out / 'search.db').read_bytes()
+            snapshots, calls = [], [0]
+            original = tempfile.TemporaryDirectory
+            def captured(*args, **kwargs):
+                temporary = original(*args, **kwargs)
+                snapshots.append(Path(temporary.name))
+                return temporary
+            def cancel_copy():
+                calls[0] += 1
+                if calls[0] == 6:
+                    raise InterruptedError('synthetic copy cancellation')
+            with patch.object(search.tempfile, 'TemporaryDirectory', side_effect=captured):
+                with self.assertRaises(InterruptedError):
+                    search.connect(out, readonly=True, check=cancel_copy)
+            self.assertEqual(len(snapshots), 1)
+            self.assertFalse(snapshots[0].exists())
+            calls[0] = 0
+            def cancel_lock():
+                calls[0] += 1
+                if calls[0] == 5:
+                    raise InterruptedError('synthetic lock cancellation')
+            search.SNAPSHOT_LOCK.acquire()
+            try:
+                with self.assertRaises(InterruptedError):
+                    search.connect(out, readonly=True, check=cancel_lock)
+            finally:
+                search.SNAPSHOT_LOCK.release()
+            self.assertEqual((out / 'search.db').read_bytes(), before)
+            with closing(search.connect(out, readonly=True)) as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM docs').fetchone()[0], 1)
+
+    def test_snapshot_setup_interrupts_native_owner_lookup(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch)
+            # An untrusted index must not bypass setup's deadline through its meta query.
+            with closing(search.sqlite3.connect(out / 'search.db')) as db:
+                db.execute('''CREATE VIEW meta AS WITH RECURSIVE x(n) AS
+                    (VALUES(1) UNION ALL SELECT n+1 FROM x WHERE n<10000000)
+                    SELECT 'repository' AS key, max(n) AS value FROM x''')
+            before = (out / 'search.db').read_bytes()
+            opened, calls = [False], [0]
+            original = search.sqlite3.connect
+            def opening(*args, **kwargs):
+                db = original(*args, **kwargs)
+                opened[0] = True
+                return db
+            def stopped():
+                if opened[0]:
+                    calls[0] += 1
+                    if calls[0] == 4:
+                        raise InterruptedError('synthetic native storage cancellation')
+            with patch.object(search.sqlite3, 'connect', side_effect=opening):
+                with self.assertRaisesRegex(InterruptedError, 'native storage cancellation'):
+                    search.connect(out, readonly=True, check=stopped)
+            self.assertEqual(calls[0], 4)
+            self.assertEqual((out / 'search.db').read_bytes(), before)
+
+    def test_structural_cli_stdio_and_server_share_bounded_snapshot_queries(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE:
+            self.skipTest('Optional analysis extra is not installed')
+        from repo_graph.cli import main
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph.analysis_queries import encoded
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / 'repo'; root.mkdir()
+            out = Path(scratch) / 'out'
+            (root / 'main.py').write_text('def a(): pass\ndef b(): pass\ndef c(): pass\ndef start():\n    a()\n    b()\n    c()\n')
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                self.assertEqual(main(['analyze', str(root), '--output', str(out)]), 0)
+            ready = json.loads(buffer.getvalue())
+            index = StructuralIndex(root, out)
+            seed = next(d['id'] for d in index.read_facts('definitions') if d['name'] == 'start')
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                self.assertEqual(main(['query', str(out), '--operation', 'callees', '--seed', seed]), 0)
+            single = json.loads(buffer.getvalue())
+            self.assertEqual(single['generation'], ready['generation'])
+            self.assertEqual(len(single['rows']), 3)
+            self.assertIsNone(single['cursor'])
+            requests = b'{"operation":"symbol"}\n{ "operation":"call" }\n'
+            buffer = io.StringIO()
+            with patch.object(sys, 'stdin', io.TextIOWrapper(io.BytesIO(requests))), redirect_stdout(buffer):
+                self.assertEqual(main(['query', str(out), '--stdio']), 0)
+            pages = [json.loads(line) for line in buffer.getvalue().splitlines()]
+            self.assertEqual([len(p['rows']) for p in pages], [4, 3])
+            self.assertTrue(all(p['generation'] == ready['generation'] for p in pages))
+            with create_server(search.Search(out)) as server:
+                thread = threading.Thread(target=server.serve_forever); thread.start()
+                address = f'http://127.0.0.1:{server.server_port}'
+                def post(payload, origin=None):
+                    headers = {'Content-Type': 'application/json'}
+                    if origin: headers['Origin'] = origin
+                    return urlopen(Request(address + '/api/query', encoded(payload), headers=headers))
+                try:
+                    request = dict(operation='callees', seed=seed, limits={'max_edges': 1})
+                    with post(request) as response:
+                        raw = response.read(); first = json.loads(raw)
+                    self.assertLessEqual(len(raw), 32768)
+                    self.assertEqual(len(first['rows']), 1)
+                    self.assertEqual(first['total_count'], {'value': 1, 'kind': 'lower_bound'})
+                    buffer = io.StringIO()
+                    with redirect_stdout(buffer):
+                        self.assertEqual(main(['query', str(out), '--server', address, '--operation', 'callees',
+                            '--seed', seed, '--limits', '{"max_edges":1}', '--cursor', first['cursor']]), 0)
+                    second = json.loads(buffer.getvalue())
+                    self.assertEqual(second['generation'], first['generation'])
+                    self.assertNotEqual(second['rows'][0]['site']['id'], first['rows'][0]['site']['id'])
+                    with self.assertRaises(HTTPError) as caught:
+                        post(dict(request, cursor=second['cursor'], scope='changed/'))
+                    self.assertEqual(caught.exception.code, 400); caught.exception.close()
+                    with self.assertRaises(HTTPError) as caught:
+                        post(request, 'https://untrusted.invalid')
+                    self.assertEqual(caught.exception.code, 403); caught.exception.close()
+                    with self.assertRaises(HTTPError) as caught:
+                        post({'operation': 'symbol', 'limits': {'max_edges': 257}})
+                    self.assertEqual(caught.exception.code, 400); caught.exception.close()
+                    with self.assertRaises(HTTPError) as caught:
+                        urlopen(Request(address + '/api/query', encoded(request), headers={
+                            'Content-Type': 'application/json', 'X-Repo-Graph-Output': '0' * 64}))
+                    self.assertEqual(caught.exception.code, 409); caught.exception.close()
+                    with post({'operation': 'symbol', 'limits': {'max_response_bytes': 1200}}) as response:
+                        self.assertLessEqual(len(response.read()), 1200)
+                finally:
+                    server.shutdown(); thread.join()
+
     def test_failed_native_open_cleans_uncached_private_snapshot(self):
         with tempfile.TemporaryDirectory() as scratch:
             out = Path(scratch)

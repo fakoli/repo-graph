@@ -102,6 +102,47 @@ schema is feasible; each language and framework still needs resolution rules.
 Version 0.6.0 does **not** add function call graphs. Existing diagrams show
 source structure and heuristic imports.
 
+### Structural queries in the development branch
+
+The optional native analysis extra captures Python, Go and JavaScript/TypeScript
+definitions, references, call sites and supported possible targets in the shared
+SQLite index. Unsupported bindings remain unresolved; this is static source
+evidence, with the limits in [the coverage matrix](docs/coverage.md).
+These development commands are undergoing qualification and are not in 0.6.0:
+
+```bash
+uv run --extra analysis repo-graph analyze . --output ../repo-graph-output
+uv run repo-graph query ../repo-graph-output --operation symbol
+uv run repo-graph serve ../repo-graph-output
+```
+
+Choose an output outside the source root. Repeating `analyze` updates the same
+index; `--mode queued --workers 2` enables bounded parallel collection. `query`
+supports `symbol`, `reference`, `call`, `callees`, `callers`, `reachable` and
+`impact`; traversal requires `--seed` with a returned symbol ID. `--scope` filters
+source paths and `--prefix` filters full target names. Possible calls and source
+impact do not prove a runtime path or business effect.
+
+Each query defaults to depth 2, 50 entities, 100 edges, 32 KiB total output,
+8 KiB excerpts, 10,000 examined relationships and a 500 ms cooperative deadline,
+including snapshot copy and storage setup. Current queries return source handles
+without excerpts. Counts explicitly say `exact`, `lower_bound` or `unknown`;
+truncation is observable. Blocking operating-system I/O cannot be forcibly
+preempted by this cooperative deadline. `--limits` accepts a JSON object within
+the documented finite product ceilings.
+Overrides are capped at depth 32, 256 entities and edges, 100,000 examined
+relationships, 1 MiB output, 64 KiB excerpts and 30 seconds. At most four
+snapshots and 32 continuation cursors are retained, with 60-second expiry.
+
+A one-page local command closes its snapshot and returns no continuation cursor.
+`query OUTPUT --stdio` accepts JSON requests, one per line, keeping a bounded
+local session alive. The server accepts the same requests at `POST /api/query`.
+Use `query OUTPUT --server http://127.0.0.1:PORT` and `--cursor CURSOR` to continue
+across CLI calls; retain the original operation, seed and filters. Cursors expire,
+are consumed once, and cannot be moved to another server or changed query.
+Pagination continues the captured generation when a newer index is published.
+This API uses no model or Jev calls.
+
 ## Views and search
 
 System groups up to 12 source areas and their observed imports. Explore offers
