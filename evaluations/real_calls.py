@@ -226,7 +226,8 @@ def extract_selected(selected, roots, budget, dependencies=None):
             run['reason'] = identity['status']
             continue
         receipts, to_scan, total, exclusions = [], [], 0, []
-        package_paths, control = {}, {'repository_id': repository, 'revision': revision, 'qualified': True}
+        package_paths, control = {}, {'repository_id': repository, 'revision': revision, 'qualified': True, 'namespace_qualified': True}
+        control_evidence = []
         try:
             with SourceRoot(root) as source:
                 if not source.secure:
@@ -246,7 +247,7 @@ def extract_selected(selected, roots, budget, dependencies=None):
                             for path in package_paths[directory]:
                                 by_path.setdefault(path, {'path': path, 'revision': revision, 'language': 'go', 'kind': 'source'})
                         except (OSError, ValueError):
-                            control['qualified'] = False
+                            control['qualified'] = control['namespace_qualified'] = False
                     if directories:
                         by_path.setdefault('go.mod', {'path': 'go.mod', 'revision': revision, 'language': 'unknown', 'kind': 'configuration'})
                         variants = {'go.work', 'vendor/modules.txt'}
@@ -254,13 +255,47 @@ def extract_selected(selected, roots, budget, dependencies=None):
                             parts = PurePosixPath(directory).parts
                             variants.update('/'.join(parts[:depth]) + '/go.mod' for depth in range(1, len(parts) + 1))
                         for path in sorted(variants):
+                            evidence = {'path': path, 'status': 'pending'}
+                            control_evidence.append(evidence)
                             try:
-                                source.info(path)
-                                control['qualified'] = False
+                                info = source.info(path)
+                                evidence['status'] = 'present'
+                                if (combined_files >= budget.max_files or info.st_size > budget.max_file_bytes or
+                                        total + info.st_size > budget.max_total_bytes or combined_bytes + info.st_size > budget.max_total_bytes):
+                                    evidence['status'] = 'verification_budget_exceeded'
+                                    control['qualified'] = control['namespace_qualified'] = False
+                                    continue
+                                raw, sha, info = source.read(path, budget.max_file_bytes + 1, hash_full=False)
+                                if (len(raw) > budget.max_file_bytes or total + len(raw) > budget.max_total_bytes or
+                                        combined_bytes + len(raw) > budget.max_total_bytes):
+                                    raise ValueError('Control actual bytes exceed source budget')
+                                total += len(raw)
+                                combined_bytes += len(raw)
+                                combined_files += 1
+                                if len(raw) != info.st_size:
+                                    raise ValueError('Control source changed during bounded read')
+                                raw.decode('utf-8')
+                                blob = revision_blob_identity(source, revision, path, raw)
+                                evidence.update(status='verified', bytes=len(raw), sha256=sha, revision_blob=blob)
+                                if blob['status'] != 'verified':
+                                    evidence['status'] = 'source_read_error'
+                                    control['qualified'] = control['namespace_qualified'] = False
+                                elif path in ('go.work', 'vendor/modules.txt'):
+                                    # Source-only namespace survives owned environment
+                                    # controls; external build selection stays unknown.
+                                    control['qualified'] = False
+                                else:
+                                    control['qualified'] = control['namespace_qualified'] = False
+                                    evidence['reason'] = 'nested_module_namespace_unqualified'
                             except FileNotFoundError:
-                                pass
-                            except OSError:
-                                control['qualified'] = False
+                                if evidence['status'] == 'pending':
+                                    evidence['status'] = 'absent'
+                                else:
+                                    evidence['status'] = 'source_read_error'
+                                    control['qualified'] = control['namespace_qualified'] = False
+                            except (OSError, ValueError, UnicodeError) as error:
+                                evidence.update(status='source_read_error', error_kind=type(error).__name__)
+                                control['qualified'] = control['namespace_qualified'] = False
                     records = [by_path[path] for path in sorted(by_path)]
                     if len(records) + combined_files > budget.max_files:
                         raise ValueError('Combined source inventory exceeds file bound')
@@ -280,7 +315,7 @@ def extract_selected(selected, roots, budget, dependencies=None):
                                 total + info.st_size > budget.max_total_bytes or
                                 (context is not None and combined_bytes + info.st_size > budget.max_total_bytes)):
                             receipt['status'] = 'verification_budget_exceeded'
-                            control['qualified'] = False
+                            control['qualified'] = control['namespace_qualified'] = False
                             continue
                         # A successful bounded read still hashes every byte;
                         # concurrent growth cannot turn this into an unbounded read.
@@ -289,12 +324,12 @@ def extract_selected(selected, roots, budget, dependencies=None):
                         if (len(raw) != info.st_size or ('sha256' in item and sha != item['sha256']) or
                                 ('bytes' in item and item['bytes'] != len(raw))):
                             receipt['status'] = 'full_source_identity_mismatch'
-                            control['qualified'] = False
+                            control['qualified'] = control['namespace_qualified'] = False
                             continue
                         if context is not None:
                             receipt['revision_blob'] = revision_blob_identity(source, revision, item['path'], raw)
                             if receipt['revision_blob']['status'] != 'verified':
-                                control['qualified'] = False
+                                control['qualified'] = control['namespace_qualified'] = False
                                 receipt.update(status='source_read_error', **{key: receipt['revision_blob'][key]
                                     for key in ('stage', 'error_kind', 'returncode')})
                                 continue
@@ -307,7 +342,7 @@ def extract_selected(selected, roots, budget, dependencies=None):
                                 physical_path=item['path'], repository_id=repository, revision=revision, content=raw))
                             combined_bytes += len(raw)
                     except (OSError, ValueError) as error:
-                        control['qualified'] = False
+                        control['qualified'] = control['namespace_qualified'] = False
                         receipt.update(status='source_read_error', error_kind=type(error).__name__,
                                        errno=getattr(error, 'errno', None))
         except (OSError, ValueError) as error:
@@ -316,6 +351,7 @@ def extract_selected(selected, roots, budget, dependencies=None):
         run['verification'] = receipts
         if context is not None:
             run['filename_exclusions'] = sorted(exclusions, key=lambda item: item['path'])
+            run['source_control_evidence'] = control_evidence
             context['controls'].append(control)
             for directory, paths in package_paths.items():
                 metadata = {item['path']: item for item in to_scan}
@@ -325,7 +361,7 @@ def extract_selected(selected, roots, budget, dependencies=None):
             run['checkout_after_verification'] = checkout_identity(root, revision)
             if (run['checkout_after_verification']['status'] != 'verified' or
                     run['checkout_after_verification'].get('root_identity') != identity.get('root_identity')):
-                control['qualified'] = False
+                control['qualified'] = control['namespace_qualified'] = False
                 run['status'] = 'source_changed'
             continue
         if not to_scan:
@@ -370,6 +406,7 @@ def extract_selected(selected, roots, budget, dependencies=None):
             if (run['checkout_after']['status'] != 'verified' or
                     run['checkout_after'].get('root_identity') != run['checkout'].get('root_identity')):
                 run['status'] = 'source_changed'
+                run['source_control']['qualified'] = run['source_control']['namespace_qualified'] = False
     return runs, verified_bytes
 
 

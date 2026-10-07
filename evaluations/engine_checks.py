@@ -1352,7 +1352,7 @@ def run_missing_backend(root=ROOT, evidence_directory=None):
             'engine_selected': False, 'qualification_complete': False, 'archive_directory': name,
             'excluded_runtime_directories': ['venv', 'source', 'map', 'home', 'config', 'cache', 'data', 'tmp'],
             'limits': {'worker_wall_seconds': 30, 'address_space_bytes': MEMORY_BYTES, 'cpu_seconds': 30, 'per_file_bytes': LOG_BYTES},
-            'limitations': ['Only the historical nine checks measured source-checkout map/keyword and absent-backend refusal; this revised helper has only bounded fault probes until independently rerun.',
+            'limitations': ['Successful retained source-checkout observations qualify map/keyword and explicit absent-backend refusal; installed-harness checks remain separate.',
                 'No installed-harness, provider, corpus, scale, engine or human qualification.',
                 'Parent RSS and blocked filesystem operations are not bounded by byte caps.',
                 'Runtime identities are registered after each setup step; named-root checks reject observed swaps, but the check-to-rmtree same-name race is not atomic.',

@@ -3,8 +3,10 @@ import contextlib
 import copy
 import io
 import json
+import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -17,6 +19,64 @@ from evaluations import analysis, real_calls
 
 
 class AdapterEvidence(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'linux' and shutil.which('git'), 'Linux Git ownership check')
+    def test_result_only_evidence_delivery(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            def git(*args, input=None):
+                return subprocess.check_output(['git', '--no-replace-objects',
+                    '-c', 'core.hooksPath=/dev/null', '-c', 'commit.gpgsign=false',
+                    '-c', 'core.fsmonitor=false', '-c', 'user.name=Synthetic Test',
+                    '-c', 'user.email=test@example.invalid', *args], cwd=root,
+                    env=dict(os.environ, GIT_AUTHOR_NAME='Synthetic Test',
+                        GIT_AUTHOR_EMAIL='test@example.invalid', GIT_COMMITTER_NAME='Synthetic Test',
+                        GIT_COMMITTER_EMAIL='test@example.invalid', GIT_OPTIONAL_LOCKS='0'),
+                    input=input, stderr=subprocess.DEVNULL, timeout=5).decode().strip()
+            git('init', '--template=', '-q')
+            source = b'def work():\n    return 1\n'
+            (root / 'helper.py').write_bytes(source)
+            for path in gate._DELIVERY_OUTPUTS:
+                (root / path).parent.mkdir(parents=True, exist_ok=True)
+                (root / path).write_bytes(b'{}\n')
+            git('add', '--', '.')
+            git('commit', '-qm', 'Synthetic measured source')
+            measured = git('rev-parse', 'HEAD')
+            hashes = {'helper.py': gate.digest(source)}
+            (root / gate._DELIVERY_OUTPUTS[0]).write_bytes(b'{"status":"blocked"}\n')
+            git('add', '--', gate._DELIVERY_OUTPUTS[0])
+            git('commit', '-qm', 'Retain synthetic evidence')
+            delivered = git('rev-parse', 'HEAD')
+            admitted = gate._proof_delivery(root, measured, hashes, validation_commit=delivered)
+            self.assertEqual(admitted['result_only_descendant_commits'], 1)
+            self.assertEqual(admitted['measured_commit'], measured)
+            (root / 'helper.py').write_bytes(b'def changed():\n    return 2\n')
+            with self.assertRaises(ValueError):
+                gate._proof_delivery(root, measured, hashes)
+            (root / 'helper.py').write_bytes(source)
+            tree = git('rev-parse', 'HEAD^{tree}')
+            measured_merge = git('commit-tree', tree, '-p', delivered, '-p', measured,
+                                 input=b'Synthetic source integration\n')
+            git('update-ref', 'HEAD', measured_merge)
+            self.assertEqual(gate._proof_delivery(root, measured_merge, hashes)
+                             ['result_only_descendant_commits'], 0)
+            child = git('commit-tree', tree, '-p', measured_merge,
+                        input=b'Synthetic retained evidence child\n')
+            git('update-ref', 'HEAD', child)
+            self.assertEqual(gate._proof_delivery(root, measured_merge, hashes)
+                             ['result_only_descendant_commits'], 1)
+            descendant_merge = git('commit-tree', tree, '-p', child, '-p', measured_merge,
+                                   input=b'Synthetic descendant merge\n')
+            git('update-ref', 'HEAD', descendant_merge)
+            with self.assertRaises(ValueError):
+                gate._proof_delivery(root, measured_merge, hashes)
+            git('update-ref', 'HEAD', delivered)
+            (root / 'README.md').write_bytes(b'Synthetic documentation change\n')
+            git('add', '--', 'README.md')
+            git('commit', '-qm', 'Change a non-output file')
+            with self.assertRaises(ValueError):
+                gate._proof_delivery(root, measured, hashes)
+
+
     def test_archive_bytes_inventory_projection_and_failure_identifiers(self):
         with tempfile.TemporaryDirectory() as scratch:
             parent = Path(scratch)

@@ -772,6 +772,144 @@ print(json.dumps({"iterations": 100, "status": "complete"}))
 
 
 
+    def change_go_source(self, blobs, context, owner, path, raw):
+        pin = next(x['revision'] for x in context['controls'] if x['repository_id'] == owner)
+        item = next((x for x in blobs if x['repository_id'] == owner and x['physical_path'] == path), None)
+        if item is None:
+            item = {'path': native.snapshot_path(owner, pin, path), 'physical_path': path,
+                    'repository_id': owner, 'revision': pin, 'language': 'go' if path.endswith('.go') else 'unknown',
+                    'kind': 'source' if path.endswith('.go') else 'configuration'}
+            blobs.append(item)
+        item.update(content=raw, bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
+        if path.endswith('.go'):
+            directory = str(PurePosixPath(path).parent) if '/' in path else ''
+            manifest = next((x for x in context['packages'] if x['repository_id'] == owner and x['directory'] == directory), None)
+            if manifest is None:
+                manifest = {'repository_id': owner, 'revision': pin, 'directory': directory, 'files': []}
+                context['packages'].append(manifest)
+            receipt = next((x for x in manifest['files'] if x['path'] == path), None)
+            if receipt is None:
+                receipt = {'path': path}
+                manifest['files'].append(receipt)
+            receipt.update(bytes=len(raw), sha256=item['sha256'])
+
+    def differentiated_go(self):
+        blobs, context = self.registered_go()
+        for control in context['controls']:
+            control['namespace_qualified'] = control['qualified']
+        self.change_go_source(blobs, context, 'caller', 'main.go',
+            b'package caller\nimport dep "example.test/lib/v2/pkg"\nimport own "example.test/caller/own"\n'
+            b'func Local() int{return 2}\nfunc Direct() int{return Local()}\n'
+            b'func Alias() int{return own.Target()}\nfunc External() int{return dep.Target()}\n')
+        self.change_go_source(blobs, context, 'caller', 'own/main.go', b'package own\nfunc Target() int{return 3}\n')
+        return blobs, context
+
+    def go_call_certainties(self, blobs, context):
+        result = native.extract(blobs, go_context=context)
+        calls = [x for x in result['facts']['sites'] if x['repository_id'] == 'caller' and x['role'] == 'call']
+        return {x['text']: x for x in calls}
+
+    def test_declared_go_legacy_false_and_typed_namespace_controls(self):
+        blobs, context = self.differentiated_go()
+        control = context['controls'][0]
+        control.pop('namespace_qualified')
+        control['qualified'] = False
+        self.assertTrue(all(x['certainty'] == 'unresolved' for x in self.go_call_certainties(blobs, context).values()))
+        for field, value in [('namespace_qualified', 1), ('namespace_qualified', 'true'), ('qualified', 1)]:
+            with self.subTest(field=field, value=value):
+                control.update(qualified=True, namespace_qualified=True)
+                control[field] = value
+                with self.assertRaisesRegex(ValueError, 'source-control metadata'):
+                    native.extract(blobs, go_context=context)
+
+    def test_declared_go_external_false_preserves_owned_namespace_only(self):
+        blobs, context = self.differentiated_go()
+        context['controls'][0]['qualified'] = False
+        calls = self.go_call_certainties(blobs, context)
+        for text in ('Local()', 'own.Target()'):
+            self.assertEqual(calls[text]['certainty'], 'resolved')
+            self.assertIn('explicit declared snapshot', calls[text]['reason'])
+            self.assertEqual(calls[text]['provenance']['binding_scope'], 'declared_snapshot_only')
+            self.assertFalse(calls[text]['provenance']['active_build_qualified'])
+        self.assertEqual((calls['dep.Target()']['certainty'], calls['dep.Target()']['targets']), ('unresolved', []))
+
+    def test_declared_go_replacements_keep_local_namespace_and_refuse_external(self):
+        for module in ('example.test/unrelated', 'example.test/lib/v2'):
+            blobs, context = self.differentiated_go()
+            self.change_go_source(blobs, context, 'caller', 'go.mod',
+                ('module example.test/caller\nrequire example.test/lib/v2 v2.0.0\nreplace '+module+' => ../foreign\n').encode())
+            calls = self.go_call_certainties(blobs, context)
+            self.assertEqual(calls['Local()']['certainty'], 'resolved')
+            self.assertEqual(calls['own.Target()']['certainty'], 'resolved')
+            self.assertEqual(calls['dep.Target()']['certainty'], 'unresolved')
+
+    def test_declared_go_provider_environment_does_not_mask_hard_failure(self):
+        for namespace, expected in ((True, 'resolved'), (False, 'unresolved')):
+            blobs, context = self.differentiated_go()
+            control = next(x for x in context['controls'] if x['repository_id'] == 'dependency')
+            control.update(qualified=False, namespace_qualified=namespace)
+            self.assertEqual(self.go_call_certainties(blobs, context)['dep.Target()']['certainty'], expected)
+
+    def test_declared_go_own_import_refuses_required_or_registered_overlap(self):
+        for required, registered in ((True, False), (False, True), (True, True)):
+            blobs, context = self.differentiated_go()
+            if required:
+                self.change_go_source(blobs, context, 'caller', 'go.mod',
+                    b'module example.test/caller\nrequire example.test/lib/v2 v2.0.0\nrequire example.test/caller/own v1.0.0\n')
+            if registered:
+                entry = dict(context['dependencies'][0], module_path='example.test/caller/own', version='v1.0.0')
+                context['dependencies'].append(entry)
+            call = self.go_call_certainties(blobs, context)['own.Target()']
+            self.assertEqual((call['certainty'], call['targets']), ('unresolved', []))
+            self.assertIn('Overlapping', call['reason'])
+
+    def test_declared_go_external_provider_ambiguity_stays_unknown(self):
+        blobs, context = self.differentiated_go()
+        self.change_go_source(blobs, context, 'other', 'go.mod', b'module example.test/lib/v2\n')
+        context['dependencies'].append(dict(context['dependencies'][0], dependency_repository_id='other', dependency_revision='b' * 40))
+        call = self.go_call_certainties(blobs, context)['dep.Target()']
+        self.assertEqual((call['certainty'], call['targets']), ('unresolved', []))
+
+    def test_declared_go_hard_namespace_failure_and_package_ambiguity_stay_unknown(self):
+        blobs, context = self.differentiated_go()
+        context['controls'][0].update(qualified=False, namespace_qualified=False)
+        self.assertTrue(all(x['certainty'] == 'unresolved' for x in self.go_call_certainties(blobs, context).values()))
+        blobs, context = self.differentiated_go()
+        self.change_go_source(blobs, context, 'caller', 'extra.go', b'package caller\nfunc Local() int{return 9}\n')
+        self.assertEqual(self.go_call_certainties(blobs, context)['Local()']['certainty'], 'unresolved')
+        blobs, context = self.differentiated_go()
+        duplicate = dict(blobs[-1])
+        with self.assertRaisesRegex(ValueError, 'duplicate snapshot'):
+            native.extract(blobs + [duplicate], go_context=context)
+
+    def test_declared_go_module_control_subset_is_not_line_skipping(self):
+        work = lambda: native.Work(native.Budget(), None)
+        good = b'module example.test/m\ngodebug (\n panicnil=1\n default=go1.27\n)\nreplace (\n example.test/one => ../one\n example.test/two v1.0.0 => example.test/new v1.2.0\n)\n'
+        parsed = native.go_module(good, work())
+        self.assertEqual(parsed['runtime_controls'], {'panicnil': '1', 'default': 'go1.27'})
+        self.assertEqual(len(parsed['replacements']), 2)
+        bad = [b'module x\nmodule y\n', b'module x\ngodebug (\npanicnil=1\n',
+               b'module x\ngodebug (\nrequire (\n)\n', b'module x\ngodebug panicnil\n',
+               b'module x\ngodebug panicnil=1 extra\n', b'module x\ngodebug panicnil="1"\n',
+               b'module x\ngodebug panicnil=1\ngodebug panicnil=0\n', b'module x\nreplace a =>\n',
+               b'module x\nreplace a ../a\n', b'module x\nreplace a => ../a extra\n',
+               b'module x\nreplace a => "../a"\n', b'module x\nreplace a => ../a\nreplace a => ../b\n',
+               b'module x\nunknown opaque\n', b'module x\ngo nonsense\n', b'module x\nrequire a "v1.0.0"\n']
+        bad.extend([b'module x\nrequire a vbogus\n', b'module x\nreplace a v1 => ../a\n'])
+        for raw in bad:
+            with self.subTest(raw=raw):
+                self.assertIsNone(native.go_module(raw, work()))
+
+    def test_declared_go_godebug_records_runtime_uncertainty_not_build_success(self):
+        blobs, context = self.differentiated_go()
+        self.change_go_source(blobs, context, 'caller', 'go.mod',
+            b'module example.test/caller\ngodebug tlsmlkem=0\nrequire example.test/lib/v2 v2.0.0\n')
+        calls = self.go_call_certainties(blobs, context)
+        self.assertEqual(calls['Local()']['certainty'], 'resolved')
+        self.assertFalse(calls['Local()']['provenance']['runtime_qualified'])
+        self.assertFalse(calls['Local()']['provenance']['mvs_qualified'])
+
+
 @unittest.skipUnless(AVAILABLE, 'optional pinned analysis backend not installed')
 class DeclaredGoSourceTests(unittest.TestCase):
     def go_extract(self, scratch, variant=None):
@@ -827,6 +965,9 @@ class DeclaredGoSourceTests(unittest.TestCase):
             vendor = Path(roots['left']['source']) / 'vendor'
             vendor.mkdir()
             (vendor / 'modules.txt').write_text('# example.test/lib/v2 v2.0.0\n')
+        elif variant in ('provider_workspace', 'provider_invalid_control', 'provider_nested'):
+            target = Path(roots['right']['source']) / ('pkg/go.mod' if variant == 'provider_nested' else 'go.work')
+            target.write_bytes(b'\xff invalid control' if variant == 'provider_invalid_control' else b'module example.test/nested\n' if variant == 'provider_nested' else b'go 1.23\nuse .\n')
         elif variant == 'duplicate_binding':
             (Path(roots['right']['source']) / 'pkg/extra.go').write_bytes(b'package pkg\nfunc Target() int {return 2}\n')
         elif variant == 'assembly':
@@ -927,6 +1068,55 @@ class DeclaredGoSourceTests(unittest.TestCase):
             call = next(item for item in runs['left']['facts']['sites'] if item['role'] == 'call')
             self.assertEqual((call['certainty'], call['targets']), ('unresolved', []))
             self.assertIn('GOOS/GOARCH', call['reason'])
+
+    def test_differentiated_controller_provider_environment_and_hard_boundary(self):
+        for variant, namespace in [('provider_workspace', True), ('provider_nested', False), ('provider_invalid_control', False)]:
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as scratch:
+                runs, _, _, _, _, _ = self.go_extract(scratch, variant)
+                control = runs['right']['source_control']
+                self.assertEqual(control['namespace_qualified'], namespace)
+                self.assertFalse(control['qualified'])
+                call = next(x for x in runs['left']['facts']['sites'] if x['role'] == 'call')
+                self.assertEqual(call['certainty'], 'resolved' if namespace else 'unresolved')
+                receipts = runs['right']['source_control_evidence']
+                self.assertTrue(any(x['status'] == 'verified' for x in receipts) if namespace else
+                                any(x['status'] == 'source_read_error' or x.get('reason') == 'nested_module_namespace_unqualified' for x in receipts))
+
+    def test_differentiated_controller_consumer_environment_retains_control_bytes(self):
+        for variant in ('workspace', 'vendor'):
+            with self.subTest(variant=variant), tempfile.TemporaryDirectory() as scratch:
+                runs, _, _, _, _, _ = self.go_extract(scratch, variant)
+                self.assertTrue(runs['left']['source_control']['namespace_qualified'])
+                self.assertFalse(runs['left']['source_control']['qualified'])
+                call = next(x for x in runs['left']['facts']['sites'] if x['role'] == 'call')
+                self.assertEqual((call['certainty'], call['targets']), ('unresolved', []))
+                receipt = next(x for x in runs['left']['source_control_evidence'] if x['status'] == 'verified')
+                self.assertEqual(len(receipt['sha256']), 64)
+                self.assertEqual(receipt['revision_blob']['status'], 'verified')
+
+    def test_differentiated_controller_control_read_failure_never_becomes_absence(self):
+        original = real_calls.SourceRoot.read
+        def missing(owned, path, *args, **kwargs):
+            if path == 'go.work':
+                raise FileNotFoundError('synthetic disappeared control after info')
+            return original(owned, path, *args, **kwargs)
+        with tempfile.TemporaryDirectory() as scratch, patch.object(real_calls.SourceRoot, 'read', missing):
+            runs, _, _, _, _, _ = self.go_extract(scratch, 'provider_workspace')
+        self.assertFalse(runs['right']['source_control']['namespace_qualified'])
+        receipt = next(x for x in runs['right']['source_control_evidence'] if x['path'] == 'go.work')
+        self.assertEqual(receipt['status'], 'source_read_error')
+
+    def test_differentiated_controller_control_actual_bytes_stay_capped(self):
+        original = real_calls.SourceRoot.read
+        def grown(owned, path, *args, **kwargs):
+            if path == 'go.work':
+                raw = b'x' * (native.Budget().max_file_bytes + 1)
+                return raw, hashlib.sha256(raw).hexdigest(), SimpleNamespace(st_size=len(raw))
+            return original(owned, path, *args, **kwargs)
+        with tempfile.TemporaryDirectory() as scratch, patch.object(real_calls.SourceRoot, 'read', grown):
+            runs, _, _, _, _, _ = self.go_extract(scratch, 'provider_workspace')
+        self.assertFalse(runs['right']['source_control']['namespace_qualified'])
+        self.assertEqual(next(x for x in runs['right']['source_control_evidence'] if x['path'] == 'go.work')['status'], 'source_read_error')
 
 
 if __name__ == '__main__':

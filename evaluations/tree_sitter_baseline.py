@@ -80,8 +80,14 @@ def snapshot_path(repository_id, revision, physical_path):
 
 
 def go_module(raw, work):
-    """Finite unquoted module/go/toolchain/require subset; variants stay unknown."""
-    module, requirements, block = None, {}, False
+    """Finite unquoted declarations; record runtime/replacement uncertainty."""
+    module, requirements, replacements, runtime_controls = None, {}, [], {}
+    block, seen, replacement_keys = None, set(), set()
+    path_pattern = r'[A-Za-z0-9][A-Za-z0-9._/-]{0,1023}'
+    version_pattern = r'v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?(?:\+[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*)?'
+    def module_path(value):
+        return bool(re.fullmatch(path_pattern, value) and
+                    all(part not in ('', '.', '..') for part in value.split('/')))
     try:
         lines = raw.decode('utf-8').splitlines()
     except UnicodeError:
@@ -92,30 +98,61 @@ def go_module(raw, work):
         if not tokens:
             continue
         if block and tokens == [')']:
-            block = False
+            block = None
             continue
         if block:
-            entry = tokens
-        elif tokens == ['require', '(']:
-            block = True
-            continue
-        elif tokens[0] == 'require':
-            entry = tokens[1:]
-        elif tokens[0] == 'module' and len(tokens) == 2 and module is None:
-            module = tokens[1]
-            continue
-        elif tokens[0] in ('go', 'toolchain') and len(tokens) == 2:
-            continue
+            directive, entry = block, tokens
+        else:
+            directive, entry = tokens[0], tokens[1:]
+            if directive in ('require', 'replace', 'godebug') and entry == ['(']:
+                block = directive
+                continue
+        if directive == 'module':
+            if len(entry) != 1 or module is not None or not module_path(entry[0]):
+                return None
+            module = entry[0]
+        elif directive in ('go', 'toolchain'):
+            pattern = r'[1-9]\d*\.\d+(?:\.\d+)?' if directive == 'go' else r'(?:default|go[1-9]\d*\.\d+(?:\.\d+)?)'
+            if directive in seen or len(entry) != 1 or not re.fullmatch(pattern, entry[0]):
+                return None
+            seen.add(directive)
+        elif directive == 'require':
+            if (len(entry) != 2 or not module_path(entry[0]) or
+                    not re.fullmatch(version_pattern, entry[1]) or entry[0] in requirements):
+                return None
+            requirements[entry[0]] = entry[1]
+        elif directive == 'godebug':
+            if len(entry) != 1 or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}=[A-Za-z0-9][A-Za-z0-9._+-]{0,127}', entry[0]):
+                return None
+            key, value = entry[0].split('=', 1)
+            if key in runtime_controls:
+                return None
+            runtime_controls[key] = value
+        elif directive == 'replace':
+            if entry.count('=>') != 1:
+                return None
+            separator = entry.index('=>')
+            old, new = entry[:separator], entry[separator + 1:]
+            if (len(old) not in (1, 2) or len(new) not in (1, 2) or
+                    not module_path(old[0]) or (len(old) == 2 and not re.fullmatch(version_pattern, old[1]))):
+                return None
+            if len(new) == 2:
+                if not module_path(new[0]) or not re.fullmatch(version_pattern, new[1]):
+                    return None
+            elif not re.fullmatch(r'(?:\.{1,2}(?:/[A-Za-z0-9._/-]+)?|/[A-Za-z0-9._/-]+)', new[0]):
+                return None
+            key = old[0], old[1] if len(old) == 2 else None
+            if key in replacement_keys:
+                return None
+            replacement_keys.add(key)
+            replacements.append({'module': old[0], 'version': key[1],
+                                 'replacement': new[0], 'replacement_version': new[1] if len(new) == 2 else None})
         else:
             return None
-        if len(entry) != 2 or entry[0] in requirements:
-            return None
-        requirements[entry[0]] = entry[1]
-    if block or module is None or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._/-]{0,1023}', module):
+    if block or module is None:
         return None
-    if any(part in ('', '.', '..') for part in module.split('/')):
-        return None
-    return {'module': module, 'requirements': requirements}
+    return {'module': module, 'requirements': requirements,
+            'replacements': replacements, 'runtime_controls': runtime_controls}
 
 
 def go_contexts(files, configurations, context, work):
@@ -129,13 +166,23 @@ def go_contexts(files, configurations, context, work):
     manifest_files = 0
     for control in context['controls']:
         work.check()
-        if not isinstance(control, dict) or set(control) != {'repository_id', 'revision', 'qualified'} or type(control['qualified']) is not bool:
+        if (not isinstance(control, dict) or set(control) not in (
+                {'repository_id', 'revision', 'qualified'},
+                {'repository_id', 'revision', 'qualified', 'namespace_qualified'}) or
+                type(control['qualified']) is not bool or
+                ('namespace_qualified' in control and type(control['namespace_qualified']) is not bool)):
             raise ValueError('Invalid source-control metadata')
         owner = control['repository_id'], control['revision']
         if owner in modules:
             raise ValueError('Duplicate source-control identity')
         config = configurations.get(snapshot_path(*owner, 'go.mod'))
-        parsed = go_module(config, work) if config is not None and control['qualified'] else None
+        namespace = control.get('namespace_qualified', control['qualified'])
+        parsed = go_module(config, work) if config is not None and namespace else None
+        # Legacy controls retain their old refusal of previously unknown syntax.
+        if parsed and 'namespace_qualified' not in control and (parsed['replacements'] or parsed['runtime_controls']):
+            parsed = None
+        if parsed:
+            parsed = dict(parsed, external_qualified=bool(control['qualified'] and not parsed['replacements']))
         modules[owner] = parsed
     owners = snapshot_owners(list(files) + list(configurations), modules, work)
     for manifest in context['packages']:
@@ -224,7 +271,7 @@ def go_contexts(files, configurations, context, work):
         path_major = re.search(r'/v(\d+)$', entry['module_path'])
         canonical_major = (major >= 2 and path_major and int(path_major[1]) == major) or (major in (0, 1) and path_major is None)
         caller, dependency = modules.get(consumer), modules.get(provider)
-        qualified = bool(ordinary_version and canonical_major and caller and dependency and
+        qualified = bool(ordinary_version and canonical_major and caller and caller['external_qualified'] and dependency and
                          caller['requirements'].get(entry['module_path']) == entry['version'] and
                          dependency['module'] == entry['module_path'])
         dependencies.append(dict(entry, consumer=consumer, provider=provider, qualified=qualified))
@@ -618,6 +665,9 @@ class CollectedFile:
             site.update(targets=targets, certainty='resolved' if targets else 'unresolved',
                         targets_exhaustive=bool(targets), reason=reason, resolution_method=method,
                         syntax_role=fact['syntax_role'], provenance=fact['provenance'])
+            if self.language == 'go' and getattr(resolve, 'declared_snapshot_scope', False):
+                site['provenance'] = dict(fact['provenance'], binding_scope='declared_snapshot_only',
+                                          active_build_qualified=False, runtime_qualified=False, mvs_qualified=False)
             self.sites.append(site)
 
 
@@ -1182,8 +1232,15 @@ def module_paths(file, spec, files, configurations, context=None):
                 return [], symbol, 'Go module/control variant is unqualified'
             prefix = caller['module']
             if module == prefix or module.startswith(prefix + '/'):
+                # A nested required/registered module wins no implicit own-prefix
+                # shortcut. Source directories and symbol names cannot choose it.
+                domains = set(caller['requirements']) | {entry['module_path'] for entry in context['dependencies'] if entry['consumer'] == owner}
+                if any(module == domain or module.startswith(domain + '/') for domain in domains):
+                    return [], symbol, 'Overlapping required/registered module leaves own-source import ambiguous'
                 provider = owner
             else:
+                if not caller['external_qualified']:
+                    return [], symbol, 'Consumer workspace/vendor/replacement dependency selection is unqualified'
                 matches = [entry for entry in context['dependencies'] if entry['consumer'] == owner and
                            (module == entry['module_path'] or module.startswith(entry['module_path'] + '/'))]
                 if len(matches) != 1 or not matches[0]['qualified']:
@@ -1245,7 +1302,7 @@ def resolver(files, configurations, context=None):
                 if target['callable'] and exported and go_exported and ordinary:
                     targets.append(target['id'])
         if len(targets) == 1:
-            return targets, ('one source definition in a qualified registered module snapshot' if context is not None else
+            return targets, ('one source definition in an explicit declared snapshot; runtime/workspace/MVS unqualified' if context is not None else
                              'one source definition in an inventoried local module'), 'import_alias'
         return [], reason or 'import target is missing, partial, ambiguous or unsupported', 'import_alias'
 
@@ -1287,7 +1344,7 @@ def resolver(files, configurations, context=None):
             target = definitions[binding.value]
             if not target['callable']:
                 return [], 'value is a type/interface declaration, not an identified callable', 'lexical_unknown'
-            return [target['id']], 'one lexically visible source definition', 'lexical_direct'
+            return [target['id']], ('one complete package value in an explicit declared snapshot; runtime/workspace/MVS unqualified' if file.language == 'go' and context is not None else 'one lexically visible source definition'), 'lexical_direct'
         if binding.kind == 'import':
             return imported(file, binding.value, None)
         if binding.kind == 'alias':
@@ -1295,6 +1352,7 @@ def resolver(files, configurations, context=None):
             targets, reason, _ = resolve(file, binding.value, binding.scope, binding.node.start_byte, seen)
             return targets, reason, 'stable_value_alias'
         return [], str(binding.value), 'lexical_unknown'
+    resolve.declared_snapshot_scope = context is not None
     return resolve
 
 

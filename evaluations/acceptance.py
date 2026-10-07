@@ -1199,6 +1199,115 @@ def _proof_observed(record, kind):
     return rows
 
 
+# Delivery is separate from the unchanged before/after measurement transaction.
+_DELIVERY_OUTPUTS = ('evaluations/results/code-understanding/engine-comparison.json',
+                     'evaluations/results/code-understanding/engine.json')
+_DELIVERY_EXPERIMENT_PATHS = ('evaluations/analysis.py', 'evaluations/acceptance.py', 'evaluations/real_calls.py',
+    'evaluations/engine_checks.py', 'evaluations/tree_sitter_baseline.py', 'repo_graph/source.py',
+    'evaluations/incremental_candidate.py', 'evaluations/queued_collector.py', 'evaluations/bounded_queries.py',
+    'evaluations/supplement_preparation.py', 'evaluations/code-understanding/supplement-source.json',
+    'evaluations/code-understanding/supplement-oracle.json', 'evaluations/code-understanding/supplement-lock.json',
+    'evaluations/code-understanding/source-target-lock.json', 'evaluations/code-understanding/source-target-locations.json',
+    'pyproject.toml', 'uv.lock')
+
+
+def _proof_delivery(root, measured, hashes, *, validation_commit=None):
+    """Admit at most32 linear result-only commits; bind both regular source snapshots.
+
+    Existing experiment producers still require one unchanged HEAD throughout
+    measurement. Commit objects, not mutable traversal overrides, define parents.
+    This guard creates no files and executes only finite read-only Git commands.
+    """
+    import os
+    import re
+    import time
+    from evaluations.real_calls import revision_blob_identity
+    revision = lambda value: type(value) is str and re.fullmatch(r'[0-9a-f]{40}', value) is not None
+    _proof_require(revision(measured) and (validation_commit is None or revision(validation_commit)) and
+        type(hashes) is dict and 1 <= len(hashes) <= 128 and all(_proof_sha(value) for value in hashes.values()),
+        'Typed bounded measured revision binding')
+    paths = sorted(_proof_path(path) for path in hashes)
+    _proof_require(not set(paths) & set(_DELIVERY_OUTPUTS), 'Evidence outputs cannot be measured source inputs')
+    deadline = time.monotonic() + 20
+    with SourceRoot(Path(root)) as source:
+        def git(args, *, cap=1024, allowed=(0,), output=True):
+            remaining = deadline - time.monotonic()
+            _proof_require(remaining > 0, 'Delivery metadata deadline')
+            result = subprocess.run(['git', '--no-pager', '--no-replace-objects',
+                '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null',
+                '-c', 'core.preloadIndex=false', '-c', 'index.threads=1'] + args,
+                cwd=Path('/proc/self/fd') / str(source.fd), pass_fds=(source.fd,),
+                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE if output else subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, env=dict(os.environ, GIT_OPTIONAL_LOCKS='0'),
+                timeout=min(5, remaining))
+            _proof_require(result.returncode in allowed and (not output or len(result.stdout) <= cap),
+                           'Bounded delivery Git metadata unavailable')
+            return result.stdout if output else result.returncode
+        def head():
+            value = git(['rev-parse', '--verify', 'HEAD']).decode('ascii').strip()
+            _proof_require(revision(value), 'Full delivery checkout commit')
+            return value
+        top = os.fsdecode(git(['rev-parse', '--show-toplevel'], cap=4096).rstrip(b'\n'))
+        with SourceRoot(Path(top)) as named:
+            _proof_require(named.identity == source.identity, 'Delivery checkout must own the Git root')
+        current = head()
+        _proof_require(validation_commit is None or current == validation_commit, 'Validation checkout commit changed')
+        def parent_of(child, *, measured_source=False):
+            size_raw = git(['cat-file', '-s', child], cap=32).strip()
+            _proof_require(size_raw.isdigit() and 0 < int(size_raw) <= 1024 * 1024, 'Delivery commit object byte ceiling')
+            size = int(size_raw)
+            raw = git(['cat-file', 'commit', child], cap=size)
+            _proof_require(len(raw) == size and hashlib.sha1(b'commit ' + str(size).encode('ascii') + b'\0' + raw).hexdigest() == child,
+                           'Exact immutable delivery commit object')
+            header, separator, _ = raw.partition(b'\n\n')
+            _proof_require(separator, 'Delivery commit header')
+            parents = [line[7:].decode('ascii') for line in header.splitlines() if line.startswith(b'parent ')]
+            _proof_require((len(parents) <= 32 if measured_source else len(parents) == 1) and
+                all(revision(p) for p in parents), 'Bounded measured parents and linear delivery history required')
+            return parents[0] if parents else None
+        child, distance = current, 0
+        while child != measured:
+            _proof_require(distance < 32, 'Result-only delivery chain exceeds32 commits')
+            parent = parent_of(child)
+            _proof_require(parent is not None, 'Measured revision is not an ancestor')
+            exclusions = [':(top,literal,exclude)' + path for path in _DELIVERY_OUTPUTS]
+            git(['diff-tree', '-r', '--quiet', '--no-ext-diff', '--no-textconv', '--no-renames', parent, child,
+                 '--', '.'] + exclusions, cap=0, output=False)
+            entries = git(['--literal-pathspecs', 'ls-tree', '--full-tree', '-z', child, '--'] + list(_DELIVERY_OUTPUTS), cap=1024)
+            seen = set()
+            for entry in entries.split(b'\0'):
+                if not entry:
+                    continue
+                metadata, separator, path = entry.partition(b'\t'); fields = metadata.split()
+                name = os.fsdecode(path)
+                _proof_require(separator and name in _DELIVERY_OUTPUTS and name not in seen and len(fields) == 3 and
+                    fields[0] == b'100644' and fields[1] == b'blob' and re.fullmatch(b'[0-9a-f]{40}', fields[2]),
+                    'Delivery outputs must remain regular data blobs')
+                seen.add(name)
+            child, distance = parent, distance + 1
+        # Verify measured itself is an actual commit, including zero-distance admission.
+        parent_of(measured, measured_source=True)
+        for path in paths:
+            raw, sha, info = source.read(path, 1024 * 1024 + 1, hash_full=False)
+            _proof_require(len(raw) == info.st_size and len(raw) <= 1024 * 1024 and sha == hashes[path],
+                           'Current delivery source bytes differ from measured binding')
+            for target in {measured, current}:
+                _proof_require(time.monotonic() < deadline, 'Delivery metadata deadline')
+                identity = revision_blob_identity(source, target, path, raw)
+                _proof_require(identity['status'] == 'verified' and
+                    identity['mode'] == ('100755' if info.st_mode & 0o111 else '100644'), 'Regular committed measured/current source blob required')
+        for cached in (False, True):
+            args = ['diff', '--quiet', '--no-ext-diff', '--no-textconv', '--no-renames']
+            if cached:
+                args += ['--cached', current]
+            git(args + ['--'] + [':(top,literal)' + path for path in paths], cap=0, output=False)
+        _proof_require(head() == current and _proof_directory(source.root)[1] == source.identity,
+                       'Delivery checkout changed during validation')
+    return {'measured_commit': measured, 'validation_commit': current,
+            'result_only_descendant_commits': distance, 'maximum_descendant_commits': 32,
+            'linear_history': True, 'measured_and_current_blobs_match': True}
+
+
 def adapter_proof_checks(report, *, root=ROOT, evidence_root=None, source_map=None):
     """Validate archives and source-bound produced observations, retaining each gap."""
     checks, individual = [], {}
@@ -1209,14 +1318,24 @@ def adapter_proof_checks(report, *, root=ROOT, evidence_root=None, source_map=No
         frozen = _proof_frozen(root)
         with SourceRoot(root) as source:
             hashes = {}
-            for name in _ADAPTER_HELPERS + _MISSING_EXTRA + ('pyproject.toml',):
+            for name in sorted(set(_ADAPTER_HELPERS + _MISSING_EXTRA + _DELIVERY_EXPERIMENT_PATHS)):
                 raw, sha, info = source.read(name, 1024 * 1024 + 1, hash_full=False)
                 _proof_require(len(raw) == info.st_size and len(raw) <= 1024 * 1024, 'Implementation byte ceiling')
                 hashes[name] = sha
                 if name == 'pyproject.toml':
                     project_name = _proof_project_name(raw)
-        revision = subprocess.check_output(['git', 'rev-parse', '--verify', 'HEAD'], cwd=root, text=True, timeout=20).strip()
-        _proof_require(len(revision) == 40 and all(c in '0123456789abcdef' for c in revision) and committed(root, hashes), 'Committed current proof implementation')
+        validation_revision = subprocess.check_output(['git', 'rev-parse', '--verify', 'HEAD'], cwd=root, text=True, timeout=20).strip()
+        revision = report['implementation']['commit']
+        recorded = report['implementation']['sha256']
+        _proof_require(type(recorded) is dict and set(recorded) == set(_DELIVERY_EXPERIMENT_PATHS) and
+            all(recorded[path] == hashes[path] for path in recorded), 'Complete measured experiment implementation')
+        real_implementation = report['real_calls']['implementation']
+        real_paths = ('evaluations/real_calls.py', 'evaluations/analysis.py', 'evaluations/acceptance.py',
+                      'evaluations/tree_sitter_baseline.py', 'repo_graph/source.py', 'pyproject.toml', 'uv.lock')
+        _proof_require(real_implementation['commit'] == revision and type(real_implementation['sha256']) is dict and
+            set(real_implementation['sha256']) == set(real_paths) and
+            all(real_implementation['sha256'][path] == hashes[path] for path in real_paths), 'Same measured real-call implementation')
+        delivery = _proof_delivery(root, revision, hashes | frozen['binding'], validation_commit=validation_revision)
     except failures as error:
         return {'status': 'blocked', 'case_results': [{'id': kind, 'status': 'failed', 'error_kind': type(error).__name__}
                 for kind in ('updates', 'queries', 'missing_backend')], 'individual_results': {}, 'observed_records': observed, 'qualification_complete': False}
@@ -1252,8 +1371,9 @@ def adapter_proof_checks(report, *, root=ROOT, evidence_root=None, source_map=No
             checks.append({'id': kind, 'status': 'failed', 'error_kind': type(error).__name__})
     try:
         _proof_require(_proof_directory(directory)[1] == evidence_owner and
-            subprocess.check_output(['git', 'rev-parse', '--verify', 'HEAD'], cwd=root, text=True, timeout=20).strip() == revision and
-            committed(root, hashes | frozen['binding']), 'Proof source changed during validation')
+            subprocess.check_output(['git', 'rev-parse', '--verify', 'HEAD'], cwd=root, text=True, timeout=20).strip() == validation_revision, 'Proof source changed during validation')
+        _proof_require(_proof_delivery(root, revision, hashes | frozen['binding'], validation_commit=validation_revision) == delivery,
+                       'Measured evidence delivery binding changed')
         with SourceRoot(root) as current:
             for path, expected in (hashes | frozen['binding']).items():
                 raw, sha, info = current.read(path, 1024 * 1024 + 1, hash_full=False)
@@ -1262,7 +1382,7 @@ def adapter_proof_checks(report, *, root=ROOT, evidence_root=None, source_map=No
     except failures as error:
         checks.append({'id': 'validation_source_stability', 'status': 'failed', 'error_kind': type(error).__name__})
     return {'status': 'passed' if all(c['status'] == 'passed' for c in checks) else 'blocked',
-        'case_results': checks, 'individual_results': individual, 'observed_records': observed, 'qualification_complete': False,
+        'case_results': checks, 'individual_results': individual, 'observed_records': observed, 'delivery_binding': delivery, 'qualification_complete': False,
         'limitations': ['Finite same-owner equivalence and physical synthetic query evidence only; no engine selection or capacity/human acceptance.',
             'Update and query digests/generations are recomputed from archived produced facts; source body/export impacts are graded separately from parity.',
             'Type, non-Go configuration, service-contract semantics, receiver completeness and scale remain unqualified.',

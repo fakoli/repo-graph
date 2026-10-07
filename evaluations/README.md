@@ -104,8 +104,20 @@ uv run python evaluations/acceptance.py --gate acceleration
 ```
 
 These commands currently return a blocked result. The comparison retains each
-real-call judgment and finite worker check; incremental queries and the actual
-missing-backend runtime check remain unimplemented. The four-corpus profiler
+real-call judgment and finite worker check. Its serial and queued candidates
+share the collector, resolver, source identity, incremental publication and
+bounded query implementation. Serial uses one worker; queued accepts one to
+four workers. Failed, cancelled or exhausted updates preserve the prior ready
+generation. Both modes are required, regardless of relative speed.
+
+The retained component run includes 36 updates matching clean rebuilds in both
+modes, 20 physical query checks and nine actual missing-backend checks. Acceptance
+recomputes these observations from hashed private source/fact/worker archives;
+a passing report label cannot qualify them. These are finite component results,
+not large-repository, installed-harness or human qualification. Public scan/index
+commands will expose mode selection after structural-owner qualification.
+
+The four-corpus profiler
 runs three independent workers per workload, each capped at 4 GiB address space
 and 660 seconds, and retains failed/partial trials. Capacity reports have no
 equivalent-fact reference, update/query measurements or accepted budget lock.
