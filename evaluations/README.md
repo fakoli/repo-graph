@@ -6,8 +6,9 @@ The synthetic [fixture manifest](code-understanding/fixtures.json) records
 separate Python, Go, JavaScript and TypeScript cases, source ranges, uncertainty,
 questions and update scenarios. [Corpus pins](code-understanding/corpora.json)
 and [real-call candidates](code-understanding/real-calls.json) retain all sixteen
-selected sites. Their proposed targets are unreviewed. No engine comparison,
-incremental-equivalence result or independent human evaluation is claimed.
+selected sites. Their original proposed targets remain unreviewed metadata;
+the separately locked source key records actual independent AI judgments.
+Incremental equivalence and independent human evaluation remain unmeasured.
 
 Check the prepared inputs:
 
@@ -40,6 +41,60 @@ T004. Changed judgments require a new reviewed lock. Missing independent review
 leaves comparisons unrun. Reports retain actual per-check outcomes and source
 receipt hashes. ADR 0006 numeric targets remain acceptance targets, not results.
 T027 independent human UX and human agent-answer grading remain separate gates.
+
+## Native baseline and reusable-engine screening
+
+Install the optional comparison backend in an isolated checkout environment:
+
+```bash
+uv sync --python 3.12 --extra analysis
+uv run python evaluations/analysis.py --engine tree-sitter --suite component
+uv run python evaluations/analysis.py --screen-engines
+```
+
+The [native component report](results/code-understanding/native-component.json)
+grades 75 selected definitions and 28 supported direct/reference bindings in
+Python, Go, JavaScript and TypeScript. It retains twelve unknown sites and four
+conservative receiver sites. All four receiver target-enumeration checks fail;
+their eight missing alternatives are recorded individually. This is a syntax
+and direct-binding baseline, not a qualified structural owner or a complete
+definition census. The scanner reads source inventory and bytes without gold
+targets; the separate grader matches exact UTF-8 ranges after extraction.
+
+The [source-screen report](results/code-understanding/reusable-screen.json)
+records pinned primary sources and evaluate/defer/reject decisions. At the
+screened revision, codebase-memory's supported graph exports omit required
+callsite spans and unresolved sites. Joern remains a comparison candidate,
+with installation blocked before build by its exact Go asset notice/provenance
+gap. No reusable engine was executed. Optional alternatives are recorded
+decisions, not installed features.
+
+The [task report](results/code-understanding/engine.json) preserves the frozen
+T004 evidence and separate T005/T006 scopes. Passing either command does not
+select an engine, prove incremental updates or satisfy agent/human gates.
+Installed native wheels were executed on Linux x86_64 with Python 3.12; other
+platforms remain unqualified. Core mapping and keyword search add no dependency.
+Missing or different backend versions return an explicit blocked result and
+never install packages automatically.
+
+Focused checks:
+
+```bash
+uv run python -m unittest discover -s evaluations/code-understanding -p test_analysis.py -v
+uv run python -m unittest discover -s evaluations/code-understanding -p test_performance.py -v
+```
+
+Structural profiling uses finite worker processes and actual resource counters.
+Import maps and callable facts have different outputs; their timings cannot
+establish an equivalent-workload speedup. A native unchanged repeat is currently
+a full rescan. Custom Rust/PyO3 remains unbuilt and unadopted.
+
+The [single-worker scale pilots](results/code-understanding/structural-pilots.json)
+retain the initial native crash and fixed-run results. Django finished a partial
+scan in 15.4 seconds at 1,981,386,752 bytes peak RSS, with three partial parses.
+Odoo failed with `MemoryError` under the 4 GiB address-space cap. These pilots
+do not pass scale, incremental or acceleration qualification; no final resource
+budgets have been frozen.
 
 ## Unified harness packaging (0.6.0)
 
