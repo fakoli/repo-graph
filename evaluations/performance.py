@@ -715,8 +715,10 @@ class _DualSampler:
                         if pid in self.owners or len(self.owners) >= DUAL_MAX_LIVE_OWNERS or len(self.lifecycles) >= DUAL_MAX_LIFETIMES:
                             raise ValueError('Duplicate or excess live/lifetime worker owner')
                         self.owners[pid] = _DualProcOwner(identity, separate_session=True)
+                        # A producer can wait for this lock behind a sample.
+                        # Record registry changes here; preserve its event clock.
                         self._append(self.lifecycles, {'identity':dict(identity),'role':'worker',
-                            'registered_ns':event['monotonic_ns'],'removed_ns':None})
+                            'registered_ns':time.monotonic_ns(),'removed_ns':None})
                     elif pid not in self.owners or self.owners[pid].identity != identity:
                         raise ValueError('Unregistered or changed worker owner')
                     elif event['event'] == 'cleanup':
@@ -726,7 +728,7 @@ class _DualSampler:
                                 event['cleanup']['mailboxes_removed'] is not True):
                             raise ValueError('Owned worker removal requires completed group/mailbox cleanup')
                         self.owners.pop(pid).close()
-                        next(row for row in reversed(self.lifecycles) if row['identity']==identity)['removed_ns']=event['monotonic_ns']
+                        next(row for row in reversed(self.lifecycles) if row['identity']==identity)['removed_ns']=time.monotonic_ns()
                     else:
                         self.owners[pid].recheck()
                 self._append(self.events, dict(event, phase=self.phase))

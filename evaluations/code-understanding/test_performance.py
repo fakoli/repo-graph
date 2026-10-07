@@ -618,6 +618,35 @@ class OwnedDualProfile(unittest.TestCase):
         self.assertEqual(r['sample_gap_count'], 1)
         self.assertIsNone(r['error'])
 
+    def test_registry_times_use_observation_instead_of_waiting_producer_clock(self):
+        with patch.object(performance.time, 'monotonic_ns', return_value=100):
+            sampler = self.sampler()
+        # Emitted readiness can wait behind a sample which still has no worker.
+        readiness = dict(_fixture_event(worker=dict(_FIXTURE_WORKER)), monotonic_ns=150)
+        with patch.object(performance.time, 'monotonic_ns', return_value=200):
+            sampler.sample()
+        with patch.object(performance.time, 'monotonic_ns', return_value=300):
+            self.assertTrue(self.observe(sampler, readiness))
+        with patch.object(performance.time, 'monotonic_ns', return_value=400):
+            sampler.sample()
+        # Cleanup can likewise wait behind the last sample containing the owner.
+        cleanup = dict(_fixture_event('cleanup', dict(_FIXTURE_WORKER), cleanup={
+            'leader_reaped': True, 'group_absent': True, 'mailboxes_removed': True}), monotonic_ns=450)
+        with patch.object(performance.time, 'monotonic_ns', return_value=500):
+            sampler.sample()
+        with patch.object(performance.time, 'monotonic_ns', return_value=600):
+            self.assertTrue(self.observe(sampler, cleanup))
+        with patch.object(performance.time, 'monotonic_ns', return_value=700):
+            sampler.sample()
+        with patch.object(performance.time, 'monotonic_ns', return_value=800):
+            report = sampler.finish()
+        life = next(row for row in report['lifecycles'] if row['role'] == 'worker')
+        self.assertEqual((life['registered_ns'], life['removed_ns']), (300, 600))
+        self.assertEqual([row['monotonic_ns'] for row in report['queue_events']], [150, 450])
+        for sample in report['samples']:
+            expected = life['registered_ns'] <= sample['started_ns'] < life['removed_ns']
+            self.assertEqual(_FIXTURE_WORKER['pid'] in {row['pid'] for row in sample['owners']}, expected)
+
 
 if __name__ == '__main__':
     unittest.main()
