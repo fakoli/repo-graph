@@ -34,50 +34,8 @@ MEMORY_BYTES = 512 * 1024 * 1024
 LOG_BYTES = 1024 * 1024
 
 
-def _group_exists(process):
-    try:
-        os.killpg(process.pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
+from repo_graph.analysis_queue import _group_exists, _stop_and_reap, _environment
 
-
-def _stop_and_reap(process):
-    """Signal only the new session/group created for this owned Popen child."""
-    if hasattr(process, '_engine_checks_cleanup'):
-        return process._engine_checks_cleanup
-    sent = []
-    for sig, wait in ((signal.SIGTERM, GRACE_SECONDS), (signal.SIGKILL, 2)):
-        if _group_exists(process):
-            try:
-                os.killpg(process.pid, sig)
-                sent.append(sig.name)
-            except ProcessLookupError:
-                pass
-        try:
-            process.wait(timeout=wait)
-        except subprocess.TimeoutExpired:
-            continue
-        if not _group_exists(process):
-            break
-    receipt = {'signals': sent, 'leader_reaped': process.returncode is not None,
-               'group_absent': not _group_exists(process), 'returncode': process.returncode}
-    if receipt['leader_reaped'] and receipt['group_absent']:
-        # Forget the group after proving cleanup; never signal a reused PID later.
-        process._engine_checks_cleanup = receipt
-    return receipt
-
-
-def _environment(job):
-    # An explicit environment avoids inheriting provider/account configuration.
-    directories = {key: job / name for key, name in (
-        ('HOME', 'home'), ('XDG_CONFIG_HOME', 'config'), ('XDG_CACHE_HOME', 'cache'),
-        ('XDG_DATA_HOME', 'data'), ('TMPDIR', 'tmp'))}
-    for directory in directories.values():
-        directory.mkdir()
-    return {**{key: str(value) for key, value in directories.items()},
-            'PATH': os.defpath, 'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8',
-            'TEMP': str(directories['TMPDIR']), 'TMP': str(directories['TMPDIR'])}
 
 
 def _start_worker(job, logs, inventory, mode='scan'):
@@ -220,14 +178,14 @@ def run_checks(root=ROOT, evidence_directory=None):
                 max(map(len, blobs.values())) > SCAN_BUDGET.max_file_bytes):
             raise ValueError('Frozen source exceeds finite lifecycle inventory')
         for path in ('evaluations/engine_checks.py', 'evaluations/code-understanding/test_engine_checks.py',
-                     'evaluations/tree_sitter_baseline.py', 'evaluations/analysis.py', 'repo_graph/source.py'):
+                     'repo_graph/analysis_native.py', 'evaluations/analysis.py', 'repo_graph/source.py'):
             if source.info(path).st_size > LOG_BYTES:
                 raise ValueError('Implementation identity exceeds bound')
             raw, sha, info = source.read(path, LOG_BYTES + 1, hash_full=True)
             if len(raw) != info.st_size or len(raw) > LOG_BYTES:
                 raise ValueError('Implementation identity exceeds bound')
             implementation[path] = sha
-            if path.endswith('tree_sitter_baseline.py'):
+            if path.endswith('analysis_native.py'):
                 exports = [item.name for item in ast.parse(raw).body if isinstance(item, ast.FunctionDef)]
     evidence_directory = Path(evidence_directory)
     logs = evidence_directory / ('lifecycle-' + uuid.uuid4().hex[:12])
@@ -366,8 +324,8 @@ def run_checks(root=ROOT, evidence_directory=None):
 
 
 
-ADAPTER_HELPERS = ('evaluations/incremental_candidate.py', 'evaluations/queued_collector.py',
-    'evaluations/tree_sitter_baseline.py', 'evaluations/bounded_queries.py',
+ADAPTER_HELPERS = ('evaluations/incremental_candidate.py', 'repo_graph/analysis_queue.py',
+    'repo_graph/analysis_native.py', 'evaluations/bounded_queries.py',
     'repo_graph/source.py', 'evaluations/engine_checks.py',
     'evaluations/analysis.py', 'evaluations/acceptance.py')
 ADAPTER_REPORT_BYTES = 8 * 1024 * 1024
@@ -415,7 +373,7 @@ def _adapter_capture(root):
     from evaluations.tree_sitter_baseline import collector_identity
     head = _adapter_head(root)
     implementation = {path: _adapter_bytes(root, path, cap=2 * 1024 * 1024)[1] for path in ADAPTER_HELPERS}
-    if collector_identity() != implementation['evaluations/tree_sitter_baseline.py']:
+    if collector_identity() != implementation['repo_graph/analysis_native.py']:
         raise ValueError('Loaded collector differs from current adapter manifest')
     if not committed(root, implementation) or _adapter_head(root) != head:
         raise ValueError('Stable committed adapter implementation required')
@@ -1027,7 +985,7 @@ def _run_queries(*, root, evidence_directory, bound):
     return report
 
 
-_MISSING_HELPERS = ('evaluations/engine_checks.py', 'evaluations/incremental_candidate.py', 'evaluations/queued_collector.py', 'evaluations/tree_sitter_baseline.py', 'evaluations/analysis.py', 'evaluations/acceptance.py', 'repo_graph/__init__.py', 'evaluations/bounded_queries.py', 'repo_graph/source.py', 'repo_graph/cli.py', 'repo_graph/builder.py', 'repo_graph/search.py', 'repo_graph/jev.py', 'repo_graph/rerank.py', 'scripts/repo_graph.py', 'repo_graph/assets/diagram.html', 'repo_graph/assets/views.js')
+_MISSING_HELPERS = ('evaluations/engine_checks.py', 'evaluations/incremental_candidate.py', 'repo_graph/analysis_queue.py', 'repo_graph/analysis_native.py', 'evaluations/analysis.py', 'evaluations/acceptance.py', 'repo_graph/__init__.py', 'evaluations/bounded_queries.py', 'repo_graph/source.py', 'repo_graph/cli.py', 'repo_graph/builder.py', 'repo_graph/search.py', 'repo_graph/jev.py', 'repo_graph/rerank.py', 'scripts/repo_graph.py', 'repo_graph/assets/diagram.html', 'repo_graph/assets/views.js')
 _MISSING_CHECKS = ('pre_bootstrap_stdlib_venv_no_distributions', 'five_optional_modules_and_distributions_absent', 'core_cli_map_and_keyword_returned_zero', 'core_supported_scan_and_keyword', 'serial_and_queued_candidate_explicit_missing_distribution_no_snapshot', 'serial_and_queued_actual_queue_backend_refusal', 'queue_owned_children_removed', 'clean_venv_not_base_prefix', 'python_isolated_private_owned_session')
 _MISSING_SOURCE_RECORDS = [{'path': 'main.py', 'language': 'python', 'kind': 'source', 'sha256': 'c9c7f51a0cfb2c5f224000b545143446d87615065fbbf194161b416aa533ad1b', 'bytes': 58}, {'path': 'helper.py', 'language': 'python', 'kind': 'source', 'sha256': '8b902c1b8fe3af086ceb732a513a199df0ba839730a080dbc3ce2c407c36d997', 'bytes': 27}]
 
@@ -1088,7 +1046,7 @@ def source_binding(root,control):
     try:
         info=os.fstat(fd)
         if {'device':info.st_dev,'inode':info.st_ino}!=control['root_owner']:raise ValueError('Producer source owner changed')
-        if set(control['implementation_sha256'])!=set(('evaluations/engine_checks.py', 'evaluations/incremental_candidate.py', 'evaluations/queued_collector.py', 'evaluations/tree_sitter_baseline.py', 'evaluations/analysis.py', 'evaluations/acceptance.py', 'repo_graph/__init__.py', 'evaluations/bounded_queries.py', 'repo_graph/source.py', 'repo_graph/cli.py', 'repo_graph/builder.py', 'repo_graph/search.py', 'repo_graph/jev.py', 'repo_graph/rerank.py', 'scripts/repo_graph.py', 'repo_graph/assets/diagram.html', 'repo_graph/assets/views.js')):raise ValueError('Complete producer implementation binding required')
+        if set(control['implementation_sha256'])!=set(('evaluations/engine_checks.py', 'evaluations/incremental_candidate.py', 'repo_graph/analysis_queue.py', 'repo_graph/analysis_native.py', 'evaluations/analysis.py', 'evaluations/acceptance.py', 'repo_graph/__init__.py', 'evaluations/bounded_queries.py', 'repo_graph/source.py', 'repo_graph/cli.py', 'repo_graph/builder.py', 'repo_graph/search.py', 'repo_graph/jev.py', 'repo_graph/rerank.py', 'scripts/repo_graph.py', 'repo_graph/assets/diagram.html', 'repo_graph/assets/views.js')):raise ValueError('Complete producer implementation binding required')
         for path,expected in control['implementation_sha256'].items():
             if read_owned(fd,path)[1]!=expected:raise ValueError('Producer implementation changed before import or after probe')
     finally:os.close(fd)
@@ -1227,10 +1185,10 @@ def _missing_binding(root):
     implementation = {name: _adapter_bytes(root, name, cap=LOG_BYTES)[1] for name in _MISSING_HELPERS}
     if implementation['evaluations/engine_checks.py'] != _MISSING_LOADED_CONTROLLER_SHA256:
         raise ValueError('Missing-backend controller changed since module load')
-    if collector_identity() != implementation['evaluations/tree_sitter_baseline.py']:
+    if collector_identity() != implementation['repo_graph/analysis_native.py']:
         raise ValueError('Missing-backend loaded collector mismatch')
     queued = _identity()
-    if queued['loaded_controller_sha256'] != implementation['evaluations/queued_collector.py']:
+    if queued['loaded_controller_sha256'] != implementation['repo_graph/analysis_queue.py']:
         raise ValueError('Missing-backend loaded queue controller mismatch')
     if _adapter_head(root) != commit:
         raise ValueError('Commit changed during missing-backend admission')

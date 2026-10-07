@@ -83,11 +83,16 @@ class SourceRoot:
             raise OSError(errno.EPERM, 'Source must be a regular file')
         return info
 
-    def read(self, path: str, limit: int, *, hash_full: bool = True):
-        digest, prefix = hashlib.sha256(), bytearray()
+    def read(self, path: str, limit: int, *, hash_full: bool = True, cancel=None, max_bytes=None):
+        digest, prefix, consumed = hashlib.sha256(), bytearray(), 0
         with self.open(path) as stream:
             before = os.fstat(stream.fileno())
             while chunk := stream.read(64 * 1024 if hash_full else max(0, limit - len(prefix))):
+                if cancel is not None and cancel():
+                    raise InterruptedError('Source read cancelled')
+                consumed += len(chunk)
+                if max_bytes is not None and consumed > max_bytes:
+                    raise OSError(errno.EFBIG, 'Source read byte budget exceeded')
                 digest.update(chunk)
                 prefix.extend(chunk[:max(0, limit - len(prefix))])
             after = os.fstat(stream.fileno())

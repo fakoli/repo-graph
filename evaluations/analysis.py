@@ -363,8 +363,8 @@ def comparison_identity(root=ROOT):
     """Capture the complete experiment before its first stage, not midway."""
     _, identity = frozen_inputs(root)
     paths = ('evaluations/analysis.py', 'evaluations/acceptance.py', 'evaluations/real_calls.py',
-             'evaluations/engine_checks.py', 'evaluations/tree_sitter_baseline.py', 'repo_graph/source.py',
-             'evaluations/incremental_candidate.py', 'evaluations/queued_collector.py',
+             'evaluations/engine_checks.py', 'repo_graph/analysis_native.py', 'repo_graph/source.py',
+             'evaluations/incremental_candidate.py', 'repo_graph/analysis_queue.py',
              'evaluations/bounded_queries.py', 'evaluations/supplement_preparation.py',
              'evaluations/code-understanding/supplement-source.json',
              'evaluations/code-understanding/supplement-oracle.json',
@@ -1108,7 +1108,7 @@ def main(argv=None):
         result['resources'] = {'component_elapsed_seconds': time.perf_counter() - started}
         with SourceRoot(ROOT) as source:
             result['implementation_sha256'] = {path: source.read(path, 1024 * 1024, hash_full=True)[1] for path in (
-                'evaluations/analysis.py', 'evaluations/tree_sitter_baseline.py', 'pyproject.toml', 'uv.lock')}
+                'evaluations/analysis.py', 'repo_graph/analysis_native.py', 'pyproject.toml', 'uv.lock')}
         result['code_revision'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
         size = write_result(ROOT, args.output, result, args.max_result_bytes)
         if args.output == DEFAULT_OUTPUT:

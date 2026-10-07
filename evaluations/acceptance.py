@@ -314,8 +314,8 @@ def committed(root, paths):
 
 
 # Finite post-production proof validation. No source extraction or worker launch.
-_ADAPTER_HELPERS = ('evaluations/incremental_candidate.py', 'evaluations/queued_collector.py',
-    'evaluations/tree_sitter_baseline.py', 'evaluations/bounded_queries.py', 'repo_graph/source.py',
+_ADAPTER_HELPERS = ('evaluations/incremental_candidate.py', 'repo_graph/analysis_queue.py',
+    'repo_graph/analysis_native.py', 'evaluations/bounded_queries.py', 'repo_graph/source.py',
     'evaluations/engine_checks.py', 'evaluations/analysis.py', 'evaluations/acceptance.py')
 _MISSING_EXTRA = ('repo_graph/__init__.py', 'repo_graph/cli.py', 'repo_graph/builder.py',
     'repo_graph/search.py', 'repo_graph/jev.py', 'repo_graph/rerank.py', 'scripts/repo_graph.py',
@@ -586,13 +586,13 @@ def _proof_queue(resources, cleanup, mode, concurrency, expected_changed=None, i
     if implementation is not None:
         from evaluations.tree_sitter_baseline import PINS, RULE_VERSION
         identity = resources['identity']; recorded = identity['implementations']
-        expected_paths = {'evaluations/queued_collector.py', 'evaluations/tree_sitter_baseline.py',
+        expected_paths = {'repo_graph/analysis_queue.py', 'repo_graph/analysis_native.py',
             'evaluations/engine_checks.py', 'evaluations/analysis.py', 'evaluations/acceptance.py',
             'repo_graph/source.py', 'repo_graph/__init__.py'}
         _proof_require(type(recorded) is dict and set(recorded) == expected_paths and
             all(recorded[p] == implementation[p] for p in expected_paths) and
-            identity['collector'] == implementation['evaluations/tree_sitter_baseline.py'] and
-            identity['loaded_controller_sha256'] == implementation['evaluations/queued_collector.py'] and
+            identity['collector'] == implementation['repo_graph/analysis_native.py'] and
+            identity['loaded_controller_sha256'] == implementation['repo_graph/analysis_queue.py'] and
             identity['pins'] == PINS and identity['rules'] == RULE_VERSION, 'Current queue producer identity/pins')
     isolation = resources['worker_isolation']
     _proof_require(type(isolation) is list and len(isolation) == workers, 'Every worker isolation receipt')
@@ -1204,8 +1204,8 @@ def _proof_observed(record, kind):
 _DELIVERY_OUTPUTS = ('evaluations/results/code-understanding/engine-comparison.json',
                      'evaluations/results/code-understanding/engine.json')
 _DELIVERY_EXPERIMENT_PATHS = ('evaluations/analysis.py', 'evaluations/acceptance.py', 'evaluations/real_calls.py',
-    'evaluations/engine_checks.py', 'evaluations/tree_sitter_baseline.py', 'repo_graph/source.py',
-    'evaluations/incremental_candidate.py', 'evaluations/queued_collector.py', 'evaluations/bounded_queries.py',
+    'evaluations/engine_checks.py', 'repo_graph/analysis_native.py', 'repo_graph/source.py',
+    'evaluations/incremental_candidate.py', 'repo_graph/analysis_queue.py', 'evaluations/bounded_queries.py',
     'evaluations/supplement_preparation.py', 'evaluations/code-understanding/supplement-source.json',
     'evaluations/code-understanding/supplement-oracle.json', 'evaluations/code-understanding/supplement-lock.json',
     'evaluations/code-understanding/source-target-lock.json', 'evaluations/code-understanding/source-target-locations.json',
@@ -1332,7 +1332,7 @@ def adapter_proof_checks(report, *, root=ROOT, evidence_root=None, source_map=No
             all(recorded[path] == hashes[path] for path in recorded), 'Complete measured experiment implementation')
         real_implementation = report['real_calls']['implementation']
         real_paths = ('evaluations/real_calls.py', 'evaluations/analysis.py', 'evaluations/acceptance.py',
-                      'evaluations/tree_sitter_baseline.py', 'repo_graph/source.py', 'pyproject.toml', 'uv.lock')
+                      'repo_graph/analysis_native.py', 'repo_graph/source.py', 'pyproject.toml', 'uv.lock')
         _proof_require(real_implementation['commit'] == revision and type(real_implementation['sha256']) is dict and
             set(real_implementation['sha256']) == set(real_paths) and
             all(real_implementation['sha256'][path] == hashes[path] for path in real_paths), 'Same measured real-call implementation')
@@ -1360,9 +1360,9 @@ def adapter_proof_checks(report, *, root=ROOT, evidence_root=None, source_map=No
                 return value
             _proof_binding(raw, kind, root, frozen, hashes, revision)
             if kind == 'updates':
-                outcomes = _proof_updates(raw, frozen, hashes['evaluations/tree_sitter_baseline.py'], (files, read_artifact), hashes)
+                outcomes = _proof_updates(raw, frozen, hashes['repo_graph/analysis_native.py'], (files, read_artifact), hashes)
             elif kind == 'queries':
-                outcomes = _proof_queries(raw, frozen, hashes['evaluations/tree_sitter_baseline.py'], (files, read_artifact), hashes)
+                outcomes = _proof_queries(raw, frozen, hashes['repo_graph/analysis_native.py'], (files, read_artifact), hashes)
             else:
                 outcomes = _proof_missing(raw, frozen, hashes, files, read_artifact, _proof_worker_sources(root, hashes), project_name)
             individual[kind] = outcomes
@@ -1684,7 +1684,7 @@ def _proof_cost(raw, frozen, hashes, references, read_artifact, root, revision):
                 reused = count - changed if changed < count else 0
                 attempt = dict(phase['receipt'], facts_artifact=phase['facts_artifact'])
                 produced[label] = _proof_attempt(attempt, records, job['source_owner_identity'],
-                    hashes['evaluations/tree_sitter_baseline.py'], mode, concurrency, changed, reused,
+                    hashes['repo_graph/analysis_native.py'], mode, concurrency, changed, reused,
                     produced=((prefix_refs, read), sources), require_snapshot_state=False, implementation=hashes,
                     changed_bytes=0 if not changed else len(sources[next(op['operations'][0]['path'] for op in frozen['source']['updates']
                         if op['id'] == label[:-8])]) if changed == 1 else sum(r['bytes'] for r in records if r['kind'] == 'source'))
@@ -1912,9 +1912,9 @@ def experimental_owner_binding(report):
     from evaluations.tree_sitter_baseline import PINS, RULE_VERSION
     hashes = report['implementation']['sha256']
     return {'owner': 'native-tree-sitter', 'measured_commit': report['implementation']['commit'],
-        'collector_sha256': hashes['evaluations/tree_sitter_baseline.py'],
+        'collector_sha256': hashes['repo_graph/analysis_native.py'],
         'resolver_and_update_sha256': hashes['evaluations/incremental_candidate.py'],
-        'queue_sha256': hashes['evaluations/queued_collector.py'], 'backend_pins': dict(PINS),
+        'queue_sha256': hashes['repo_graph/analysis_queue.py'], 'backend_pins': dict(PINS),
         'rules': RULE_VERSION, 'supported_modes': ['serial', 'queued'],
         'measured_configurations': [{'mode': m, 'concurrency': c} for m,c in _COST_MODES],
         'scope': 'Experimental finite component owner; full T008 and product qualification pending'}

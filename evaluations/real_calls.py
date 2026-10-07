@@ -656,7 +656,7 @@ def compare_real_calls(source_map, root=ROOT, budget=None):
         with SourceRoot(root) as source:
             hashes = {path: source.read(path, 1024 * 1024, hash_full=True)[1] for path in (
                 'evaluations/real_calls.py', 'evaluations/analysis.py', 'evaluations/acceptance.py',
-                'evaluations/tree_sitter_baseline.py', 'repo_graph/source.py', 'pyproject.toml', 'uv.lock')}
+                'repo_graph/analysis_native.py', 'repo_graph/source.py', 'pyproject.toml', 'uv.lock')}
         revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True, timeout=20).strip()
         return {'commit': revision, 'sha256': hashes}
     implementation = implementation_identity()

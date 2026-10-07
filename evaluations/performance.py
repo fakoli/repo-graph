@@ -25,7 +25,7 @@ from repo_graph.source import SourceRoot
 
 LARGE_CORPORA = ('django', 'odoo', 'aws', 'kubernetes')
 IMPLEMENTATION_PATHS = ('evaluations/performance.py', 'evaluations/analysis.py', 'evaluations/engine_checks.py',
-    'evaluations/tree_sitter_baseline.py', 'evaluations/acceptance.py', 'evaluations/real_calls.py',
+    'repo_graph/analysis_native.py', 'evaluations/acceptance.py', 'evaluations/real_calls.py',
     'repo_graph/builder.py', 'repo_graph/search.py', 'repo_graph/source.py', 'pyproject.toml', 'uv.lock')
 
 

@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from evaluations import queued_collector as queue
+from repo_graph import analysis_queue as queue
 from evaluations import tree_sitter_baseline as baseline
 from repo_graph.source import SourceRoot
 
@@ -125,8 +125,8 @@ from pathlib import Path
 from unittest.mock import patch
 root=Path(sys.argv[1])
 sys.path.insert(0,str(root))
-from evaluations import queued_collector as queue
-source=root/'evaluations/queued_collector.py'
+from repo_graph import analysis_queue as queue
+source=root/'repo_graph/analysis_queue.py'
 loaded=queue._LOADED_CONTROLLER_SHA256
 source.write_bytes(source.read_bytes()+b'\\n# synthetic copied-source drift\\n')
 current=hashlib.sha256(source.read_bytes()).hexdigest()
