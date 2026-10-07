@@ -2601,7 +2601,7 @@ def main(argv=None):
     parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
-                        help='finite report cap: 2 MiB for comparison/incremental/queries/coverage/evidence, 1 MiB otherwise')
+                        help='finite report cap: 2 MiB for comparison/structural suites, 1 MiB otherwise')
     parser.add_argument('--max-files', type=int, default=128)
     parser.add_argument('--max-source-bytes', type=int, default=4 * 1024 * 1024)
     parser.add_argument('--max-nodes', type=int, default=200_000)
@@ -2612,7 +2612,7 @@ def main(argv=None):
     if structural_task and (args.screen_engines or args.compare or args.profile):
         parser.error(args.suite + ' uses the shared structural owner directly')
     if args.max_result_bytes is None:
-        args.max_result_bytes = (2 if args.compare or args.suite in ('incremental', 'queries', 'coverage', 'evidence') else 1) * 1024 * 1024
+        args.max_result_bytes = (2 if args.compare or structural_task else 1) * 1024 * 1024
     if args.freeze_budgets and not args.profile:
         parser.error('--freeze-budgets requires --profile')
     if args.preselection_cost_report and not args.compare:

@@ -958,6 +958,45 @@ print(json.dumps(outcomes))
 
 
 class StructuralValidationTests(unittest.TestCase):
+    def test_shared_structural_report_default_cap_preserves_large_prior_tasks(self):
+        from evaluations import analysis
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            path = root / analysis.FACTS_OUTPUT
+            path.parent.mkdir(parents=True)
+            prior = {task: {'status': 'passed', 'case_results': [{'id': task, 'status': 'passed'}]}
+                     for task in ('T009', 'T010', 'T011', 'T012', 'T013', 'T014')}
+            prior['T013']['case_results'][0]['captured_evidence'] = 'x' * (1024 * 1024)
+            result = {'status': 'passed', 'counts': {'checks': 1},
+                'case_results': [{'id': 'new-construct', 'status': 'passed'}],
+                'failures': [], 'coverage_failures': []}
+            original = json.dumps({'schema_version': 1, 'tasks': prior}, separators=(',', ':')).encode()
+            self.assertGreater(len(original), 1024 * 1024)
+            self.assertLess(len(original), 2 * 1024 * 1024)
+            for suite, task in (('constructs', 'T010'), ('incremental', 'T011'), ('queries', 'T012'),
+                                ('coverage', 'T013'), ('evidence', 'T014')):
+                path.write_bytes(original)
+                with self.subTest(suite=suite), patch.object(analysis, 'ROOT', root), \
+                        patch.object(analysis, suite, return_value=dict(result)), redirect_stdout(io.StringIO()):
+                    self.assertEqual(analysis.main(['--suite', suite]), 0)
+                report = json.loads(path.read_bytes())
+                self.assertEqual(report['tasks'][task]['case_results'], result['case_results'])
+                self.assertLess(len(path.read_bytes()), 2 * 1024 * 1024)
+                for retained in prior.keys() - {task}:
+                    self.assertEqual(report['tasks'][retained], prior[retained])
+            path.write_bytes(original)
+            with patch.object(analysis, 'ROOT', root), patch.object(analysis, 'constructs', return_value=dict(result)), \
+                    redirect_stdout(io.StringIO()):
+                self.assertEqual(analysis.main(['--suite', 'constructs', '--max-result-bytes', str(1024 * 1024)]), 1)
+                self.assertEqual(path.read_bytes(), original)
+                self.assertEqual(analysis.main(['--suite', 'constructs', '--output', 'small.json',
+                                               '--max-result-bytes', '1']), 1)
+                self.assertFalse((root / 'small.json').exists())
+                self.assertEqual(analysis.main(['--suite', 'constructs', '--output', 'small.json',
+                                               '--max-result-bytes', '1024']), 0)
+                self.assertLessEqual((root / 'small.json').stat().st_size, 1024)
+                self.assertEqual(path.read_bytes(), original)
+
     def test_structural_reporting_preserves_other_tasks_and_replaces_stale_success(self):
         from evaluations import analysis
         with tempfile.TemporaryDirectory() as scratch:
