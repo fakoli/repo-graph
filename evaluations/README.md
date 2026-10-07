@@ -131,6 +131,27 @@ the bounded portable report lists each failed file's path and status. Missing
 resource counters after native crashes remain unavailable. Archived measurements
 cannot establish qualification of a changed analyzer.
 
+The [three-trial capacity report](results/code-understanding/capacity-profile.json)
+retains twenty-four workers measured at `d6413d5`. Fifteen exited successfully
+with partial coverage; nine native workers failed. The compact archive export
+uses separately identified reporting code and does not rerun those workers.
+
+| Corpus | Workload | Fresh median seconds | Largest reported fresh process RSS, bytes | Worker outcomes |
+| --- | --- | ---: | ---: | --- |
+| Django | Import map | 1.548 | 67,723,264 | 3 partial |
+| Django | Native callable facts | 16.570 | 1,675,739,136 | 3 partial |
+| Odoo | Import map | 6.861 | 300,933,120 | 3 partial |
+| Odoo | Native callable facts | Unavailable | Unavailable | 3 SIGSEGV |
+| AWS provider | Import map | 6.544 | 458,387,456 | 3 partial |
+| AWS provider | Native callable facts | Unavailable | Unavailable | 2 exit 1, 1 SIGSEGV |
+| Kubernetes | Import map | 6.446 | 608,202,752 | 3 partial |
+| Kubernetes | Native callable facts | Unavailable | Unavailable | 3 exit 1 |
+
+These workloads produce different facts, so their times cannot establish a
+speedup. Missing counters after crashes remain unavailable. Equivalent facts,
+incremental updates, bounded queries and both required serial/queued modes
+still need qualification; resource budgets and Rust adoption remain blocked.
+
 The [single-worker scale pilots](results/code-understanding/structural-pilots.json)
 retain the initial native crash and fixed-run results. Django finished a partial
 scan in 15.4 seconds at 1,981,386,752 bytes peak RSS, with three partial parses.
