@@ -47,6 +47,13 @@ class QueryChecks(unittest.TestCase):
         resumed = snapshot.query('hub', cursor=result['cursor'])
         self.assertEqual(resumed['rows'][0]['site']['id'], 's%03d' % len(result['rows']))
         result = snapshot.query('hub', limits=Limits(max_entities=1))
+        self.assertEqual(result['rows'], [])  # One edge carries seed and target handles.
+        self.assertEqual(result['returned_symbol_handles'], 0)
+        resumed = snapshot.query('hub', cursor=result['cursor'])
+        self.assertEqual(resumed['rows'][0]['site']['id'], 's000')
+        result = snapshot.query('hub', limits=Limits(max_entities=2))
+        self.assertEqual(result['returned_symbol_handles'], 2)
+        self.assertEqual(result['returned_entities'], 1)
         resumed = snapshot.query('hub', cursor=result['cursor'])
         self.assertEqual(resumed['rows'][0]['site']['id'], 's001')
         cursor, rows, work = None, [], 0
