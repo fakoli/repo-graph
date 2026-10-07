@@ -5,6 +5,7 @@ from contextlib import closing, contextmanager
 import hashlib
 import heapq
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -308,6 +309,288 @@ ATTEMPT_BYTES = 32 * 1024
 ATTEMPT_STATES = {'updating', 'ready', 'interrupted', 'failed', 'publication_uncertain'}
 
 
+class _LegacyReceipt(ValueError):
+    pass
+
+
+def _json_record(value):
+    try:
+        data = value if isinstance(value, (str, bytes)) else json.dumps(
+            value, ensure_ascii=True, separators=(',', ':'), allow_nan=False)
+        if len(data.encode() if isinstance(data, str) else data) > ATTEMPT_BYTES:
+            raise ValueError('Index receipt exceeds its byte budget')
+        def pairs(items):
+            result = {}
+            for key, item in items:
+                if key in result: raise ValueError('Duplicate index receipt field')
+                result[key] = item
+            return result
+        def constant(_): raise ValueError('Nonfinite index receipt value')
+        record = json.loads(data, object_pairs_hook=pairs, parse_constant=constant)
+        if type(record) is not dict: raise ValueError('Index receipt object required')
+        return record
+    except (TypeError, RecursionError) as error:
+        raise ValueError('Invalid bounded index receipt') from error
+
+
+def _count(value):
+    if type(value) is not int or value < 0: raise ValueError('Nonnegative typed index count required')
+    return value
+
+
+def _string(value, maximum=128):
+    if type(value) is not str or not 1 <= len(value.encode()) <= maximum:
+        raise ValueError('Bounded index identity/string required')
+    return value
+
+
+def _hash(value):
+    if type(value) is not str or re.fullmatch('[0-9a-f]{64}', value) is None:
+        raise ValueError('SHA256 index identity required')
+    return value
+
+
+def _required(record, fields):
+    if type(record) is not dict: raise ValueError('Index receipt object required')
+    if not set(fields.split()).issubset(record): raise _LegacyReceipt('Incomplete legacy index receipt')
+
+
+def _counts(record):
+    if type(record) is not dict or len(record) > 16: raise ValueError('Bounded count map required')
+    for key, value in record.items(): _string(key); _count(value)
+    return record
+
+
+def _number(value):
+    try: valid = type(value) in (int, float) and math.isfinite(value) and value >= 0
+    except OverflowError: valid = False
+    if not valid:
+        raise ValueError('Finite nonnegative typed index number required')
+
+
+def _resources(record):
+    if type(record) is not dict: raise ValueError('Index resources object required')
+    for key, value in record.items():
+        _string(key)
+        if type(value) is str: _string(value, 1024)
+        elif key.endswith('seconds'): _number(value)
+        else: _count(value)
+
+
+def _coverage_receipt(coverage):
+    if type(coverage) is not dict: raise ValueError('Structural coverage object required')
+    for key in ('files_total', 'files_supported', 'files_unsupported', 'parser_error_count'):
+        if key in coverage: _count(coverage[key])
+    for key in ('status_counts', 'file_status'):
+        if key in coverage: _counts(coverage[key])
+    _required(coverage, 'files_total files_supported files_unsupported status_counts file_status by_language language_overflow sites_by_role_certainty parser_error_count parser_error_samples parser_error_samples_truncated inventory_scope discovery_skipped_files discovery_skip_knowledge')
+    statuses = coverage['status_counts']
+    if (set(statuses) - {'parsed', 'partial_parse', 'unsupported_language', 'configuration', 'excluded_size'} or
+            coverage['file_status'] != statuses or sum(statuses.values()) != coverage['files_total'] or
+            coverage['files_supported'] != statuses.get('parsed', 0) + statuses.get('partial_parse', 0) or
+            coverage['files_unsupported'] != statuses.get('unsupported_language', 0)):
+        raise ValueError('Structural coverage counts do not reconcile')
+    languages, overflow = coverage['by_language'], coverage['language_overflow']
+    if type(languages) is not dict or len(languages) > 32 or type(overflow) is not dict:
+        raise ValueError('Bounded language coverage required')
+    _required(overflow, 'languages files_total file_status')
+    _count(overflow['languages'])
+    totals = {}
+    for language, group in [*languages.items(), ('overflow', overflow)]:
+        _string(language)
+        if type(group) is not dict: raise ValueError('Language coverage object required')
+        _required(group, 'files_total file_status')
+        _count(group['files_total']); _counts(group['file_status'])
+        if sum(group['file_status'].values()) != group['files_total']:
+            raise ValueError('Language coverage counts do not reconcile')
+        for key, value in group['file_status'].items(): totals[key] = totals.get(key, 0) + value
+    if (totals != statuses or overflow['languages'] == 0 and overflow['files_total'] != 0 or
+            overflow['languages'] > 0 and (len(languages) != 32 or overflow['files_total'] < overflow['languages'])):
+        raise ValueError('Language overflow does not reconcile')
+    sites = coverage['sites_by_role_certainty']
+    if type(sites) is not dict or set(sites) - {'call', 'reference'}:
+        raise ValueError('Typed site roles required')
+    for values in sites.values():
+        _counts(values)
+        if set(values) - {'resolved', 'candidate', 'unresolved'}: raise ValueError('Typed site certainty required')
+    samples = coverage['parser_error_samples']
+    if type(samples) is not list or len(samples) > 16 or len(json.dumps(samples, ensure_ascii=True, separators=(',', ':')).encode()) > 4096:
+        raise ValueError('Bounded parser error samples required')
+    for sample in samples:
+        if type(sample) is not dict: raise ValueError('Parser error object required')
+        _required(sample, 'path kind range'); _string(sample['path'], 4096); SourceRoot.parts(sample['path'])
+        _string(sample['kind']); span = sample['range']
+        if type(span) is not dict: raise ValueError('Parser error range required')
+        _required(span, 'start_byte end_byte start_line end_line')
+        for value in span.values(): _count(value)
+        if span['end_byte'] < span['start_byte'] or span['start_line'] < 1 or span['end_line'] < span['start_line']:
+            raise ValueError('Invalid parser error range')
+    if (coverage['parser_error_count'] < len(samples) or type(coverage['parser_error_samples_truncated']) is not bool or
+            coverage['parser_error_samples_truncated'] != (coverage['parser_error_count'] > len(samples)) or
+            coverage['inventory_scope'] != 'caller_admitted_inventory' or coverage['discovery_skipped_files'] is not None or
+            coverage['discovery_skip_knowledge'] != 'outside_admitted_inventory_not_measured'):
+        raise ValueError('Invalid parser/discovery coverage knowledge')
+
+
+def _structural_receipt(record, meta=None):
+    if 'resources' in record: _resources(record['resources'])
+    if 'coverage' in record: _coverage_receipt(record['coverage'])
+    _required(record, 'status published repository_identity source_identity analyzer_identity config_identity generation coverage versions revision_dirty')
+    for key in ('repository_identity', 'source_identity', 'analyzer_identity', 'config_identity', 'generation'): _hash(record[key])
+    if record['status'] not in ('ready', 'publication_uncertain') or record['published'] is not True:
+        raise ValueError('Published structural receipt required')
+    versions, revision = record['versions'], record['revision_dirty']
+    if type(versions) is not dict or type(revision) is not dict: raise ValueError('Typed versions/revision knowledge required')
+    _required(versions, 'schema rules grammars'); _string(versions['rules'])
+    if versions['schema'] != 'structural-v2' or type(versions['grammars']) is not dict or not 1 <= len(versions['grammars']) <= 32:
+        raise ValueError('Invalid structural version manifest')
+    for key, value in versions['grammars'].items(): _string(key); _string(value)
+    _required(revision, 'revision dirty knowledge content_identity')
+    if revision['content_identity'] != record['source_identity']: raise ValueError('Foreign revision content identity')
+    if revision['knowledge'] == 'captured_git':
+        if (type(revision['revision']) is not str or re.fullmatch('[0-9a-f]{40}|[0-9a-f]{64}', revision['revision']) is None or
+                type(revision['dirty']) is not bool): raise ValueError('Invalid captured Git knowledge')
+    elif revision['knowledge'] == 'captured_revision':
+        if (type(revision['revision']) is not str or re.fullmatch('[0-9a-f]{40}|[0-9a-f]{64}', revision['revision']) is None or
+                revision['dirty'] is not None or revision.get('reason') != 'git_dirty_not_observed_without_project_commands' or
+                revision.get('dirty_basis') != 'unobserved_repository_configured_status'):
+            raise ValueError('Invalid captured revision knowledge')
+    elif revision['knowledge'] == 'unknown':
+        if revision['revision'] is not None or revision['dirty'] is not None: raise ValueError('Unknown Git knowledge must remain unknown')
+    else: raise ValueError('Invalid revision knowledge')
+    if revision.get('reason') is not None: _string(revision['reason'])
+    if meta is not None and any(record[key + '_identity' if key != 'generation' else key] != meta.get('structural_' + key)
+            for key in ('repository', 'source', 'analyzer', 'config', 'generation')):
+        raise ValueError('Foreign structural receipt identity')
+
+
+def _semantic_receipt_valid(record, meta=None):
+    _required(record, 'schema repository generation analyzer config model generation_basis documents vectors missing_vectors status')
+    _hash(record['repository']); _hash(record['config']); _string(record['generation']); _string(record['analyzer'])
+    for key in ('documents', 'vectors', 'missing_vectors'): _count(record[key])
+    if record['model'] is not None: _string(record['model'], 256)
+    if (record['schema'] != '2' or record['generation_basis'] != 'keyword-docs-v2' or
+            record['status'] not in ('ready', 'stale', 'not_indexed') or
+            record['documents'] != record['vectors'] + record['missing_vectors'] or
+            record['status'] == 'ready' and (not record['model'] or record['missing_vectors'] != 0)):
+        raise ValueError('Invalid semantic receipt counts/identity')
+    return meta is None or all(record[key] == meta.get(key) for key in
+        ('schema', 'repository', 'generation', 'analyzer', 'config', 'model'))
+
+
+def _catalog_receipt(record, meta=None):
+    if 'seconds' in record: _number(record['seconds'])
+    if 'secure_reads' in record and type(record['secure_reads']) is not bool: raise ValueError('Typed secure-read knowledge required')
+    _required(record, 'documents scanned reused deleted truncated failed failures failures_truncated identity generation semantic_index')
+    for key in ('documents', 'scanned', 'reused', 'deleted', 'truncated', 'failed'): _count(record[key])
+    failures, identity = record['failures'], record['identity']
+    if type(failures) is not list or len(failures) > 20 or record['failed'] < len(failures): raise ValueError('Bounded catalog failures required')
+    for failure in failures:
+        if type(failure) is not dict: raise ValueError('Catalog failure object required')
+        _required(failure, 'path reason')
+        for key in ('path', 'reason'):
+            if type(failure[key]) is not str or len(json.dumps(failure[key], ensure_ascii=True).encode()) > 256:
+                raise ValueError('Bounded catalog failure text required')
+            if key + '_truncated' in failure and type(failure[key + '_truncated']) is not bool: raise ValueError('Typed sample truncation required')
+    if type(record['failures_truncated']) is not bool or record['failures_truncated'] != (record['failed'] > len(failures)):
+        raise ValueError('Catalog failure sample counts do not reconcile')
+    if type(identity) is not dict: raise ValueError('Catalog identity required')
+    _required(identity, 'schema repository analyzer config'); _hash(identity['repository']); _hash(identity['config']); _string(identity['analyzer']); _string(record['generation'])
+    if set(identity) != {'schema', 'repository', 'analyzer', 'config'}: raise ValueError('Invalid catalog identity fields')
+    if identity['schema'] != '2' or record['truncated'] > record['documents']: raise ValueError('Invalid catalog counts/schema')
+    semantic = record['semantic_index']
+    if type(semantic) is not dict: raise ValueError('Catalog semantic receipt required')
+    _semantic_receipt_valid(semantic)
+    if semantic['documents'] != record['documents'] or semantic['generation'] != record['generation'] or any(semantic[key] != identity[key] for key in identity):
+        raise ValueError('Catalog and semantic identity differ')
+    if meta is not None and (record['generation'] != meta.get('generation') or any(identity[key] != meta.get(key) for key in identity)):
+        raise ValueError('Foreign catalog receipt identity')
+
+
+def _collection_failures(receipt):
+    samples = receipt['collection_failures']
+    if (type(samples) is not list or len(samples) > 20 or
+            sum(len(json.dumps(sample, ensure_ascii=True, separators=(',', ':')).encode()) for sample in samples) > 4096):
+        raise ValueError('Bounded collection failure samples required')
+    _required(receipt, 'collection_failures_count collection_failures_truncated')
+    _count(receipt['collection_failures_count'])
+    if (receipt['collection_failures_count'] < len(samples) or type(receipt['collection_failures_truncated']) is not bool or
+            receipt['collection_failures_truncated'] != (receipt['collection_failures_count'] > len(samples))):
+        raise ValueError('Collection failure sample counts do not reconcile')
+    for sample in samples:
+        _required(sample, 'kind'); _string(sample['kind'])
+        for key in ('index', 'error_count'):
+            if key in sample: _count(sample[key])
+        for key in ('reason', 'stage'):
+            if key in sample and (type(sample[key]) is not str or len(sample[key].encode()) > 4096):
+                raise ValueError('Bounded typed collection failure text required')
+        if sample.get('path') is not None: _string(sample['path'], 4096)
+        if sample.get('returncode') is not None and type(sample['returncode']) is not int:
+            raise ValueError('Typed collection worker return code required')
+        if 'record' in sample:
+            record = sample['record']
+            _required(record, 'path language kind bytes sha256')
+            _string(record['path'], 4096); SourceRoot.parts(record['path'])
+            _string(record['language']); _count(record['bytes']); _hash(record['sha256'])
+            if record['kind'] != 'source': raise ValueError('Collection source record required')
+
+
+def _attempt_valid(record, component):
+    _required(record, 'attempt_id status'); _string(record['attempt_id'])
+    if type(record['status']) is not str or record['status'] not in ATTEMPT_STATES: raise ValueError('Invalid index attempt state')
+    for key in ('started_at', 'finished_at'):
+        if key in record: _number(record[key])
+    if all(key in record for key in ('started_at', 'finished_at')) and record['finished_at'] < record['started_at']: raise ValueError('Attempt timestamps are reversed')
+    if 'published' in record and type(record['published']) is not bool: raise ValueError('Typed publication state required')
+    if record.get('repository_identity') is not None: _hash(record['repository_identity'])
+    for key in ('previous_generation', 'generation'):
+        if record.get(key) is not None: _string(record[key])
+    for key in ('reason', 'error_kind', 'operation', 'generation_basis'):
+        if key in record and (type(record[key]) is not str or len(record[key].encode()) > 1024):
+            raise ValueError('Bounded typed attempt text required')
+    receipt = record.get('receipt')
+    if receipt is not None:
+        if type(receipt) is not dict: raise ValueError('Attempt receipt object required')
+        if component == 'structural':
+            _required(receipt, 'status published resources')
+            if receipt['status'] != record['status']: raise ValueError('Attempt and receipt lifecycle differ')
+            for key in ('reason', 'error_kind'):
+                if key in receipt and (type(receipt[key]) is not str or len(receipt[key].encode()) > 4096):
+                    raise ValueError('Bounded typed failure text required')
+            if receipt.get('path') is not None: _string(receipt['path'], 4096)
+            for key in ('previous_generation', 'published_coverage_generation'):
+                if receipt.get(key) is not None: _string(receipt[key])
+            if ('remaining_inventory_status' in receipt and
+                    receipt['remaining_inventory_status'] != 'not_evaluated_after_failure'):
+                raise ValueError('Invalid remaining inventory knowledge')
+            if 'collection_failures' in receipt: _collection_failures(receipt)
+        if component == 'structural' and record['status'] in ('ready', 'publication_uncertain'):
+            try: _structural_receipt(receipt)
+            except _LegacyReceipt: pass
+        elif component == 'semantic' and record.get('operation') == 'catalog': _catalog_receipt(receipt)
+        elif component == 'semantic' and record.get('operation') == 'embed':
+            _required(receipt, 'embedded reused model seconds semantic_index')
+            _count(receipt['embedded']); _count(receipt['reused']); _string(receipt['model'], 256)
+            _number(receipt['seconds'])
+            _semantic_receipt_valid(receipt['semantic_index'])
+            if (receipt['embedded'] + receipt['reused'] != receipt['semantic_index']['documents'] or
+                    receipt['model'] != receipt['semantic_index']['model']): raise ValueError('Embedding receipt counts/model differ')
+        if 'resources' in receipt: _resources(receipt['resources'])
+        if 'published' in receipt and type(receipt['published']) is not bool: raise ValueError('Typed receipt publication required')
+        if 'published' in record and 'published' in receipt and record['published'] != receipt['published']:
+            raise ValueError('Attempt and receipt publication differ')
+        if receipt.get('repository_identity') is not None and receipt['repository_identity'] != record.get('repository_identity'):
+            raise ValueError('Attempt receipt belongs to another repository')
+        if component == 'semantic':
+            for key in ('identity', 'semantic_index'):
+                if key in receipt and type(receipt[key]) is not dict: raise ValueError('Attempt semantic identity object required')
+            repository = (receipt.get('identity') or {}).get('repository') or (receipt.get('semantic_index') or {}).get('repository')
+            if repository is not None and repository != record.get('repository_identity'):
+                raise ValueError('Attempt semantic receipt belongs to another repository')
+        if record.get('generation') is not None and receipt.get('generation') is not None and record['generation'] != receipt['generation']:
+            raise ValueError('Attempt receipt generation differs')
+
+
 def _attempt(boundary, component):
     try:
         with boundary.open(component + '-attempt.json') as stream:
@@ -316,21 +599,20 @@ def _attempt(boundary, component):
         return None
     if len(data) > ATTEMPT_BYTES:
         raise ValueError('Index attempt record exceeds its byte budget')
-    record = json.loads(data)
-    if (type(record) is not dict or type(record.get('attempt_id')) is not str or
-            not 1 <= len(record['attempt_id']) <= 128 or type(record.get('status')) is not str or
-            record['status'] not in ATTEMPT_STATES):
-        raise ValueError('Invalid persisted index attempt')
+    record = _json_record(data)
+    _attempt_valid(record, component)
     return record
 
 
 def record_attempt(output, owner, component, record, expected=None):
     """Record a bounded producer receipt independently of the last published facts."""
-    if (component not in {'structural', 'semantic'} or type(record) is not dict or
+    if (type(component) is not str or component not in {'structural', 'semantic'} or type(record) is not dict or
             type(record.get('attempt_id')) is not str or not 1 <= len(record['attempt_id']) <= 128 or
             type(record.get('status')) is not str or record['status'] not in ATTEMPT_STATES or
             expected is not None and (type(expected) is not str or not 1 <= len(expected) <= 128)):
         raise ValueError('Component, attempt ID and lifecycle status are required')
+    record = _json_record(record)
+    _attempt_valid(record, component)
     data = json.dumps(record, ensure_ascii=True, separators=(',', ':'), allow_nan=False).encode()
     if len(data) > ATTEMPT_BYTES:
         raise ValueError('Index attempt record exceeds its byte budget')
@@ -360,7 +642,7 @@ def record_attempt(output, owner, component, record, expected=None):
 
 def begin_attempt(output, owner, component, record):
     """CAS-supersede the observed attempt without letting its later terminal win."""
-    if component not in {'structural', 'semantic'}:
+    if type(component) is not str or component not in {'structural', 'semantic'}:
         raise ValueError('Unknown index lifecycle component')
     with SourceRoot(Path(output)) as boundary:
         if boundary.identity != owner:
@@ -373,7 +655,24 @@ def begin_attempt(output, owner, component, record):
 def _status_component(attempt=None):
     return {'state': 'not_scanned', 'artifact_ready': False, 'query_available': False,
             'freshness': 'unknown', 'freshness_basis': 'unobserved_live_source',
-            'identities': {}, 'receipt': None, 'last_attempt': attempt}
+            'identities': {}, 'receipt': None, 'receipt_knowledge': 'missing',
+            'last_attempt': attempt, 'attempt_attribution': None}
+
+
+def _attempt_attribution(record, component, meta):
+    if record is None: return None
+    if not record.get('repository_identity') or 'started_at' not in record: return 'unknown_legacy'
+    repository = meta.get('structural_repository') or meta.get('repository')
+    if repository is None: return 'unpublished_repository'
+    if record['repository_identity'] != repository: return 'foreign_repository'
+    generation = meta.get('structural_generation' if component == 'structural' else 'generation')
+    receipt = record.get('receipt') or {}
+    if (generation is not None and record['status'] in ('ready', 'publication_uncertain') and
+            (record.get('generation') or receipt.get('generation')) != generation): return 'unrelated_generation'
+    if generation is not None and generation not in (record.get('previous_generation'), record.get('generation'),
+            receipt.get('generation'), receipt.get('previous_generation')):
+        return 'unrelated_generation'
+    return 'captured_repository'
 
 
 def index_status(output, *, owner=None, expected_source=None, backend_available=None):
@@ -388,7 +687,8 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
               'semantic_index': _status_component(), 'storage': {'deadline_seconds': 0.5}}
     result['semantic_index'].update(model=None, backend_available=backend_available,
         compatibility='unknown_legacy', generation_basis='keyword-docs-v2', structural_generation_affinity='unknown',
-        catalog_receipt=None)
+        catalog_receipt=None, catalog_receipt_knowledge='missing')
+    meta = {}
     def check():
         if time.monotonic() - started >= 0.5:
             raise TimeoutError('Index status storage deadline exceeded')
@@ -423,9 +723,13 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
                         structural['identities'] = {key + '_identity' if key != 'generation' else key:
                             meta.get('structural_' + key) for key in ('repository', 'source', 'analyzer', 'config', 'generation')}
                         if meta.get('structural_receipt'):
-                            structural['receipt'] = json.loads(meta['structural_receipt'])
-                            if type(structural['receipt']) is not dict:
-                                raise ValueError('Invalid structural status receipt')
+                            receipt = _json_record(meta['structural_receipt'])
+                            try:
+                                _structural_receipt(receipt, meta)
+                                structural['receipt'] = receipt
+                                structural['receipt_knowledge'] = 'captured'
+                            except _LegacyReceipt:
+                                structural['receipt_knowledge'] = 'unknown_legacy'
                         coherent = all((structural['receipt'] or {}).get(key + '_identity' if key != 'generation' else key) ==
                             meta.get('structural_' + key) for key in ('repository', 'source', 'analyzer', 'config', 'generation'))
                         structural['artifact_ready'] = (meta.get('structural_schema') == 'structural-v2' and
@@ -448,25 +752,29 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
                         semantic['structural_generation_affinity'] = 'unknown'
                         semantic['compatibility'] = 'unknown_legacy'
                         if meta.get('catalog_receipt'):
-                            semantic['catalog_receipt'] = json.loads(meta['catalog_receipt'])
-                            if type(semantic['catalog_receipt']) is not dict:
-                                raise ValueError('Invalid captured catalog receipt')
+                            receipt = _json_record(meta['catalog_receipt'])
+                            try:
+                                _catalog_receipt(receipt, meta)
+                                semantic['catalog_receipt'] = receipt
+                                semantic['catalog_receipt_knowledge'] = 'captured'
+                            except _LegacyReceipt:
+                                semantic['catalog_receipt_knowledge'] = 'unknown_legacy'
                         if meta.get('semantic_receipt'):
-                            receipt = semantic['receipt'] = json.loads(meta['semantic_receipt'])
-                            if (type(receipt) is not dict or type(receipt.get('status')) is not str or
-                                    receipt['status'] not in {'ready', 'stale', 'not_indexed'}):
-                                raise ValueError('Invalid semantic status receipt')
-                            coherent = (receipt.get('generation_basis') == 'keyword-docs-v2' and
-                                all(meta.get(key) for key in ('repository', 'generation', 'analyzer', 'config')) and
-                                all(receipt.get(key) == meta.get(key) for key in ('repository', 'generation', 'analyzer', 'config', 'model')) and
-                                all(type(receipt.get(key)) is int and receipt[key] >= 0
-                                    for key in ('documents', 'vectors', 'missing_vectors')) and
-                                receipt['documents'] == receipt['vectors'] + receipt['missing_vectors'] and
-                                meta.get('schema') == '2')
+                            receipt = _json_record(meta['semantic_receipt'])
+                            try:
+                                coherent = _semantic_receipt_valid(receipt, meta)
+                                semantic['receipt'] = receipt
+                                semantic['receipt_knowledge'] = 'captured'
+                            except _LegacyReceipt:
+                                semantic['receipt_knowledge'] = 'unknown_legacy'
+                                coherent = False
                             semantic['compatibility'] = 'captured' if coherent else 'stale'
                             semantic['artifact_ready'] = bool(coherent and receipt.get('status') == 'ready' and
-                                meta.get('model') and receipt.get('missing_vectors') == 0)
+                                meta.get('model') and receipt.get('missing_vectors') == 0 and
+                                semantic['receipt_knowledge'] == 'captured' and semantic['catalog_receipt_knowledge'] != 'unknown_legacy')
                             semantic['state'] = 'ready' if semantic['artifact_ready'] else (receipt.get('status', 'unknown_legacy') if coherent else 'stale')
+                            if 'unknown_legacy' in (semantic['receipt_knowledge'], semantic['catalog_receipt_knowledge']):
+                                semantic['state'] = semantic['compatibility'] = 'unknown_legacy'
                         elif meta.get('generation'):
                             semantic['state'] = 'unknown_legacy'
                         semantic['query_available'] = semantic['artifact_ready'] and backend_available is True
@@ -486,9 +794,13 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
     for key in ('structural', 'semantic_index'):
         component = result[key]
         attempt = component['last_attempt']
-        if attempt and attempt['status'] != 'ready' and result['status'] == 'ok':
+        attribution = component['attempt_attribution'] = _attempt_attribution(attempt, 'structural' if key == 'structural' else 'semantic', meta)
+        if attempt and attempt['status'] != 'ready' and result['status'] == 'ok' and attribution in ('captured_repository', 'unpublished_repository'):
             component['state'] = attempt['status']
-            if attempt.get('reason') in ('source_changed_before_publication', 'repository_replaced_before_publication'):
+            current_generation = meta.get('structural_generation' if key == 'structural' else 'generation')
+            if (attribution == 'captured_repository' and current_generation is not None and
+                    attempt['status'] in ('failed', 'interrupted') and
+                    attempt.get('reason') in ('source_changed_before_publication', 'repository_replaced_before_publication')):
                 component['freshness'] = 'stale'
                 component['freshness_basis'] = 'observed_attempt_failure'
     result['semantic_index'].setdefault('backend_available', backend_available)
@@ -525,7 +837,11 @@ def _begin_semantic(output, owner, attempt, identity):
     attempt['recorded'] = True
 
 
-def _semantic_receipt(db, identity, *, previous=None, embedded=False):
+def _semantic_receipt(db, identity, *, previous=None, previous_meta=None, embedded=False):
+    if previous is not None:
+        try:
+            if not _semantic_receipt_valid(previous, previous_meta): previous = None
+        except _LegacyReceipt: previous = None
     documents, vectors = db.execute('SELECT count(*),coalesce(sum(vector IS NOT NULL),0) FROM docs').fetchone()
     model = db.execute("SELECT value FROM meta WHERE key='model'").fetchone()
     model = model[0] if model else None
@@ -537,6 +853,7 @@ def _semantic_receipt(db, identity, *, previous=None, embedded=False):
         'documents': documents, 'vectors': vectors, 'missing_vectors': documents - vectors,
         'status': 'ready' if model and compatible and documents == vectors else (
             'stale' if model else 'not_indexed')}
+    _semantic_receipt_valid(receipt)
     db.execute("INSERT OR REPLACE INTO meta VALUES('semantic_receipt',?)",
                (json.dumps(receipt, ensure_ascii=True, separators=(',', ':')),))
     return receipt
@@ -556,7 +873,7 @@ def _catalog(root, files, output, owner, attempt):
         previous = dict(db.execute('SELECT key,value FROM meta'))
         if previous.get('structural_repository') not in (None, source_root.identity):
             raise RuntimeError('Shared index belongs to another structural repository; use a new output directory')
-        _begin_semantic(output, owner, attempt, previous)
+        _begin_semantic(output, owner, attempt, {**previous, 'repository': source_root.identity})
         if any(previous.get(key) != value for key, value in identity.items()):
             db.execute('DELETE FROM docs')
         db.execute("CREATE TEMP TABLE seen(path TEXT PRIMARY KEY)")
@@ -602,13 +919,15 @@ def _catalog(root, files, output, owner, attempt):
         db.executemany('INSERT OR REPLACE INTO meta VALUES(?,?)', [*identity.items(), ('generation', generation)])
         count = db.execute("SELECT count(*) FROM docs").fetchone()[0]
         semantic = _semantic_receipt(db, {**identity, 'generation': generation},
-            previous=json.loads(previous['semantic_receipt']) if previous.get('semantic_receipt') else None)
+            previous=_json_record(previous['semantic_receipt']) if previous.get('semantic_receipt') else None,
+            previous_meta=previous)
         receipt = dict(documents=count, scanned=scanned, reused=reused, deleted=deleted, truncated=truncated,
                 seconds=round(time.monotonic() - started, 3), identity=identity, generation=generation,
                 failed=failed, failures=failures, secure_reads=source_root.secure,
                 failures_truncated=failed > len(failures),
                 semantic_index=semantic)
         attempt.update(generation=generation, repository_identity=source_root.identity)
+        _catalog_receipt(receipt)
         db.execute("INSERT OR REPLACE INTO meta VALUES('catalog_receipt',?)",
                    (json.dumps(receipt, ensure_ascii=True, separators=(',', ':')),))
     return receipt

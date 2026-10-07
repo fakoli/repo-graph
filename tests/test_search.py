@@ -20,6 +20,240 @@ from repo_graph import source as source_module
 
 
 class SearchTests(unittest.TestCase):
+    def test_captured_status_is_shared_without_source_git_or_backend_scan(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE:
+            self.skipTest('Optional analysis extra is not installed')
+        from repo_graph import builder, analysis_native
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph.cli import main
+        class FakeEmbedding:
+            name = 'synthetic'
+            packed = staticmethod(lambda vector: vector)
+            def passages(self, texts): return [b'fresh-vector' for _ in texts]
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'
+            root.mkdir()
+            (root / 'main.py').write_text('def target(): return 1\n')
+            index = StructuralIndex(root, out)
+            ready = index.refresh(['main.py'])
+            self.assertEqual(ready['status'], 'ready')
+            search.catalog(root, ['main.py'], out)
+            search.embed_index(out, FakeEmbedding())
+            read = SourceRoot.read
+            def captured_only(boundary, *args, **kwargs):
+                if boundary.root == root:
+                    raise AssertionError('Status cannot inspect live source')
+                return read(boundary, *args, **kwargs)
+            forbidden = AssertionError('Status cannot scan, run Git, or construct a backend')
+            with patch.object(SourceRoot, 'read', captured_only), \
+                    patch.object(builder, 'repo_files', side_effect=forbidden), \
+                    patch.object(analysis_native, 'collect_file', side_effect=forbidden), \
+                    patch.object(subprocess, 'run', side_effect=forbidden), \
+                    patch.object(subprocess, 'check_output', side_effect=forbidden), \
+                    patch.object(search.Embeddings, '__init__', side_effect=forbidden):
+                captured = search.index_status(out, owner=index.output_owner, backend_available=False)
+                self.assertEqual(captured['structural']['state'], 'ready')
+                self.assertEqual(captured['structural']['freshness'], 'unknown')
+                self.assertEqual(captured['structural']['identities']['generation'], ready['generation'])
+                self.assertTrue(captured['semantic_index']['artifact_ready'])
+                self.assertFalse(captured['semantic_index']['query_available'])
+                self.assertEqual(captured['semantic_index']['generation_basis'], 'keyword-docs-v2')
+                self.assertEqual(captured['semantic_index']['structural_generation_affinity'], 'unknown')
+                buffer = io.StringIO()
+                with redirect_stdout(buffer): self.assertEqual(main(['status', str(out)]), 0)
+                command = json.loads(buffer.getvalue())
+                self.assertEqual(command['structural'], captured['structural'])
+                with create_server(search.Search(out)) as server:
+                    thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .01}); thread.start()
+                    try:
+                        with urlopen('http://127.0.0.1:' + str(server.server_port) + '/api/status') as response:
+                            endpoint = json.loads(response.read())
+                        self.assertEqual(endpoint['structural'], captured['structural'])
+                        self.assertEqual(endpoint['semantic_index'], captured['semantic_index'])
+                        self.assertFalse(endpoint['semantic'])
+                        self.assertEqual(endpoint['rerankers'], ['none'])
+                    finally:
+                        server.shutdown(); thread.join()
+                buffer = io.StringIO()
+                with redirect_stdout(buffer):
+                    self.assertEqual(main(['status', str(out), '--expect-source', '0' * 64]), 0)
+                stale = json.loads(buffer.getvalue())['structural']
+                self.assertEqual(stale['state'], 'stale')
+                self.assertTrue(stale['artifact_ready'])
+            script = ('import sys,json; from repo_graph.cli import main; '
+                'code=main(["status",sys.argv[1]]); '
+                'print(json.dumps({"code":code,"optional_loaded":'
+                '[name for name in ("tree_sitter","fastembed","numpy") if name in sys.modules]}))')
+            result = subprocess.run([sys.executable, '-S', '-c', script, str(out)],
+                cwd=Path(__file__).resolve().parents[1], text=True, capture_output=True, check=True, timeout=5)
+            lines = [json.loads(line) for line in result.stdout.splitlines()]
+            self.assertEqual(lines[0]['structural'], captured['structural'])
+            self.assertEqual(lines[1], {'code': 0, 'optional_loaded': []})
+
+    def test_status_read_refuses_corrupt_attempts_foreign_owner_and_unbounded_lock_wait(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch)
+            with SourceRoot(out) as owner: identity = owner.identity
+            missing = search.index_status(out, owner=identity)
+            self.assertEqual(missing['structural']['state'], 'not_scanned')
+            self.assertIsNone(missing['structural']['receipt'])
+            self.assertFalse((out / 'search.db').exists())
+            with self.assertRaises(RuntimeError): search.index_status(out, owner='foreign')
+            with self.assertRaises(ValueError): search.index_status(out, expected_source='invalid')
+            attempt = out / 'structural-attempt.json'
+            attempt.write_bytes(b'x' * (search.ATTEMPT_BYTES + 1))
+            malformed = search.index_status(out)
+            self.assertEqual(malformed['status'], 'unavailable')
+            self.assertFalse(malformed['structural']['artifact_ready'])
+            attempt.unlink()
+            (out / '.index.lock').touch()
+            with (out / '.index.lock').open('rb') as held:
+                fcntl.flock(held.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                ticks = [0.0]
+                def clock():
+                    ticks[0] += .2
+                    return ticks[0]
+                with patch.object(search.time, 'monotonic', side_effect=clock):
+                    bounded = search.index_status(out)
+            self.assertEqual(bounded['status'], 'bounded_stop')
+            self.assertFalse(bounded['structural']['artifact_ready'])
+            self.assertEqual(bounded['storage']['deadline_seconds'], .5)
+            self.assertFalse((out / 'search.db').exists())
+
+    def test_status_rejects_malformed_captured_receipts_and_ignores_foreign_attempt_state(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE:
+            self.skipTest('Optional analysis extra is not installed')
+        from repo_graph.analysis import StructuralIndex
+        class FakeEmbedding:
+            name = 'synthetic'
+            packed = staticmethod(lambda vector: vector)
+            def passages(self, texts): return [b'fresh-vector' for _ in texts]
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'
+            root.mkdir()
+            (root / 'main.py').write_text('def target(): return 1\n')
+            index = StructuralIndex(root, out)
+            ready = index.refresh(['main.py'])
+            self.assertEqual(ready['status'], 'ready')
+            search.catalog(root, ['main.py'], out)
+            search.embed_index(out, FakeEmbedding())
+            baseline = search.index_status(out, backend_available=True)
+            self.assertTrue(baseline['structural']['artifact_ready'])
+            self.assertTrue(baseline['semantic_index']['artifact_ready'])
+            with closing(search.connect(out, readonly=True)) as db:
+                captured = dict(db.execute("SELECT key,value FROM meta WHERE key IN ('structural_receipt','semantic_receipt','catalog_receipt')"))
+            def write(key, value):
+                with closing(search.connect(out)) as db, db:
+                    db.execute('UPDATE meta SET value=? WHERE key=?', (json.dumps(value), key))
+            mutations = [
+                ('structural_receipt', 'negative_inventory', lambda row: row['coverage'].update(files_total=-1)),
+                ('structural_receipt', 'inconsistent_status_counts', lambda row: row['coverage'].update(file_status={'parsed': 2})),
+                ('structural_receipt', 'foreign_generation', lambda row: row.update(generation='0' * 64)),
+                ('structural_receipt', 'invalid_dirty_type', lambda row: row['revision_dirty'].update(dirty='false')),
+                ('structural_receipt', 'invalid_grammar_shape', lambda row: row['versions'].update(grammars=[])),
+                ('semantic_receipt', 'inconsistent_vector_coverage', lambda row: row.update(vectors=2, missing_vectors=0)),
+                ('catalog_receipt', 'negative_document_count', lambda row: row.update(documents=-1)),
+                ('catalog_receipt', 'foreign_generation', lambda row: row.update(generation='foreign')),
+                ('catalog_receipt', 'nonarray_failures', lambda row: row.update(failures='not-an-array')),
+                ('catalog_receipt', 'overflowing_seconds', lambda row: row.update(seconds=10 ** 400)),
+            ]
+            for key, name, mutate in mutations:
+                with self.subTest(receipt=key, mutation=name):
+                    row = json.loads(captured[key]); mutate(row)
+                    write(key, row)
+                    try:
+                        refused = search.index_status(out, backend_available=True)
+                        self.assertEqual(refused['status'], 'unavailable')
+                        self.assertFalse(refused['structural']['artifact_ready'])
+                        self.assertFalse(refused['semantic_index']['artifact_ready'])
+                        self.assertFalse(refused['structural']['query_available'])
+                        self.assertFalse(refused['semantic_index']['query_available'])
+                    finally:
+                        write(key, json.loads(captured[key]))
+            legacy = json.loads(captured['structural_receipt'])
+            for key in ('coverage', 'versions', 'revision_dirty'): legacy.pop(key)
+            write('structural_receipt', legacy)
+            try:
+                unknown = search.index_status(out)['structural']
+                self.assertEqual(unknown['state'], 'unknown_legacy')
+                self.assertFalse(unknown['artifact_ready'])
+                self.assertFalse(unknown['query_available'])
+            finally:
+                write('structural_receipt', json.loads(captured['structural_receipt']))
+            for component, field in (('structural', 'structural'), ('semantic', 'semantic_index')):
+                with self.subTest(component=component):
+                    attempt = out / (component + '-attempt.json')
+                    saved = attempt.read_bytes()
+                    foreign = {'attempt_id': 'foreign-control', 'status': 'failed',
+                        'repository_identity': '0' * 64, 'previous_generation': baseline[field]['identities']['generation'],
+                        'started_at': 1.0, 'finished_at': 2.0, 'published': False,
+                        'reason': 'source_changed_before_publication'}
+                    attempt.write_text(json.dumps(foreign))
+                    try:
+                        observed = search.index_status(out, backend_available=True)
+                        self.assertEqual(observed['status'], 'ok')
+                        current = observed[field]
+                        self.assertEqual(current['state'], 'ready')
+                        self.assertEqual(current['freshness'], 'unknown')
+                        self.assertTrue(current['artifact_ready'])
+                        self.assertEqual(current['identities'], baseline[field]['identities'])
+                        self.assertEqual(current['last_attempt']['repository_identity'], foreign['repository_identity'])
+                        self.assertEqual(current['attempt_attribution'], 'foreign_repository')
+                        foreign['repository_identity'] = baseline[field]['identities']['repository_identity']
+                        foreign['previous_generation'] = 'f' * len(baseline[field]['identities']['generation'])
+                        attempt.write_text(json.dumps(foreign))
+                        unrelated = search.index_status(out, backend_available=True)[field]
+                        self.assertEqual(unrelated['attempt_attribution'], 'unrelated_generation')
+                        self.assertEqual(unrelated['state'], 'ready')
+                        self.assertEqual(unrelated['freshness'], 'unknown')
+                        self.assertTrue(unrelated['artifact_ready'])
+                        for invalid_time in ('not-a-time', 10 ** 400):
+                            with self.subTest(started_at=invalid_time):
+                                malformed = json.loads(saved)
+                                malformed['started_at'] = invalid_time
+                                attempt.write_text(json.dumps(malformed))
+                                refused = search.index_status(out, backend_available=True)
+                                self.assertEqual(refused['status'], 'unavailable')
+                                self.assertFalse(refused['structural']['artifact_ready'])
+                                self.assertFalse(refused['semantic_index']['artifact_ready'])
+                    finally:
+                        attempt.write_bytes(saved)
+            attempt = out / 'structural-attempt.json'
+            saved = attempt.read_bytes()
+            failed = index.refresh(['missing.py'])
+            self.assertEqual(failed['status'], 'failed')
+            self.assertFalse(failed['published'])
+            failure_record = json.loads(attempt.read_bytes())
+            self.assertEqual(failure_record['receipt']['path'], 'missing.py')
+            trusted = search.index_status(out, backend_available=True)
+            self.assertEqual(trusted['structural']['attempt_attribution'], 'captured_repository')
+            self.assertTrue(trusted['structural']['artifact_ready'])
+            nested_mutations = [
+                ('invalid_path', lambda row: row['receipt'].update(path=False)),
+                ('invalid_reason', lambda row: row['receipt'].update(reason=[])),
+                ('invalid_failure_sample', lambda row: row['receipt'].update(
+                    collection_failures=[{'path': False, 'kind': 'read', 'reason': []}],
+                    collection_failures_count=1, collection_failures_truncated=False)),
+                ('contradictory_status', lambda row: row['receipt'].update(status='ready')),
+                ('contradictory_publication', lambda row: row['receipt'].update(published=True)),
+            ]
+            try:
+                for name, mutate in nested_mutations:
+                    with self.subTest(nested_failure=name):
+                        row = json.loads(json.dumps(failure_record)); mutate(row)
+                        attempt.write_text(json.dumps(row))
+                        refused = search.index_status(out, backend_available=True)
+                        self.assertEqual(refused['status'], 'unavailable')
+                        self.assertFalse(refused['structural']['artifact_ready'])
+                        self.assertFalse(refused['structural']['query_available'])
+                        self.assertIsNone(refused['structural']['receipt'])
+                        self.assertFalse(refused['semantic_index']['artifact_ready'])
+            finally:
+                attempt.write_bytes(saved)
+
     def test_cancelled_snapshot_copy_and_lock_keep_original_artifact(self):
         with tempfile.TemporaryDirectory() as scratch:
             out = Path(scratch)

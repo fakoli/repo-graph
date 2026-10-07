@@ -54,7 +54,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(409, {'error': 'Index owner unavailable; reopen the original output'}); return
             result['semantic'] = result['semantic_index']['query_available']
             result['rerankers'] = ['none'] + (['local'] if self.server.local_reranker else []) + (['jev'] if self.server.allow_jev else [])
-            self.respond(200, result); return
+            self.respond(200 if result['status'] == 'ok' else 503 if result['status'] == 'bounded_stop' else 409, result); return
         if name not in {'/', '/architecture.html', '/graph.html', '/graph.json', '/architecture.mmd', '/architecture.md'}:
             self.respond(404, {'error':'Not found'}); return
         file = self.server.engine.output / ('architecture.html' if name == '/' else name[1:])

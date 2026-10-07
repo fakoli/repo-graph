@@ -6,6 +6,7 @@ uv run python evaluations/analysis.py --engine tree-sitter --suite component
 uv run python evaluations/analysis.py --suite constructs
 uv run python evaluations/analysis.py --suite incremental
 uv run python evaluations/analysis.py --suite queries
+uv run python evaluations/analysis.py --suite coverage
 
 No provider calls, real-corpus download, daemon, dynamic imports of source code,
 or runtime product installation occurs. Experimental selection requires all component and finite-cost proofs.
@@ -35,6 +36,35 @@ from evaluations.tree_sitter_baseline import BackendUnavailable, Budget, LANGUAG
 INPUTS = 'evaluations/code-understanding/'
 DEFAULT_OUTPUT = 'evaluations/results/code-understanding/native-component.json'
 FACTS_OUTPUT = 'evaluations/results/code-understanding/facts.json'
+
+# Separately identified state/storage controls, frozen before producer execution.
+# They do not extend the original construct oracle or its coverage denominator.
+COVERAGE_CONTROLS = {
+    'ready': {'path': 'main.py', 'language': 'python', 'kind': 'source',
+        'content_utf8': 'def target(): return 1\n',
+        'sha256': 'd6666ca7a71c64447696fa7b35e44f8e34bc98dc3cdf047ceab508f9e0a3699a',
+        'origin': 'Existing structural source/publication regression'},
+    'dirty': {'path': 'main.py', 'language': 'python', 'kind': 'source',
+        'content_utf8': 'def target(): return 2\n',
+        'sha256': '050321540c0f20236b4f2f647da248c69d8ba5490831437dc51b9cdb102eb39a',
+        'origin': 'Existing structural source/publication regression body update'},
+    'partial': {'path': 'partial.py', 'language': 'python', 'kind': 'source',
+        'content_utf8': 'def local():\n    return 1\ndef caller():\n    return local()\n! broken [\n',
+        'sha256': 'dd3ba571e71e4099be53be2659ce3babdab374fc181ccf1ff7a34a02c2c50e19',
+        'origin': 'Existing native parse-failure regression'},
+    'unsupported': {'path': 'other.rs', 'language': 'rust', 'kind': 'source',
+        'content_utf8': 'fn undiscovered() {}\n',
+        'sha256': '96d9397322c82c68876d204a0d70314142cb3df6f7ed9f7b71ebbbaaad7b8cc3',
+        'origin': 'Existing unsupported-language regression'},
+    'extra': {'path': 'extra.py', 'language': 'python', 'kind': 'source',
+        'content_utf8': 'def target(): return 1\n',
+        'sha256': 'd6666ca7a71c64447696fa7b35e44f8e34bc98dc3cdf047ceab508f9e0a3699a',
+        'origin': 'Ready source reused as a separately identified missing-vector addition'},
+    'truncated': {'path': 'truncated.py', 'language': 'python', 'kind': 'source',
+        'content_utf8': 'def keptExcerpt(): pass\n' + ' ' * 65536 + 'a',
+        'sha256': '94660716d9c881c4f03e7b76bb18fa91d3554b2e2020da05c3f1fdb6092003d0',
+        'origin': 'Existing keyword synopsis/full-content-digest truncation regression'},
+}
 
 
 def read_json(source, path, maximum=1024 * 1024):
@@ -379,7 +409,7 @@ def record_structural(root, task, result, maximum):
     if (type(report) is not dict or type(report.get('schema_version')) is not int or
             report['schema_version'] != 1 or type(report.get('tasks')) is not dict or 'T009' not in report['tasks']):
         raise ValueError('Existing T009 facts evidence required')
-    preceding = {'T010': 'T009', 'T011': 'T010', 'T012': 'T011'}
+    preceding = {'T010': 'T009', 'T011': 'T010', 'T012': 'T011', 'T013': 'T012'}
     if task not in preceding or preceding[task] not in report['tasks']:
         raise ValueError('Known structural task and its preceding proof required')
     report['tasks'][task] = result
@@ -608,6 +638,455 @@ def incremental(root=ROOT, budget=None):
         'environment': environment(), 'qualification_complete': False, 'limits_qualified': False,
         'scope': 'Frozen36 synthetic updates, persisted serial1/queued2 versus independent clean output on the same source owner; '
                  'expected impacts graded after production; type flow, contract semantics, corpus, scale and human qualification unmeasured'}
+
+
+def coverage(root=ROOT, budget=None):
+    """Grade captured status without another source scanner or model backend."""
+    from collections import Counter
+    from contextlib import ExitStack, closing, redirect_stdout
+    from dataclasses import replace
+    import io
+    import threading
+    from unittest.mock import patch
+    from urllib.request import urlopen
+    from repo_graph import builder, search, source as source_module
+    from repo_graph.analysis import IndexLimits, StructuralIndex
+    from repo_graph.cli import main as cli_main
+    from repo_graph.server import create_server
+    from repo_graph import analysis_native as native
+    from evaluations.engine_checks import _adapter_error, _adapter_materialize
+    from evaluations.supplement_preparation import LOCK, SOURCE, prepare_check
+    root, budget = Path(root), budget or Budget()
+    fixture, frozen_identity = frozen_inputs(root)
+    prepared = prepare_check(root)
+    inventory = [{key: row[key] for key in ('path', 'language', 'kind', 'sha256', 'bytes')}
+                 for row in fixture['files']]
+    with SourceRoot(root) as owner:
+        original = {row['path']: owner.read(row['path'], budget.max_file_bytes, hash_full=True)[0]
+                    for row in inventory}
+        supplement, _ = read_json(owner, SOURCE)
+        _, supplement_lock_sha = read_json(owner, LOCK)
+    supplemental_inventory = [{key: row[key] for key in ('path', 'language', 'kind', 'sha256', 'bytes')}
+                              for row in supplement['files']]
+    supplemental_sources = {row['path']: row['content_utf8'].encode() for row in supplement['files']}
+    controls, control_sources = {}, {}
+    for name, record in COVERAGE_CONTROLS.items():
+        raw = record['content_utf8'].encode()
+        if hashlib.sha256(raw).hexdigest() != record['sha256']:
+            raise ValueError('Coverage control identity changed: ' + name)
+        controls[name] = {key: record[key] for key in ('path', 'language', 'kind', 'sha256')}
+        controls[name].update(bytes=len(raw), origin=record['origin'])
+        control_sources[name] = raw
+    code_paths = ('evaluations/analysis.py', 'evaluations/engine_checks.py',
+        'evaluations/supplement_preparation.py', 'repo_graph/analysis.py', 'repo_graph/analysis_native.py',
+        'repo_graph/analysis_queue.py', 'repo_graph/search.py', 'repo_graph/source.py',
+        'repo_graph/cli.py', 'repo_graph/server.py', 'repo_graph/analysis_queries.py', 'repo_graph/__init__.py',
+        'tests/test_analysis.py', 'tests/test_search.py', 'pyproject.toml', 'uv.lock')
+    with SourceRoot(ROOT) as owner:
+        before = {path: owner.read(path, 2 * 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, timeout=20).strip()
+    cases, coverage_failures, modes = [], [], []
+
+    class FakeEmbedding:
+        name = 'synthetic'
+        packed = staticmethod(lambda vector: vector)
+        def passages(self, texts):
+            return [b'fresh-vector' for _ in texts]
+
+    with tempfile.TemporaryDirectory(prefix='repo-graph-coverage-') as temporary:
+        directory = Path(temporary)
+        source = directory / 'source'
+        source.mkdir()
+        original_read = SourceRoot.read
+
+        def observe(index, entry, *, expected_source=None, backend_available=False, endpoints=False):
+            def guarded_read(boundary, *args, **kwargs):
+                if boundary.root == index.root:
+                    raise AssertionError('Status must not read source content')
+                return original_read(boundary, *args, **kwargs)
+            forbidden = AssertionError('Status must use captured storage without source, Git or backend work')
+            with ExitStack() as stack:
+                for module, attribute in ((builder, 'repo_files'), (native, 'collect_file'),
+                        (native, 'extract'), (search, 'catalog'), (search, 'embed_index'),
+                        (subprocess, 'check_output'), (subprocess, 'run')):
+                    stack.enter_context(patch.object(module, attribute, side_effect=forbidden))
+                stack.enter_context(patch.object(SourceRoot, 'read', guarded_read))
+                stack.enter_context(patch.object(search.Embeddings, '__init__', side_effect=forbidden))
+                begun = time.monotonic()
+                status = search.index_status(index.output, owner=index.output_owner,
+                    expected_source=expected_source, backend_available=backend_available)
+                observation = {'captured': status, 'elapsed_seconds': time.monotonic() - begun,
+                    'serialized_bytes': len(json.dumps(status).encode()), 'source_git_backend_calls': 0}
+                entry.setdefault('observations', []).append(observation)
+                assert status['status'] == 'ok', status
+                assert status['storage']['deadline_seconds'] == .5
+                if endpoints:
+                    output = io.StringIO()
+                    command = ['status', str(index.output)]
+                    if expected_source is not None:
+                        command += ['--expect-source', expected_source]
+                    with redirect_stdout(output):
+                        assert cli_main(command) == 0
+                    command_raw = output.getvalue().encode()
+                    command_status = json.loads(command_raw)
+                    component_match = (command_status['structural'] == status['structural'] and
+                        {key: value for key, value in command_status['semantic_index'].items() if key != 'backend_available'} ==
+                        {key: value for key, value in status['semantic_index'].items() if key != 'backend_available'})
+                    observation['cli'] = {'response_sha256': hashlib.sha256(command_raw).hexdigest(),
+                        'response_bytes': len(command_raw), 'storage': command_status['storage'],
+                        'backend_available': command_status['semantic_index']['backend_available'],
+                        'captured_components_match': component_match}
+                    if not component_match:
+                        observation['failed_cli_response'] = command_status
+                    assert component_match
+                    if expected_source is None:
+                        with create_server(search.Search(index.output)) as server:
+                            thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .01})
+                            thread.start()
+                            try:
+                                with urlopen('http://127.0.0.1:' + str(server.server_port) + '/api/status', timeout=2) as response:
+                                    endpoint_raw = response.read(262145)
+                                    endpoint = json.loads(endpoint_raw)
+                                component_match = (endpoint['structural'] == status['structural'] and
+                                                   endpoint['semantic_index'] == status['semantic_index'])
+                                observation['server'] = {'response_sha256': hashlib.sha256(endpoint_raw).hexdigest(),
+                                    'response_bytes': len(endpoint_raw), 'storage': endpoint['storage'],
+                                    'backend_available': endpoint['semantic_index']['backend_available'],
+                                    'captured_components_match': component_match,
+                                    'semantic': endpoint['semantic'], 'rerankers': endpoint['rerankers']}
+                                if not component_match:
+                                    observation['failed_server_response'] = endpoint
+                                assert component_match
+                                assert endpoint['semantic'] is False and endpoint['rerankers'] == ['none']
+                            finally:
+                                server.shutdown(); thread.join()
+                return status
+
+        def refresh(index, entries, entry, **kwargs):
+            receipt = index.refresh(entries, mode=entry['execution_mode'], concurrency=entry['concurrency'], **kwargs)
+            entry.setdefault('attempts', []).append(receipt)
+            return receipt
+
+        def ready(index, entries, entry):
+            receipt = refresh(index, entries, entry)
+            assert receipt['status'] == 'ready' and receipt['published'], receipt
+            return receipt
+
+        def published(index, entry, expected_counts):
+            status = observe(index, entry, endpoints=True)
+            component = status['structural']
+            assert component['state'] == 'ready' and component['artifact_ready'] and component['query_available']
+            assert component['freshness'] == 'unknown'
+            receipt = component['receipt']
+            assert receipt['coverage']['status_counts'] == expected_counts
+            assert receipt['coverage']['file_status'] == expected_counts
+            assert sum(expected_counts.values()) == receipt['coverage']['files_total']
+            assert receipt['generation'] == component['identities']['generation']
+            assert receipt['source_identity'] == component['identities']['source_identity']
+            assert receipt['repository_identity'] == index.owner
+            with closing(search.connect(index.output, readonly=True, owner=index.output_owner)) as db:
+                files = [{'path': row['path'], 'status': row['status'], 'record': json.loads(row['record']),
+                          'errors': json.loads(row['ir'])['errors'] if row['ir'] else []}
+                         for row in db.execute('SELECT path,status,record,ir FROM structural_files ORDER BY path')]
+            assert dict(Counter(row['status'] for row in files)) == expected_counts
+            language_counts = {}
+            for row in files:
+                language = language_counts.setdefault(row['record']['language'], {'files_total': 0, 'file_status': {}})
+                language['files_total'] += 1
+                language['file_status'][row['status']] = language['file_status'].get(row['status'], 0) + 1
+            assert receipt['coverage']['by_language'] == language_counts
+            assert receipt['coverage']['language_overflow'] == {'languages': 0, 'files_total': 0, 'file_status': {}}
+            assert receipt['coverage']['inventory_scope'] == 'caller_admitted_inventory'
+            assert receipt['coverage']['discovery_skipped_files'] is None
+            assert receipt['coverage']['discovery_skip_knowledge'] == 'outside_admitted_inventory_not_measured'
+            errors = [{'path': row['path'], 'kind': error['kind'], 'range': error['range']}
+                      for row in files for error in row['errors']]
+            assert receipt['coverage']['parser_error_count'] == len(errors)
+            assert receipt['coverage']['parser_error_samples'] == errors
+            assert receipt['coverage']['parser_error_samples_truncated'] is False
+            for error in errors:
+                file = next(row for row in files if row['path'] == error['path'])
+                assert 0 <= error['range']['start_byte'] <= error['range']['end_byte'] <= file['record']['bytes']
+                assert 1 <= error['range']['start_line'] <= error['range']['end_line']
+            produced = {kind: list(index.read_facts(kind)) for kind in
+                        ('definitions', 'sites', 'imports', 'scopes', 'relationships')}
+            site_counts = {}
+            for row in produced['sites']:
+                role = site_counts.setdefault(row['role'], {})
+                role[row['certainty']] = role.get(row['certainty'], 0) + 1
+            assert receipt['coverage']['sites_by_role_certainty'] == site_counts
+            assert receipt['versions'] == {'schema': 'structural-v2', 'rules': native.RULE_VERSION, 'grammars': native.PINS}
+            assert receipt['revision_dirty']['content_identity'] == receipt['source_identity']
+            if receipt['revision_dirty']['knowledge'] == 'unknown':
+                assert receipt['revision_dirty']['revision'] is None and receipt['revision_dirty']['dirty'] is None
+                assert receipt['revision_dirty']['reason']
+            elif receipt['revision_dirty']['knowledge'] == 'captured_revision':
+                assert receipt['revision_dirty']['dirty'] is None
+                assert receipt['revision_dirty']['reason'] == 'git_dirty_not_observed_without_project_commands'
+                assert receipt['revision_dirty']['dirty_basis'] == 'unobserved_repository_configured_status'
+            entry['persisted_file_inventory'] = files
+            entry['persisted_facts_sha256'] = hashlib.sha256(json.dumps(produced,
+                sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            return status
+
+        for mode, concurrency in (('serial', 1), ('queued', 2)):
+            label = mode + str(concurrency)
+            report = {'mode': mode, 'concurrency': concurrency, 'cases': []}
+            modes.append(report)
+            for number in range(1, 9):
+                case = {'id': label + ':T013-P%02d' % number, 'group': 'T013-P%02d' % number,
+                    'execution_mode': mode, 'concurrency': concurrency, 'status': 'running',
+                    'attempts': [], 'observations': []}
+                cases.append(case); report['cases'].append(case['id'])
+                begun = time.monotonic()
+                try:
+                    index = StructuralIndex(source, directory / (label + '-' + str(number)), budget=budget,
+                        limits=IndexLimits(total_wall_seconds=budget.timeout_seconds))
+                    if number == 1:
+                        absent = observe(index, case, endpoints=True)
+                        assert absent['structural']['state'] == 'not_scanned'
+                        assert not absent['structural']['artifact_ready'] and absent['structural']['receipt'] is None
+                        assert not (index.output / 'search.db').exists()
+                        ready(index, [], case)
+                        empty = published(index, case, {})
+                        assert empty['structural']['receipt']['coverage']['files_total'] == 0
+                        case['coverage_denominator'] = {'admitted_files': 0, 'construct_cases': 0}
+                    elif number == 2:
+                        _adapter_materialize(source, original)
+                        ready(index, inventory, case)
+                        status = published(index, case, {'parsed': 8, 'configuration': 1})
+                        assert {row['record']['language'] for row in case['persisted_file_inventory']} == set(LANGUAGES)
+                        produced = {kind: list(index.read_facts(kind)) for kind in ('definitions', 'sites')}
+                        definitions, selected = grade(produced, fixture)
+                        assert all(row['status'] == 'passed' for row in definitions + selected)
+                        unknowns = [row for row in selected if row['expected_certainty'] != 'resolved']
+                        assert len(unknowns) == 16
+                        assert all(row['actual'][0]['reason'] and not row['actual'][0]['targets_exhaustive'] for row in unknowns)
+                        coverage_failures.extend({'id': label + ':' + row['id'], 'group': case['group'],
+                            'dimension': 'receiver_target_enumeration', **row['target_enumeration']}
+                            for row in selected if row.get('target_enumeration', {}).get('status') == 'failed')
+                        case['selected_unknown_cases'] = [{'id': row['id'], 'language': row['language'],
+                            'certainty': row['actual'][0]['certainty'], 'reason': row['actual'][0]['reason'],
+                            'targets_exhaustive': row['actual'][0]['targets_exhaustive']} for row in unknowns]
+                        case['coverage_denominator'] = {'original_files': 9, 'selected_definitions': 75, 'selected_sites': 44}
+                        _adapter_materialize(source, supplemental_sources)
+                        ready(index, supplemental_inventory, case)
+                        published(index, case, {'parsed': 16, 'configuration': 8})
+                        case['coverage_denominator']['supplemental_files'] = 24
+                    elif number == 3:
+                        _adapter_materialize(source, {'partial.py': control_sources['partial']})
+                        ready(index, [{key: value for key, value in controls['partial'].items() if key != 'origin'}], case)
+                        published(index, case, {'partial_parse': 1})
+                        calls = [row for row in index.read_facts('sites') if row['text'] == 'local()']
+                        assert len(calls) == 1 and calls[0]['certainty'] == 'unresolved'
+                        assert not calls[0]['targets'] and not calls[0]['targets_exhaustive'] and calls[0]['reason']
+                        case['retained_partial_site'] = calls[0]
+                        case['coverage_denominator'] = {'frozen_partial_files': 0, 'identified_control_files': 1}
+                    elif number == 4:
+                        _adapter_materialize(source, {'main.py': control_sources['ready'], 'other.rs': control_sources['unsupported']})
+                        ready(index, [{key: value for key, value in controls[name].items() if key != 'origin'}
+                                      for name in ('ready', 'unsupported')], case)
+                        published(index, case, {'parsed': 1, 'unsupported_language': 1})
+                        assert not any(row['path'] == 'other.rs' for row in index.read_facts('definitions'))
+                        _adapter_materialize(source, original)
+                        index = StructuralIndex(source, index.output, budget=replace(budget, max_file_bytes=1261))
+                        ready(index, inventory, case)
+                        published(index, case, {'parsed': 7, 'configuration': 1, 'excluded_size': 1})
+                        assert [row['path'] for row in case['persisted_file_inventory'] if row['status'] == 'excluded_size'] == [
+                            row['path'] for row in inventory if row['bytes'] > 1261]
+                        _adapter_materialize(source, {'truncated.py': control_sources['truncated']})
+                        keyword = search.catalog(source, ['truncated.py', 'missing.py'], index.output)
+                        case['catalog_attempts'] = [keyword]
+                        keyword_status = observe(index, case, endpoints=True)
+                        catalog_receipt = keyword_status['semantic_index']['catalog_receipt']
+                        assert catalog_receipt['truncated'] == 1 and catalog_receipt['failed'] == 1
+                        assert catalog_receipt['failures'][0]['path'] == 'missing.py'
+                        assert catalog_receipt['documents'] == 1
+                        assert keyword_status['structural']['artifact_ready']
+                        case['coverage_denominator'] = {'frozen_unsupported_files': 0, 'identified_unsupported_controls': 1,
+                            'alternate_size_limit_inventory': 9, 'discovery_skipped_paths': None,
+                            'identified_keyword_truncation_files': 1, 'identified_keyword_read_failures': 1,
+                            'discovery_scope': 'Explicit admitted inventory; undiscovered filesystem paths are unmeasured'}
+                    elif number == 5:
+                        _adapter_materialize(source, {'main.py': control_sources['ready']})
+                        previous = ready(index, ['main.py'], case)
+                        before_artifact = (index.output / 'search.db').read_bytes()
+                        seen = []
+                        def interrupt(boundary, path, *args, **kwargs):
+                            if boundary.root == source and path == 'main.py':
+                                observed = observe(index, case, endpoints=True)
+                                assert observed['structural']['state'] == 'updating'
+                                assert observed['structural']['artifact_ready']
+                                assert observed['structural']['identities']['generation'] == previous['generation']
+                                seen.append(True)
+                                raise InterruptedError('Source read cancelled')
+                            return original_read(boundary, path, *args, **kwargs)
+                        with patch.object(SourceRoot, 'read', interrupt):
+                            failed = refresh(index, ['main.py', 'unread.py'], case)
+                        assert seen and failed['status'] == 'interrupted' and not failed['published']
+                        assert failed['remaining_inventory_status'] == 'not_evaluated_after_failure'
+                        assert failed['published_coverage_generation'] == previous['generation']
+                        assert failed['path'] == 'main.py' and failed['resources']['inventory_entries_consumed'] == 1
+                        assert failed['collection_failures'] == []
+                        assert (index.output / 'search.db').read_bytes() == before_artifact
+                        reopened = StructuralIndex(source, index.output)
+                        observed = observe(reopened, case, endpoints=True)
+                        assert observed['structural']['state'] == 'interrupted' and observed['structural']['artifact_ready']
+                        assert observed['structural']['last_attempt']['status'] == 'interrupted'
+                        assert observed['structural']['identities']['generation'] == previous['generation']
+                        case['coverage_denominator'] = {'declared_attempt_files': 2, 'remaining_files': 'not_evaluated_after_failure'}
+                    elif number == 6:
+                        _adapter_materialize(source, {'main.py': control_sources['ready']})
+                        previous = ready(index, ['main.py'], case)
+                        same = observe(index, case, expected_source=previous['source_identity'], endpoints=True)
+                        assert same['structural']['freshness'] == 'current'
+                        stale = observe(index, case, expected_source='0' * 64, endpoints=True)
+                        assert stale['structural']['state'] == 'stale' and stale['structural']['artifact_ready']
+                        _adapter_materialize(source, {'main.py': control_sources['dirty']})
+                        unseen = observe(index, case)
+                        assert unseen['structural']['freshness'] == 'unknown'
+                        original_fsync, injected = source_module.os.fsync, [False]
+                        def fail_directory(fd):
+                            info = os.fstat(fd)
+                            output = index.output.stat()
+                            if not injected[0] and stat.S_ISDIR(info.st_mode) and (info.st_dev, info.st_ino) == (output.st_dev, output.st_ino):
+                                if (index.output / 'search.db').read_bytes() != before_artifact:
+                                    injected[0] = True
+                                    raise OSError('synthetic directory synchronization failure')
+                            return original_fsync(fd)
+                        before_artifact = (index.output / 'search.db').read_bytes()
+                        with patch.object(source_module.os, 'fsync', fail_directory):
+                            uncertain = refresh(index, ['main.py'], case)
+                        assert injected[0] and uncertain['published'] and uncertain['status'] == 'publication_uncertain'
+                        assert uncertain['generation'] != previous['generation'] and uncertain['durability'] == 'unconfirmed'
+                        actual = observe(index, case, endpoints=True)
+                        assert actual['structural']['identities']['generation'] == uncertain['generation']
+                        assert actual['structural']['last_attempt']['status'] == 'publication_uncertain'
+                        assert actual['structural']['artifact_ready']
+                        definitions = list(index.read_facts('definitions'))
+                        assert len(definitions) == 1 and definitions[0]['text'] == control_sources['dirty'].decode().strip()
+                        assert definitions[0]['provenance']['source_sha256'] == controls['dirty']['sha256']
+                        case['coverage_denominator'] = {'expected_source_checks': 2, 'observed_publication_failures': 1,
+                            'live_source_watchers': 0}
+                    elif number == 7:
+                        git_source = directory / ('git-' + label)
+                        git_source.mkdir()
+                        _adapter_materialize(git_source, {'main.py': control_sources['ready']})
+                        git = ['git', '-c', 'user.name=Synthetic Fixture', '-c', 'user.email=fixture@example.invalid',
+                            '-c', 'commit.gpgSign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'init.templateDir=']
+                        env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null',
+                            GIT_CONFIG_COUNT='0', GIT_AUTHOR_NAME='Synthetic Fixture',
+                            GIT_AUTHOR_EMAIL='fixture@example.invalid', GIT_COMMITTER_NAME='Synthetic Fixture',
+                            GIT_COMMITTER_EMAIL='fixture@example.invalid', GIT_TERMINAL_PROMPT='0',
+                            GIT_AUTHOR_DATE='2000-01-01T00:00:00+0000', GIT_COMMITTER_DATE='2000-01-01T00:00:00+0000')
+                        for args in (['init', '-q'], ['add', '--', 'main.py'], ['commit', '-q', '-m', 'Synthetic coverage fixture']):
+                            subprocess.run(git + args, cwd=git_source, env=env, check=True, capture_output=True, timeout=5)
+                        frozen_revision = subprocess.check_output(git + ['rev-parse', 'HEAD'], cwd=git_source, env=env, text=True, timeout=5).strip()
+                        case['synthetic_git_identity_before_comparison'] = {'revision': frozen_revision,
+                            'clean_source_sha256': controls['ready']['sha256'], 'dirty_source_sha256': controls['dirty']['sha256']}
+                        index = StructuralIndex(git_source, index.output, budget=budget)
+                        first = ready(index, ['main.py'], case)
+                        initial_capture = published(index, case, {'parsed': 1})['structural']['receipt']['revision_dirty']
+                        assert initial_capture['revision'] == frozen_revision and initial_capture['dirty'] is None
+                        assert initial_capture['knowledge'] == 'captured_revision'
+                        _adapter_materialize(git_source, {'main.py': control_sources['dirty']})
+                        changed = ready(index, ['main.py'], case)
+                        updated_capture = published(index, case, {'parsed': 1})['structural']['receipt']['revision_dirty']
+                        assert updated_capture['revision'] == frozen_revision and updated_capture['dirty'] is None
+                        assert updated_capture['knowledge'] == 'captured_revision'
+                        assert updated_capture['content_identity'] != initial_capture['content_identity']
+                        assert changed['source_identity'] != first['source_identity']
+                        case['coverage_denominator'] = {'synthetic_revision_content_update_pairs': 1,
+                            'git_status_boolean_cases': 0, 'product_git_commits': 0}
+                    elif number == 8:
+                        _adapter_materialize(source, {'main.py': control_sources['ready']})
+                        structural = ready(index, ['main.py'], case)
+                        catalog = search.catalog(source, ['main.py'], index.output)
+                        case['catalog_attempts'] = [catalog]
+                        initial = observe(index, case, endpoints=True)
+                        assert initial['semantic_index']['state'] == 'not_indexed'
+                        assert not initial['semantic_index']['artifact_ready']
+                        case['embedding_attempts'] = [search.embed_index(index.output, FakeEmbedding())]
+                        available = observe(index, case, backend_available=True)
+                        unavailable = observe(index, case, endpoints=True)
+                        assert available['semantic_index']['artifact_ready'] and available['semantic_index']['query_available']
+                        assert unavailable['semantic_index']['artifact_ready'] and not unavailable['semantic_index']['query_available']
+                        assert available['semantic_index']['generation_basis'] == 'keyword-docs-v2'
+                        assert available['semantic_index']['structural_generation_affinity'] == 'unknown'
+                        assert available['semantic_index']['identities']['generation'] == catalog['generation']
+                        assert available['structural']['identities']['generation'] == structural['generation']
+                        _adapter_materialize(source, {'extra.py': control_sources['extra']})
+                        case['catalog_attempts'].append(search.catalog(source, ['main.py', 'extra.py'], index.output))
+                        stale = observe(index, case, endpoints=True)
+                        assert stale['semantic_index']['state'] == 'stale' and not stale['semantic_index']['artifact_ready']
+                        class InterruptedEmbedding(FakeEmbedding):
+                            def passages(self, texts):
+                                updating = observe(index, case, endpoints=True)
+                                assert updating['semantic_index']['state'] == 'updating'
+                                assert updating['structural']['state'] == 'ready' and updating['structural']['artifact_ready']
+                                raise InterruptedError('synthetic embedding interruption')
+                        try:
+                            search.embed_index(index.output, InterruptedEmbedding())
+                        except InterruptedError:
+                            pass
+                        else:
+                            raise AssertionError('Interrupted embedding unexpectedly completed')
+                        failed = observe(index, case, endpoints=True)
+                        assert failed['semantic_index']['state'] == 'interrupted'
+                        assert failed['structural']['identities']['generation'] == structural['generation']
+                        with closing(search.connect(index.output, readonly=True, owner=index.output_owner)) as db:
+                            vectors = dict(db.execute('SELECT path,vector FROM docs'))
+                        assert vectors['main.py'] == b'fresh-vector' and vectors['extra.py'] is None
+                        case['embedding_attempts'].append(search.embed_index(index.output, FakeEmbedding()))
+                        complete = observe(index, case, endpoints=True)
+                        assert complete['semantic_index']['artifact_ready'] and complete['semantic_index']['state'] == 'ready'
+                        assert complete['semantic_index']['receipt']['documents'] == 2
+                        assert complete['semantic_index']['receipt']['missing_vectors'] == 0
+                        assert complete['structural']['identities']['generation'] == structural['generation']
+                        case['coverage_denominator'] = {'identified_fake_embedding_states': 5, 'real_model_quality_cases': 0}
+                    case['status'] = 'passed'
+                except Exception as error:
+                    case.update(status='failed', error_kind=type(error).__name__, reason='Captured coverage/readiness assertion failed')
+                    print(json.dumps({'id': case['id'], **_adapter_error(error)}), file=sys.stderr)
+                case['elapsed_seconds'] = time.monotonic() - begun
+    with SourceRoot(ROOT) as owner:
+        after = {path: owner.read(path, 2 * 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    paired = []
+    for group in ('T013-P01', 'T013-P02', 'T013-P03', 'T013-P04', 'T013-P05', 'T013-P06', 'T013-P08'):
+        selected = [row for row in cases if row['group'] == group]
+        def captured(row):
+            if row['status'] != 'passed' or not row['observations']:
+                return None
+            structural = row['observations'][-1]['captured']['structural']
+            return {'identities': structural['identities'], 'artifact_ready': structural['artifact_ready'],
+                'coverage': structural['receipt']['coverage'], 'versions': structural['receipt']['versions'],
+                'normalized_facts_sha256': row.get('persisted_facts_sha256')}
+        values = [captured(row) for row in selected]
+        paired.append({'group': group, 'status': 'passed' if len(values) == 2 and values[0] is not None and
+                       values[0] == values[1] else 'failed'})
+    checks = [{'id': 'serial_queued_captured_status_parity',
+        'status': 'passed' if all(row['status'] == 'passed' for row in paired) else 'failed', 'groups': paired,
+        'git_pair_scope': 'Separate synthetic Git source owners are graded against their own frozen revision'},
+        {'id': 'implementation_stable', 'status': 'passed' if before == after else 'failed'}]
+    failures = [row for row in cases + checks if row['status'] != 'passed']
+    return {'schema_version': 1, 'suite': 'coverage', 'status': 'failed' if failures else 'passed',
+        'source_identity': {'inputs': frozen_identity, 'supplement_lock_sha256': supplement_lock_sha,
+            'original_files': {row['path']: row['sha256'] for row in inventory},
+            'supplemental_files': {row['path']: row['sha256'] for row in supplemental_inventory},
+            'identified_controls': controls, 'fake_backend_identity': {'model': FakeEmbedding.name,
+                'vector_sha256': hashlib.sha256(b'fresh-vector').hexdigest(), 'real_backend': False},
+            'implementation': {'commit': revision, 'sha256': before}},
+        'implementation_after': {'commit': revision, 'sha256': after}, 'preparation': prepared,
+        'case_results': cases, 'checks': checks, 'failures': failures, 'coverage_failures': coverage_failures,
+        'modes': modes, 'counts': {'groups': 8, 'checks': len(cases) + len(checks),
+            'passed': len(cases) + len(checks) - len(failures), 'receiver_enumeration_failures': len(coverage_failures)},
+        'zero_case_scope': {'frozen_partial_files': 0, 'frozen_unsupported_files': 0,
+            'frozen_default_size_exclusions': 0, 'source_watchers': 0, 'real_model_quality_cases': 0,
+            'git_status_boolean_cases': 0, 'framework_cases': 0, 'human_cases': 0, 'scale_cases': 0},
+        'environment': environment(), 'qualification_complete': False, 'limits_qualified': False,
+        'scope': 'Eight captured coverage/readiness groups in serial1 and queued2; existing locked sources '
+                 'and separately identified state/storage controls; status does not scan source/Git/models; '
+                 'receiver enumeration misses and unmeasured discovery/model/platform/scale/human scope remain explicit'}
 
 
 def queries(root=ROOT, budget=None):
@@ -1758,21 +2237,21 @@ def main(argv=None):
                         help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
-    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries'], default='component')
+    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
-                        help='finite report cap: 2 MiB for comparison/incremental/queries, 1 MiB otherwise')
+                        help='finite report cap: 2 MiB for comparison/incremental/queries/coverage, 1 MiB otherwise')
     parser.add_argument('--max-files', type=int, default=128)
     parser.add_argument('--max-source-bytes', type=int, default=4 * 1024 * 1024)
     parser.add_argument('--max-nodes', type=int, default=200_000)
     args = parser.parse_args(argv)
-    structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012'}.get(args.suite)
+    structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012', 'coverage': 'T013'}.get(args.suite)
     if not (args.engine or args.screen_engines or args.compare or args.profile) and structural_task is None:
         parser.error('an engine, screening, comparison or profiling mode is required for component')
     if structural_task and (args.screen_engines or args.compare or args.profile):
         parser.error(args.suite + ' uses the shared structural owner directly')
     if args.max_result_bytes is None:
-        args.max_result_bytes = (2 if args.compare or args.suite in ('incremental', 'queries') else 1) * 1024 * 1024
+        args.max_result_bytes = (2 if args.compare or args.suite in ('incremental', 'queries', 'coverage') else 1) * 1024 * 1024
     if args.freeze_budgets and not args.profile:
         parser.error('--freeze-budgets requires --profile')
     if args.preselection_cost_report and not args.compare:
@@ -1789,7 +2268,7 @@ def main(argv=None):
         if args.max_result_bytes <= 0:
             raise ValueError('Output budget must be positive')
         if structural_task:
-            producer = {'constructs': constructs, 'incremental': incremental, 'queries': queries}[args.suite]
+            producer = {'constructs': constructs, 'incremental': incremental, 'queries': queries, 'coverage': coverage}[args.suite]
             result = producer(ROOT, Budget(max_files=args.max_files,
                 max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes))
             result['resources'] = {args.suite + '_elapsed_seconds': time.perf_counter() - started}

@@ -160,6 +160,9 @@ previous artifact available. Unobserved live-source freshness is `unknown`;
 Status performs no source or Git rescan and loads no model. Semantic artifacts
 declare their keyword-document generation basis; backend availability is separate
 and structural-generation affinity remains unknown until explicitly captured.
+Git revision and admitted-source content identity are captured during indexing.
+The Git dirty boolean is unknown: repository-configured Git status can execute
+project filters, so this source-only analysis does not run it.
 
 ## Views and search
 

@@ -69,6 +69,114 @@ class StructuralIndexTests(unittest.TestCase):
         for kind in ('definitions', 'sites'):
             self.assertEqual(canonical(index.read_facts(kind)), canonical(clean['facts'][kind]))
 
+    def test_captured_partial_coverage_and_failed_attempt_survive_reopen(self):
+        sources = {'main.py': 'def target(): return 1\n',
+            'partial.py': 'def local():\n    return 1\ndef caller():\n    return local()\n! broken [\n',
+            'other.rs': 'fn undiscovered() {}\n'}
+        write_sources(self.root, sources)
+        for mode, concurrency in (('serial', 1), ('queued', 2)):
+            with self.subTest(mode=mode):
+                index = StructuralIndex(self.root, self.scratch / ('coverage-' + mode))
+                previous = self.ready(index, ['main.py', 'partial.py',
+                    {'path': 'other.rs', 'language': 'rust'}], mode=mode, concurrency=concurrency)
+                status = search.index_status(index.output, owner=index.output_owner)
+                published = status['structural']
+                self.assertTrue(published['artifact_ready'])
+                self.assertEqual(published['freshness'], 'unknown')
+                coverage = published['receipt']['coverage']
+                self.assertEqual(coverage['file_status'], {'parsed': 1, 'partial_parse': 1, 'unsupported_language': 1})
+                self.assertEqual(coverage['files_total'], 3)
+                self.assertEqual(coverage['by_language']['rust'], {'files_total': 1, 'file_status': {'unsupported_language': 1}})
+                self.assertGreater(coverage['parser_error_count'], 0)
+                self.assertFalse(coverage['parser_error_samples_truncated'])
+                for sample in coverage['parser_error_samples']:
+                    self.assertEqual(sample['path'], 'partial.py')
+                    self.assertLessEqual(sample['range']['end_byte'], len(sources['partial.py'].encode()))
+                calls = [site for site in index.read_facts('sites') if site['text'] == 'local()']
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0]['certainty'], 'unresolved')
+                self.assertFalse(calls[0]['targets_exhaustive'])
+                self.assertEqual(calls[0]['targets'], [])
+                self.assertTrue(calls[0]['reason'])
+                retained, artifact = facts(index), (index.output / 'search.db').read_bytes()
+                consumed = []
+                def entries():
+                    consumed.append('missing.py'); yield 'missing.py'
+                    consumed.append('unread.py'); yield 'unread.py'
+                failed = index.refresh(entries(), mode=mode, concurrency=concurrency)
+                self.assertEqual(failed['status'], 'failed')
+                self.assertFalse(failed['published'])
+                self.assertEqual(consumed, ['missing.py'])
+                self.assertEqual(failed['path'], 'missing.py')
+                self.assertEqual(failed['remaining_inventory_status'], 'not_evaluated_after_failure')
+                self.assertEqual(failed['resources']['inventory_entries_consumed'], 1)
+                self.assertEqual(failed['published_coverage_generation'], previous['generation'])
+                self.assertEqual((index.output / 'search.db').read_bytes(), artifact)
+                reopened = StructuralIndex(self.root, index.output)
+                captured = search.index_status(reopened.output, owner=reopened.output_owner)['structural']
+                self.assertEqual(captured['state'], 'failed')
+                self.assertTrue(captured['artifact_ready'])
+                self.assertEqual(captured['last_attempt']['status'], 'failed')
+                self.assertEqual(captured['identities']['generation'], previous['generation'])
+                self.assertEqual(captured['receipt'], published['receipt'])
+                self.assertEqual(facts(reopened), retained)
+
+    def test_git_revision_capture_keeps_dirty_unknown_and_avoids_configured_filters(self):
+        sources = {'main.py': 'def target(): return 1\n', '.gitattributes': 'main.py filter=marker\n',
+            'marker-filter.sh': "printf 'ran\\n' >> marker.txt\ncat\n"}
+        write_sources(self.root, sources)
+        git = ['git', '-c', 'user.name=Synthetic Fixture', '-c', 'user.email=fixture@example.invalid',
+            '-c', 'commit.gpgSign=false', '-c', 'core.hooksPath=/dev/null', '-c', 'init.templateDir=']
+        env = dict(os.environ, GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL='/dev/null', GIT_CONFIG_COUNT='0',
+            GIT_AUTHOR_NAME='Synthetic Fixture', GIT_AUTHOR_EMAIL='fixture@example.invalid',
+            GIT_COMMITTER_NAME='Synthetic Fixture', GIT_COMMITTER_EMAIL='fixture@example.invalid',
+            GIT_AUTHOR_DATE='2000-01-01T00:00:00+0000', GIT_COMMITTER_DATE='2000-01-01T00:00:00+0000',
+            GIT_TERMINAL_PROMPT='0')
+        def command(args):
+            return subprocess.run(git + args, cwd=self.root, env=env, check=True, capture_output=True, timeout=5)
+        for args in (['init', '-q'], ['add', '--', *sources], ['commit', '-q', '-m', 'Synthetic filter fixture']):
+            command(args)
+        index = StructuralIndex(self.root, self.output)
+        initial = self.ready(index, ['main.py'])
+        self.assertEqual(initial['revision_dirty']['knowledge'], 'captured_revision')
+        self.assertIsNone(initial['revision_dirty']['dirty'])
+        frozen_revision = initial['revision_dirty']['revision']
+        self.assertTrue(frozen_revision)
+        marker = self.root / 'marker.txt'
+        self.assertFalse(marker.exists())
+        conditional_include = 'includeIf.gitdir:' + str(self.root / '.git') + '.path'
+        for number, configuration in enumerate(('filter', 'include', 'includeIf', 'worktree'), 2):
+            with self.subTest(configuration=configuration):
+                if configuration == 'filter':
+                    command(['config', '--local', 'filter.marker.clean', 'sh marker-filter.sh'])
+                elif configuration == 'include':
+                    command(['config', '--local', '--unset-all', 'filter.marker.clean'])
+                    included = self.root / '.git' / 'included-config'
+                    included.write_text('[filter "marker"]\n\tclean = sh marker-filter.sh\n')
+                    command(['config', '--local', 'include.path', 'included-config'])
+                elif configuration == 'includeIf':
+                    command(['config', '--local', '--unset-all', 'include.path'])
+                    command(['config', '--local', conditional_include, 'included-config'])
+                else:
+                    command(['config', '--local', '--unset-all', conditional_include])
+                    command(['config', '--local', 'extensions.worktreeConfig', 'true'])
+                    (self.root / '.git' / 'config.worktree').write_text('[filter "marker"]\n\tclean = sh marker-filter.sh\n')
+                before = (self.root / 'main.py').stat()
+                edited = 'def target(): return %d\n' % number
+                self.assertEqual(len(edited.encode()), len(sources['main.py'].encode()))
+                write_sources(self.root, {'main.py': edited})
+                os.utime(self.root / 'main.py', ns=(before.st_atime_ns, before.st_mtime_ns + 2_000_000_000))
+                receipt = self.ready(index, ['main.py'])
+                self.assertFalse(marker.exists(), 'Git source capture executed a repository clean filter')
+                captured = receipt['revision_dirty']
+                self.assertEqual(captured['knowledge'], 'captured_revision')
+                self.assertEqual(captured['revision'], frozen_revision)
+                self.assertIsNone(captured['dirty'])
+                self.assertEqual(captured['reason'], 'git_dirty_not_observed_without_project_commands')
+                self.assertEqual(captured['dirty_basis'], 'unobserved_repository_configured_status')
+                self.assertEqual(captured['content_identity'], receipt['source_identity'])
+                self.assertNotEqual(receipt['source_identity'], initial['source_identity'])
+
     def test_persisted_facts_round_trip_physical_utf8_and_lexical_links(self):
         source = '# élève 東京\r\ndef café():\r\n    return 1\r\ndef appel():\r\n    return café()\r\n'
         write_sources(self.root, {'main.py': source})
@@ -464,7 +572,24 @@ class StructuralIndexTests(unittest.TestCase):
                 raise OSError(5, 'synthetic directory synchronization failure')
             return sync(fd)
         with patch.object(source_module.os, 'fsync', fail_output_directory):
+            refused_begin = index.refresh(['main.py'])
+        self.assertEqual(refused_begin['status'], 'failed')
+        self.assertFalse(refused_begin['published'])
+        self.assertEqual((self.output / 'search.db').read_bytes(), before)
+        self.assertEqual(index.metadata()['generation'], original['generation'])
+        self.assertEqual([row['name'] for row in index.read_facts('definitions')], ['before'])
+        injected = [False]
+        def fail_after_database_replace(fd):
+            info = os.fstat(fd)
+            if (not injected[0] and stat.S_ISDIR(info.st_mode) and
+                    (info.st_dev, info.st_ino) == (output.st_dev, output.st_ino) and
+                    (self.output / 'search.db').read_bytes() != before):
+                injected[0] = True
+                raise OSError(5, 'synthetic directory synchronization failure')
+            return sync(fd)
+        with patch.object(source_module.os, 'fsync', fail_after_database_replace):
             result = index.refresh(['main.py'])
+        self.assertTrue(injected[0])
         self.assertEqual(result['status'], 'publication_uncertain')
         self.assertTrue(result['published'])
         self.assertEqual(result['durability'], 'unconfirmed')
@@ -804,9 +929,10 @@ class StructuralValidationTests(unittest.TestCase):
                 'counts': {'checks': 1}, 'case_results': [{'id': 'receiver', 'status': 'passed'}],
                 'failures': [], 'coverage_failures': [{'id': 'receiver', 'status': 'failed',
                     'dimension': 'receiver_target_enumeration'}]}
-            for suite, task in (('constructs', 'T010'), ('incremental', 'T011'), ('queries', 'T012')):
+            for suite, task in (('constructs', 'T010'), ('incremental', 'T011'), ('queries', 'T012'), ('coverage', 'T013')):
                 prior = {'T009': retained, 'T010': {'status': 'passed', 'source_identity': 'retained-construct-proof'},
-                         'T011': {'status': 'passed', 'source_identity': 'retained-update-proof'}}
+                         'T011': {'status': 'passed', 'source_identity': 'retained-update-proof'},
+                         'T012': {'status': 'passed', 'source_identity': 'retained-query-proof'}}
                 path.write_text(json.dumps({'schema_version': 1, 'tasks': prior}))
                 with self.subTest(suite=suite), patch.object(analysis, 'ROOT', root), \
                         patch.object(analysis, suite, return_value=dict(result)), redirect_stdout(io.StringIO()):
@@ -827,7 +953,7 @@ class StructuralValidationTests(unittest.TestCase):
                     self.assertEqual(report['tasks'][task]['error_kind'], type(error).__name__)
                     for other in prior.keys() - {task}:
                         self.assertEqual(report['tasks'][other], prior[other])
-                if task == 'T012':
+                if task in ('T012', 'T013'):
                     alternate = root / 'query-check.json'
                     alternate.write_text(json.dumps(result))
                     saved = path.read_bytes()

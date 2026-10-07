@@ -42,12 +42,13 @@ def analyzer_identity():
 def _git_observation(root, check):
     """Capture Git knowledge during production, without retaining filenames or Git errors."""
     env = {'PATH': os.environ.get('PATH', ''), 'GIT_CONFIG_GLOBAL': os.devnull,
-           'GIT_CONFIG_NOSYSTEM': '1', 'GIT_OPTIONAL_LOCKS': '0', 'GIT_TERMINAL_PROMPT': '0'}
+           'GIT_CONFIG_NOSYSTEM': '1', 'GIT_OPTIONAL_LOCKS': '0', 'GIT_TERMINAL_PROMPT': '0',
+           'GIT_NO_LAZY_FETCH': '1'}
     command = ['git', '--no-optional-locks', '-c', 'core.fsmonitor=false',
                '-c', 'core.hooksPath=' + os.devnull, '-c', 'core.quotePath=true', '-C', str(root)]
-    def run(args, maximum):
+    def run(args, maximum, prefix=None):
         deadline, data = time.monotonic() + 2, bytearray()
-        with subprocess.Popen(command + args, env=env, stdin=subprocess.DEVNULL,
+        with subprocess.Popen((command if prefix is None else prefix) + args, env=env, stdin=subprocess.DEVNULL,
                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True) as process:
             try:
                 while True:
@@ -71,9 +72,11 @@ def _git_observation(root, check):
         revision = revision.decode('ascii').strip()
         if len(revision) not in (40, 64) or any(c not in '0123456789abcdef' for c in revision):
             raise ValueError('Invalid Git revision')
-        dirty = run(['status', '--porcelain=v1', '--untracked-files=normal', '--ignore-submodules=all'], 1)
-        if dirty is None: raise ValueError('Git status unavailable')
-        return {'revision': revision, 'dirty': bool(dirty), 'knowledge': 'captured_git', 'reason': None}
+        # The source digest captures dirty content. Git status may execute project filters;
+        # a configured clean/dirty boolean is deliberately unobserved by source-only analysis.
+        return {'revision': revision, 'dirty': None, 'knowledge': 'captured_revision',
+                'reason': 'git_dirty_not_observed_without_project_commands',
+                'dirty_basis': 'unobserved_repository_configured_status'}
     except (OSError, ValueError, TimeoutError, subprocess.TimeoutExpired):
         return {'revision': None, 'dirty': None, 'knowledge': 'unknown', 'reason': 'git_capture_unavailable_or_bounded_stop'}
 
@@ -92,7 +95,7 @@ def _coverage(db, count, check):
         group['files_total'] += total
         group['file_status'][status] = total + group['file_status'].get(status, 0)
     overflow.pop('last_language', None)
-    sites, errors, samples, sample_bytes = {}, 0, [], 0
+    sites, errors, samples, sample_bytes = {}, 0, [], 2
     for role, data in db.execute('SELECT role,data FROM structural_sites ORDER BY path,ordinal'):
         check()
         certainty = json.loads(data)['certainty']
@@ -103,7 +106,7 @@ def _coverage(db, count, check):
         for error in json.loads(ir)['errors']:
             errors += 1
             sample = {'path': path, 'kind': error['kind'], 'range': error['range']}
-            size = len(encoded(sample))
+            size = len(encoded(sample)) + bool(samples)
             if len(samples) < 16 and sample_bytes + size <= 4096:
                 samples.append(sample); sample_bytes += size
     return {'files_total': count, 'files_supported': statuses.get('parsed', 0) + statuses.get('partial_parse', 0),
@@ -640,8 +643,19 @@ class StructuralIndex:
             if receipt is not None:
                 self.last_attempt = receipt
             if attempt is not None and receipt is not None:
+                captured = dict(receipt)
+                if 'collection_failures' in captured:
+                    samples, size = [], 0
+                    for failure in captured['collection_failures']:
+                        length = len(encoded(failure))
+                        if len(samples) < 20 and size + length <= 4096:
+                            samples.append(failure); size += length
+                    captured.update(collection_failures=samples,
+                        collection_failures_count=len(receipt['collection_failures']),
+                        collection_failures_truncated=len(samples) != len(receipt['collection_failures']))
+                if captured.get('reason'): captured['reason'] = captured['reason'][:1024]
                 terminal = dict(attempt, status=receipt['status'], finished_at=time.time(),
-                                published=receipt['published'], receipt=receipt)
+                                published=receipt['published'], receipt=captured)
                 if receipt.get('reason'):
                     terminal['reason'] = receipt['reason'][:1024]
                 try:
