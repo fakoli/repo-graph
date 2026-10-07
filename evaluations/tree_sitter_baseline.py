@@ -159,7 +159,7 @@ class FileFacts:
         self.record, self.raw, self.tree, self.work = record, raw, tree, work
         self.path, self.language = record['path'], record['language']
         self.module = Scope(None, 'module', '')
-        self.nodes, self.node_scopes = [], {}
+        self.nodes = []
         self.definitions, self.sites, self.imports, self.errors = [], [], [], []
         self.callable_nodes = {}
         self.partial = tree.root_node.has_error
@@ -215,8 +215,11 @@ class FileFacts:
         while pending:
             node, scope = pending.pop()
             self.work.node()
-            self.nodes.append(node)
-            self.node_scopes[node.id] = scope
+            # ponytail: retain potential sites with their scopes, not every AST
+            # node; full trees/bindings still live until cross-file resolution.
+            if node.type in ('call', 'call_expression', 'new_expression', 'identifier') or (
+                    self.language == 'go' and node.type == 'type_conversion_expression'):
+                self.nodes.append((node, scope))
             if node.is_error or node.is_missing:
                 self.errors.append({'kind': 'missing' if node.is_missing else 'error',
                                     'range': self.location(node), 'syntax_kind': node.type})
@@ -382,7 +385,7 @@ class FileFacts:
                                     binding_node, scope, True))
 
     def emit_sites(self, resolve):
-        for node in self.nodes:
+        for node, scope in self.nodes:
             self.work.check()
             callee = None
             syntax_role = 'call'
@@ -409,7 +412,6 @@ class FileFacts:
                     callee = node
             if not role:
                 continue
-            scope = self.node_scopes[node.id]
             targets, reason, method = resolve(self, callee, scope, node.start_byte)
             if syntax_role == 'call_or_conversion':
                 targets, reason, method = [], 'Go grammar cannot distinguish this call from a type conversion without type information', 'unsupported_go_ambiguity'

@@ -145,6 +145,129 @@
         "records": [],
         "peak_rss_bytes": 4214657024
       }
+    },
+    {
+      "corpus": "django",
+      "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+      "experiment": "retain-potential-sites-only",
+      "exit_code": 0,
+      "stdout_sha256": "e0a957961b827c74efc124737c3d602c814cf4f008bc051b7f3cc1542c874363",
+      "implementation": {
+        "commit": "546475510fe66d6104fe913fdcfb9c5a8cfb93fd",
+        "dirty_at_measurement": true,
+        "helper_sha256": "baa5b42cdafe56a441f88f24c8532b1d4984027b615f1fc24889f19e1cd662cf",
+        "profiler_sha256": "2707d2582cb73987ce9e5cf7b94bc427de5990275b44bc0248731c042aa4bbc6"
+      },
+      "result": {
+        "engine": "tree-sitter",
+        "records": [
+          {
+            "run": "fresh-output",
+            "status": "partial",
+            "wall_seconds": 16.602548843016848,
+            "stages": {
+              "inventory_seconds": 0.14648721198318526,
+              "source_bytes": 19646901,
+              "nodes_visited": 4525626,
+              "facts_emitted": 243029,
+              "parse_seconds": 1.6161515472922474,
+              "elapsed_seconds": 13.429737536003813,
+              "read_seconds": 0.11554785599582829
+            },
+            "source_reads": {
+              "operations": 2976,
+              "hashed_bytes": 19646901,
+              "prefix_bytes": 19646901
+            },
+            "counts": {
+              "inventoried_files": 6958,
+              "selected_source_files": 2976,
+              "excluded_other_files": 3982,
+              "definitions": 44013,
+              "sites": 199016
+            },
+            "coverage": {
+              "status": "partial",
+              "stop_reason": null,
+              "errors": 0,
+              "limits": {
+                "max_files": 60000,
+                "max_file_bytes": 2097152,
+                "max_total_bytes": 1073741824,
+                "max_nodes": 50000000,
+                "max_facts": 2000000,
+                "timeout_seconds": 300
+              },
+              "inventory_statuses": {
+                "parsed": 2973,
+                "partial_parse": 3
+              }
+            },
+            "input_inventory_sha256": "8d4f00bf66296b3f9be2a8b0e3e78439cc7a599578a20b504c05735a269448e2",
+            "semantic_facts_sha256": "548941e792e0ec389bcc50421bc1394a24ab5be40f32bbcceba04060c0dd0cc3",
+            "artifact_bytes": 202466379,
+            "peak_rss_bytes": 1670975488
+          },
+          {
+            "run": "unchanged-repeat",
+            "status": "partial",
+            "wall_seconds": 17.151216851983918,
+            "stages": {
+              "inventory_seconds": 0.14502937300130725,
+              "source_bytes": 19646901,
+              "nodes_visited": 4525626,
+              "facts_emitted": 243029,
+              "parse_seconds": 1.5002962292637676,
+              "elapsed_seconds": 13.943214878003346,
+              "read_seconds": 0.11699206498451531
+            },
+            "source_reads": {
+              "operations": 2976,
+              "hashed_bytes": 19646901,
+              "prefix_bytes": 19646901
+            },
+            "counts": {
+              "inventoried_files": 6958,
+              "selected_source_files": 2976,
+              "excluded_other_files": 3982,
+              "definitions": 44013,
+              "sites": 199016
+            },
+            "coverage": {
+              "status": "partial",
+              "stop_reason": null,
+              "errors": 0,
+              "limits": {
+                "max_files": 60000,
+                "max_file_bytes": 2097152,
+                "max_total_bytes": 1073741824,
+                "max_nodes": 50000000,
+                "max_facts": 2000000,
+                "timeout_seconds": 300
+              },
+              "inventory_statuses": {
+                "parsed": 2973,
+                "partial_parse": 3
+              }
+            },
+            "input_inventory_sha256": "8d4f00bf66296b3f9be2a8b0e3e78439cc7a599578a20b504c05735a269448e2",
+            "semantic_facts_sha256": "548941e792e0ec389bcc50421bc1394a24ab5be40f32bbcceba04060c0dd0cc3",
+            "artifact_bytes": 202466379,
+            "peak_rss_bytes": 2008059904
+          }
+        ],
+        "deterministic_repeat": true,
+        "native_repeat_cache": "none; complete bounded rescan",
+        "model_calls": 0,
+        "rss_scope": "process lifetime; Linux KiB converted to bytes"
+      },
+      "equivalence": {
+        "reference_pilot_stdout_sha256": "9ce29204c777315be6b1d15fc85a03806aefae5d22e04f86ea8f7eb24fe78097",
+        "facts_inventory_counts_coverage_unchanged": true,
+        "independent_technical_review": "approved",
+        "scope": "Same full Django sources and semantic/inventory hashes in two in-process scans; single worker per implementation"
+      },
+      "interpretation": "Lower observed peak RSS and higher wall time; diagnostic single trial, no speed or adoption claim"
     }
   ],
   "retained_previous_failure": {
