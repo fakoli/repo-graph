@@ -89,6 +89,35 @@ Import maps and callable facts have different outputs; their timings cannot
 establish an equivalent-workload speedup. A native unchanged repeat is currently
 a full rescan. Custom Rust/PyO3 remains unbuilt and unadopted.
 
+For the pinned local corpus checkouts, supply a private JSON source map with
+`schema_version: 1` and a `corpora` array of `{id, source, revision}` entries.
+`source` is an absolute checkout directory; `revision` is its full Git commit.
+Use the committed corpus IDs/revisions and any independently reviewed dependency
+source. Keep this local map outside the product and source checkouts. Set
+`REPO_GRAPH_EVAL_SOURCE_MAP` to its filename, then run:
+
+```bash
+uv run python evaluations/analysis.py --compare --suite component
+uv run python evaluations/acceptance.py --gate engine
+uv run python evaluations/analysis.py --profile --freeze-budgets
+uv run python evaluations/acceptance.py --gate acceleration
+```
+
+These commands currently return a blocked result. The comparison retains each
+real-call judgment and finite worker check; incremental queries and the actual
+missing-backend runtime check remain unimplemented. The four-corpus profiler
+runs three independent workers per workload, each capped at 4 GiB address space
+and 660 seconds, and retains failed/partial trials. Capacity reports have no
+equivalent-fact reference, update/query measurements or accepted budget lock.
+Neither relabeling a report nor a requested budget freeze can pass those gates.
+Current implementation bytes and committed frozen inputs must match the reports.
+
+Workers use private home/config/cache/temp directories and isolated Python with
+bytecode writes disabled. Full profiling logs and inventory receipts remain
+beside the private source map; portable reports retain their digests, individual
+resource measurements and coverage failures. Worker directory creation and
+writes use held directory descriptors on Linux. Other kernels remain unqualified.
+
 The [single-worker scale pilots](results/code-understanding/structural-pilots.json)
 retain the initial native crash and fixed-run results. Django finished a partial
 scan in 15.4 seconds at 1,981,386,752 bytes peak RSS, with three partial parses.

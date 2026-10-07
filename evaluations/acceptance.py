@@ -308,15 +308,175 @@ def committed(root, paths):
     return True
 
 
+def experiment_gate(gate, root=None):
+    """Validate actual experiment artifacts; missing measurements fail closed."""
+    from evaluations.analysis import frozen_inputs
+    root = Path(root or ROOT)
+    path = 'evaluations/results/code-understanding/' + ('engine-comparison.json' if gate == 'engine' else 'capacity-profile.json')
+    task = 'T007' if gate == 'engine' else 'T008'
+    checks = []
+    def check(name, condition, detail):
+        checks.append({'id': name, 'status': 'passed' if condition else 'failed', 'detail': detail})
+    try:
+        _, identity = frozen_inputs(root)
+        with SourceRoot(root) as owner:
+            report, sha = read_json(owner, path)
+            aggregate, _ = read_json(owner, 'evaluations/results/code-understanding/engine.json')
+        check('report_shape', isinstance(report, dict) and type(report.get('schema_version')) is int and
+              report['schema_version'] == 1, 'Typed experiment report required')
+        member = aggregate['tasks'][task]
+        check('claim_artifact_binding', member.get('artifact') == path and member.get('artifact_sha256') == sha and
+              member.get('status') == report.get('status'), 'Aggregate must bind the exact current experiment bytes/status')
+        source = report.get('source_identity') or {}
+        check('frozen_source_identity', isinstance(source, dict) and all(source.get(k) == v for k, v in identity.items()),
+              'Original frozen fixture/review identities must match current inputs')
+        with SourceRoot(root) as owner:
+            lock, lock_sha = read_json(owner, INPUTS + 'input-lock.json')
+        check('committed_frozen_inputs', committed(root, dict(lock['sha256'], **{INPUTS + 'input-lock.json': lock_sha})),
+              'Current locked inputs must match one committed snapshot')
+        hashes = dict(report.get('implementation', {}).get('sha256', {}))
+        if gate == 'engine':
+            for name, digest_value in report.get('lifecycle', {}).get('implementation_sha256', {}).items():
+                if name in hashes and hashes[name] != digest_value:
+                    raise ValueError('Different implementations used for comparison and lifecycle')
+                hashes[name] = digest_value
+        for name in hashes:
+            SourceRoot.parts(name)
+        with SourceRoot(root) as owner:
+            current = bool(hashes) and all(owner.read(name, 1024 * 1024, hash_full=True)[1] == value
+                                         for name, value in hashes.items())
+        check('committed_experiment_implementation', current and committed(root, hashes) and
+              'evaluations/analysis.py' in hashes and 'evaluations/acceptance.py' in hashes,
+              'Recorded implementation must match both current bytes and committed blobs, including the driver')
+        cases = report.get('case_results') or []
+        if gate == 'engine':
+            from evaluations.real_calls import source_locations
+            with SourceRoot(root) as owner:
+                calls, _ = read_json(owner, INPUTS + 'real-calls.json')
+                reviewed, _ = read_json(owner, INPUTS + 'source-review.json')
+            locations, supplemental = source_locations(root, calls, reviewed, identity)
+            check('supplemental_frozen_source', all(source.get(k) == v for k, v in supplemental.items()),
+                  'Supplemental source positions and lock must be current and committed')
+            expected_calls = {c['id']: c for c in calls['cases']}
+            judgments = {c['id']: c for c in reviewed['judgments']}
+            real = report['real_calls']
+            actual = {c['id']: c for c in real['case_results']}
+            valid = len(actual) == len(real['case_results']) and set(actual) == set(expected_calls)
+            correctness = {}
+            for name, candidate in expected_calls.items():
+                row, judgment = actual[name], judgments[name]
+                valid &= all(row[k] == candidate[k] for k in ('repository_id', 'revision', 'path', 'language', 'file_sha256', 'range'))
+                valid &= type(row['supported']) is bool and row['supported'] == judgment['supported']
+                valid &= row['reviewed_targets'] == judgment['targets'] and row['expected_certainty'] == judgment['certainty']
+                sites = row['actual_sites']
+                bound = [b for b in row['target_bindings'] if b['status'] == 'bound']
+                valid &= len(sites) == 1 and sites[0]['role'] == 'call' and sites[0]['path'] == candidate['path']
+                if len(sites) == 1:
+                    valid &= (sites[0]['range']['start_byte'], sites[0]['range']['end_byte']) == (
+                        candidate['range']['utf8_bytes']['start'], candidate['range']['utf8_bytes']['end_exclusive'])
+                    valid &= sites[0]['provenance']['source_sha256'] == candidate['file_sha256']
+                    if not judgment['supported']:
+                        valid &= row['status'] == 'passed' and bool(sites[0]['reason']) and (
+                            sites[0]['certainty'] == 'unresolved' and not sites[0]['targets'] or
+                            judgment['certainty'] == 'candidate' and sites[0]['certainty'] == 'candidate' and
+                            sites[0]['targets_exhaustive'] is False and
+                            set(sites[0]['targets']) <= {b['definition']['id'] for b in bound})
+                exact = len(sites) == 1 and sites[0]['certainty'] == 'resolved' and bool(sites[0]['targets'])
+                exact &= {b['key'] for b in bound} == set(judgment['targets'])
+                if exact:
+                    exact &= set(sites[0]['targets']) == {b['definition']['id'] for b in bound}
+                    exact &= (sites[0]['range']['start_byte'], sites[0]['range']['end_byte']) == (
+                        candidate['range']['utf8_bytes']['start'], candidate['range']['utf8_bytes']['end_exclusive'])
+                    exact &= sites[0]['provenance']['source_sha256'] == candidate['file_sha256']
+                    for binding in bound:
+                        declaration, anchor = binding['definition'], locations[name, binding['key']]
+                        exact &= all(declaration[k] == anchor[k] for k in ('repository_id', 'revision', 'path'))
+                        exact &= declaration['provenance']['source_sha256'] == anchor['file_sha256']
+                        exact &= declaration['range'] in [anchor[k] for k in
+                            ('declaration_range', 'statement_range', 'callable_expression_range') if anchor.get(k)]
+                correctness[name] = row['status'] == 'passed' and row['outcome'] == 'supported' and exact
+                if judgment['supported'] and row['status'] == 'passed':
+                    valid &= exact
+            quality = True
+            languages = {c['language'] for c in expected_calls.values()}
+            valid &= set(real['per_language']) == languages
+            for language in languages:
+                supported = [c for c in expected_calls.values() if c['language'] == language and judgments[c['id']]['supported']]
+                correct = sum(correctness[c['id']] for c in supported)
+                resolved = sum(any(s['certainty'] == 'resolved' for s in actual[c['id']]['actual_sites']) for c in supported)
+                ungraded = sum(actual[c['id']]['status'] == 'ungraded' for c in supported)
+                precision = None if ungraded or not resolved else correct / resolved
+                recall = correct / len(supported)
+                metrics = real['per_language'][language]
+                valid &= (metrics['supported_denominator'] == len(supported) and metrics['supported_correct'] == correct and
+                    metrics['supported_ungraded'] == ungraded and metrics['selected_supported_precision'] == precision and
+                    metrics['selected_supported_recall_lower_bound'] == recall)
+                quality &= precision is not None and precision >= .95 and recall >= .85 and not ungraded
+            check('real_call_measurements', valid and quality,
+                  'Recompute supported denominators/exact bindings/precision/recall from all sixteen frozen cases; proposed targets are not measurements')
+            required = {'syntax_direct_binding', 'reusable_source_screen', 'real_call_quality', 'finite_worker_lifecycle',
+                        'evidence_uncertainty', 'incremental_equivalence', 'bounded_query_work', 'optional_installation'}
+            check('mandatory_component_gates', isinstance(cases, list) and len(cases) == len(required) and
+                  {c['id'] for c in cases} == required and all(c['status'] == 'passed' for c in cases),
+                  'All source/binding/lifecycle/uncertainty/update/query/install gates required; not-run is not passing')
+            check('qualified_adapter_available', False,
+                  'This comparator has no incremental/query adapter or missing-backend runtime proof; changing report labels cannot supply them')
+            check('qualified_owner', report.get('status') == 'passed' and report.get('engine_selected') is True and
+                  isinstance(report.get('selected_owner'), str) and bool(report['selected_owner']),
+                  'An unselected decision preserves failures but cannot qualify a structural owner')
+        else:
+            expected = {f'{corpus}:{engine}:{run}' for corpus in ('django', 'odoo', 'aws', 'kubernetes')
+                        for engine in ('current-map', 'tree-sitter') for run in range(3)}
+            check('measured_trials', isinstance(cases, list) and len(cases) == len(expected) and
+                  {c['id'] for c in cases} == expected and all(c['status'] == 'passed' and c['exit_code'] == 0 and
+                    c['identity_verified'] is True and c['revision'] == PINS[c['corpus']] and
+                    c['id'] == f"{c['corpus']}:{c['engine']}:{c['repeat']}" and
+                    len(c['result']['records']) == 2 and {r['run'] for r in c['result']['records']} ==
+                    {'fresh-output', 'unchanged-repeat'} and all(r['status'] == 'complete' and
+                        type(r['wall_seconds']) in (float, int) and r['wall_seconds'] > 0 and
+                        type(r['peak_rss_bytes']) is int and r['peak_rss_bytes'] > 0 and
+                        type(r['counts']['inventoried_files']) is int and r['counts']['inventoried_files'] > 0 and
+                        all(isinstance(r[k], str) and len(r[k]) == 64 and all(c in '0123456789abcdef' for c in r[k])
+                            for k in ('semantic_facts_sha256', 'input_inventory_sha256')) for r in c['result']['records']) for c in cases),
+                  'Three independent measured workers for every frozen corpus/workload; partial/failure retained')
+            check('immutable_empirical_budgets', report.get('budget_freeze', {}).get('status') == 'locked' and
+                  report.get('status') == 'passed' and not report.get('remaining_gates'),
+                  'Equivalent-fact, update and query measurements must precede a committed budget lock')
+            check('reference_workload_available', False,
+                  'This capacity profiler has no equivalent-fact reference or measured update/query adapter; changing report labels cannot supply them')
+            check('rust_disposition', report.get('rust') == {'adopted': False, 'prototype_built': False, 'speed_gain_measured': False},
+                  'Current no-Rust scope must not fabricate prototype gains')
+        source_identity = source
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
+        check('experiment_evidence_available', False, 'Missing, unsafe, malformed or mismatched experiment evidence')
+        source_identity = None
+    passed = bool(checks) and all(c['status'] == 'passed' for c in checks)
+    return {'schema_version': 1, 'gate': gate, 'status': 'passed' if passed else 'blocked',
+            'source_identity': source_identity, 'case_results': checks, 'qualification_complete': False,
+            'remaining_gates': ['agent', 'independent human UX', 'distribution', 'release'],
+            'limitations': ['A component gate cannot establish later human or release acceptance.']}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--gate', choices=['freeze'], default='freeze')
+    parser.add_argument('--gate', choices=['freeze', 'engine', 'acceleration'], default='freeze')
     parser.add_argument('--prepare', action='store_true', help='Check draft inputs only; does not pass the freeze gate')
     parser.add_argument('--seal-inputs', action='store_true', help='Record input hashes; requires --prepare')
     parser.add_argument('--source-review', type=Path, help='Independent source review; defaults to the committed source-review.json')
     parser.add_argument('--review-template', type=Path, help='Write an unfilled independent source judgment template')
     parser.add_argument('--report', type=Path, help='Write a portable report; no reviewer identifiers are retained')
     args = parser.parse_args(argv)
+    if args.gate != 'freeze':
+        if args.prepare or args.seal_inputs or args.source_review or args.review_template:
+            parser.error('Source-freeze options apply only to --gate freeze')
+        report = experiment_gate(args.gate)
+        if args.report:
+            args.report.parent.mkdir(parents=True, exist_ok=True)
+            with SourceRoot(args.report.parent) as source:
+                source.write_json(args.report.name, report)
+        print(json.dumps({'gate': args.gate, 'status': report['status'],
+                          'failures': [c for c in report['case_results'] if c['status'] != 'passed']}))
+        return 0 if report['status'] == 'passed' else 1
     if args.seal_inputs and not args.prepare:
         parser.error('--seal-inputs requires --prepare')
     cases, hashes, documents = inputs()

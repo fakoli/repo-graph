@@ -33,6 +33,45 @@ def site(result, source):
 
 
 class BackendTests(unittest.TestCase):
+    def test_work_root_creation_pins_parent_before_mkdir(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            source, parent = root / 'source', root / 'parent'
+            source.mkdir()
+            parent.mkdir()
+            mapping = root / 'map.json'
+            mapping.write_text(json.dumps({'corpora': [{'source': str(source)}]}))
+            mkdir = os.mkdir
+            def swap(path, *args, **kwargs):
+                if Path(path).name == 'new-workers':
+                    parent.rename(root / 'old-parent')
+                    parent.symlink_to(source, target_is_directory=True)
+                return mkdir(path, *args, **kwargs)
+            with patch.object(os, 'mkdir', side_effect=swap):
+                with analysis.worker_directory(mapping, parent / 'new-workers') as pinned:
+                    (pinned / 'proof').write_text('owned')
+            self.assertEqual((root / 'old-parent/new-workers/proof').read_text(), 'owned')
+            self.assertEqual(list(source.iterdir()), [])
+
+    def test_evaluation_work_root_swap_cannot_write_to_source(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            source, work = root / 'source', root / 'workers'
+            source.mkdir()
+            (source / 'canary').write_text('unchanged')
+            mapping = root / 'map.json'
+            mapping.write_text(json.dumps({'corpora': [{'source': str(source)}]}))
+            with analysis.worker_directory(mapping, work) as pinned:
+                work.rename(root / 'original-workers')
+                work.symlink_to(source, target_is_directory=True)
+                (pinned / 'lifecycle-proof').mkdir()
+                self.assertTrue((root / 'original-workers/lifecycle-proof').is_dir())
+                self.assertFalse((source / 'lifecycle-proof').exists())
+            self.assertEqual((source / 'canary').read_text(), 'unchanged')
+            with self.assertRaisesRegex(ValueError, 'outside source'):
+                with analysis.worker_directory(mapping, work):
+                    pass
+
     def test_screen_rejects_malformed_records_and_boolean_schema(self):
         decision = json.loads((ROOT / analysis.INPUTS / 'engine-decisions.json').read_text())
         malformed = [[], dict(decision, input_identity=[]), dict(decision, sources=[])]

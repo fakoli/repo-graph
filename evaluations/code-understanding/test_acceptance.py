@@ -11,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from evaluations import acceptance as gate
+from evaluations import analysis, real_calls
 
 
 class FreezeInputs(unittest.TestCase):
@@ -131,6 +132,119 @@ class FreezeInputs(unittest.TestCase):
             return SimpleNamespace(returncode=0, stdout=data)
         with patch.object(gate.subprocess, 'run', side_effect=git):
             self.assertFalse(gate.committed(self.root, wanted))
+
+    def experiment(self, kind, cases=None):
+        for path in ('evaluations/analysis.py', 'evaluations/acceptance.py'):
+            (self.root / path).write_bytes((gate.ROOT / path).read_bytes())
+        _, identity = analysis.frozen_inputs(self.root)
+        hashes = {path: gate.digest((self.root / path).read_bytes()) for path in
+                  ('evaluations/analysis.py', 'evaluations/acceptance.py')}
+        report = {'schema_version': 1, 'status': 'passed', 'source_identity': identity,
+                  'implementation': {'sha256': hashes}, 'case_results': cases or [],
+                  'engine_selected': True, 'selected_owner': 'synthetic-negative-only',
+                  'budget_freeze': {'status': 'locked'}, 'remaining_gates': [],
+                  'rust': {'adopted': False, 'prototype_built': False, 'speed_gain_measured': False}}
+        if kind == 'engine':
+            with patch.object(real_calls, 'committed', return_value=True):
+                calls = json.loads((self.root / gate.INPUTS / 'real-calls.json').read_text())
+                review = json.loads((self.root / gate.INPUTS / 'source-review.json').read_text())
+                _, supplement = real_calls.source_locations(self.root, calls, review, identity)
+            report['source_identity'].update(supplement)
+            report['real_calls'] = {'case_results': [], 'per_language': {}}
+        return report
+
+    def write_experiment(self, kind, report):
+        filename, task = ('engine-comparison.json', 'T007') if kind == 'engine' else ('capacity-profile.json', 'T008')
+        path = 'evaluations/results/code-understanding/' + filename
+        analysis.write_result(self.root, path, report, 1024 * 1024)
+        aggregate = {'tasks': {task: {'artifact': path, 'artifact_sha256': gate.digest((self.root / path).read_bytes()),
+                                   'status': report['status']}}}
+        analysis.write_result(self.root, 'evaluations/results/code-understanding/engine.json', aggregate, 1024 * 1024)
+
+    def test_stale_report_and_dirty_implementation_cannot_pass(self):
+        report = self.experiment('acceleration')
+        self.write_experiment('acceleration', report)
+        path = self.root / 'evaluations/results/code-understanding/capacity-profile.json'
+        path.write_bytes(path.read_bytes() + b' ')
+        with patch.object(gate, 'committed', return_value=True):
+            result = gate.experiment_gate('acceleration', self.root)
+        failed = {c['id'] for c in result['case_results'] if c['status'] == 'failed'}
+        self.assertIn('claim_artifact_binding', failed)
+        self.write_experiment('acceleration', report)
+        with (self.root / 'evaluations/analysis.py').open('ab') as stream:
+            stream.write(b'\n# changed after experiment\n')
+        with patch.object(gate, 'committed', return_value=True):
+            result = gate.experiment_gate('acceleration', self.root)
+        self.assertIn('committed_experiment_implementation', {c['id'] for c in result['case_results'] if c['status'] == 'failed'})
+        self.assertEqual(result['status'], 'blocked')
+
+    def test_trial_labels_and_locked_budget_do_not_replace_measurements(self):
+        cases = [{'id': f'{corpus}:{engine}:{run}', 'status': 'passed', 'corpus': corpus,
+                  'engine': engine, 'repeat': run, 'revision': gate.PINS[corpus],
+                  'exit_code': 0, 'identity_verified': True, 'result': {'records': []}}
+                 for corpus in ('django', 'odoo', 'aws', 'kubernetes')
+                 for engine in ('current-map', 'tree-sitter') for run in range(3)]
+        report = self.experiment('acceleration', cases)
+        self.write_experiment('acceleration', report)
+        with patch.object(gate, 'committed', return_value=True):
+            result = gate.experiment_gate('acceleration', self.root)
+        failed = {c['id'] for c in result['case_results'] if c['status'] == 'failed'}
+        self.assertIn('measured_trials', failed)
+        self.assertIn('reference_workload_available', failed)
+        self.assertEqual(result['status'], 'blocked')
+        # Even plausible resource counters cannot establish equivalent facts,
+        # update/query work or reference budgets by changing a status label.
+        for row in cases:
+            row['result']['records'] = [{'run': name, 'status': 'complete', 'wall_seconds': 1,
+                'peak_rss_bytes': 1, 'counts': {'inventoried_files': 1},
+                'semantic_facts_sha256': '0' * 64, 'input_inventory_sha256': '0' * 64}
+                for name in ('fresh-output', 'unchanged-repeat')]
+        report['case_results'] = cases
+        self.write_experiment('acceleration', report)
+        with patch.object(gate, 'committed', return_value=True):
+            result = gate.experiment_gate('acceleration', self.root)
+        self.assertEqual(result['status'], 'blocked')
+        self.assertIn('reference_workload_available', {c['id'] for c in result['case_results'] if c['status'] == 'failed'})
+        cases[0]['corpus'], cases[0]['revision'] = 'odoo', gate.PINS['odoo']
+        self.write_experiment('acceleration', report)
+        with patch.object(gate, 'committed', return_value=True):
+            result = gate.experiment_gate('acceleration', self.root)
+        self.assertIn('measured_trials', {c['id'] for c in result['case_results'] if c['status'] == 'failed'})
+
+    def test_engine_labels_cannot_replace_frozen_real_cases(self):
+        required = ('syntax_direct_binding', 'reusable_source_screen', 'real_call_quality',
+                    'finite_worker_lifecycle', 'evidence_uncertainty', 'incremental_equivalence',
+                    'bounded_query_work', 'optional_installation')
+        report = self.experiment('engine', [{'id': name, 'status': 'passed'} for name in required])
+        self.write_experiment('engine', report)
+        with patch.object(gate, 'committed', return_value=True), patch.object(real_calls, 'committed', return_value=True):
+            result = gate.experiment_gate('engine', self.root)
+        self.assertEqual(result['status'], 'blocked')
+        self.assertIn('experiment_evidence_available', {c['id'] for c in result['case_results'] if c['status'] == 'failed'})
+        calls = json.loads((self.root / gate.INPUTS / 'real-calls.json').read_text())['cases']
+        judgments = {j['id']: j for j in json.loads((self.root / gate.INPUTS / 'source-review.json').read_text())['judgments']}
+        # All frozen cases are present, but fabricated perfect metrics contradict
+        # the unresolved facts. The validator must recompute instead of trust them.
+        report['real_calls']['case_results'] = [dict(
+            {k: c[k] for k in ('id', 'repository_id', 'revision', 'path', 'language', 'file_sha256', 'range')},
+            supported=judgments[c['id']]['supported'], expected_certainty=judgments[c['id']]['certainty'],
+            reviewed_targets=judgments[c['id']]['targets'], status='passed', outcome='supported', target_bindings=[],
+            actual_sites=[{'role': 'call', 'path': c['path'], 'range': {
+                'start_byte': c['range']['utf8_bytes']['start'], 'end_byte': c['range']['utf8_bytes']['end_exclusive']},
+                'provenance': {'source_sha256': c['file_sha256']}, 'certainty': 'unresolved', 'targets': [],
+                'reason': 'Synthetic negative, not a measurement'}]) for c in calls]
+        for language in gate.LANGUAGES:
+            count = sum(c['language'] == language and judgments[c['id']]['supported'] for c in calls)
+            report['real_calls']['per_language'][language] = {'supported_denominator': count,
+                'supported_correct': count, 'supported_ungraded': 0, 'selected_supported_precision': 1,
+                'selected_supported_recall_lower_bound': 1}
+        self.write_experiment('engine', report)
+        with patch.object(gate, 'committed', return_value=True), patch.object(real_calls, 'committed', return_value=True):
+            result = gate.experiment_gate('engine', self.root)
+        failed = {c['id'] for c in result['case_results'] if c['status'] == 'failed'}
+        self.assertIn('real_call_measurements', failed)
+        self.assertIn('qualified_adapter_available', failed)
+        self.assertEqual(result['status'], 'blocked')
 
 
 if __name__ == '__main__':

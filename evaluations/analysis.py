@@ -8,6 +8,7 @@ No provider calls, real-corpus download, daemon, dynamic imports of source code,
 or runtime product installation occurs. Results do not select an engine.
 """
 import argparse
+from contextlib import contextmanager
 import hashlib
 from importlib import metadata
 import json
@@ -309,11 +310,173 @@ def screen_engines(root=ROOT):
                 'Real-call quality, updates, query work and full runtime lifecycle remain unqualified.']}
 
 
+@contextmanager
+def worker_directory(source_map, requested=None):
+    """Evaluation workers must write outside every supplied corpus root."""
+    with SourceRoot(source_map.parent) as source:
+        mapped, _ = read_json(source, source_map.name)
+    directory = requested or source_map.parent / 'analysis-workers'
+    destination = directory.resolve()
+    for entry in mapped['corpora']:
+        root = Path(entry['source']).resolve()
+        if destination == root or root in destination.parents:
+            raise ValueError('Evaluation worker directory must be outside source corpora')
+    ancestor = destination
+    while not ancestor.exists():
+        ancestor = ancestor.parent
+    with SourceRoot(ancestor) as owner:
+        if not owner.secure or owner.root != ancestor:
+            raise ValueError('Evaluation worker directory ownership changed')
+        parent = os.dup(owner.fd)
+        try:
+            for part in destination.relative_to(ancestor).parts:
+                try:
+                    child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                except FileNotFoundError:
+                    os.mkdir(part, 0o700, dir_fd=parent)
+                    child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent)
+                os.close(parent)
+                parent = child
+            # ponytail: Linux qualification uses the open directory during both
+            # creation and worker writes. Other kernels remain unqualified.
+            pinned = Path('/proc/self/fd') / str(parent)
+            if not pinned.is_dir():
+                raise OSError('Pinned evaluation work roots require Linux descriptor paths')
+            yield pinned
+        finally:
+            os.close(parent)
+
+
+def comparison_identity(root=ROOT):
+    """Capture the complete experiment before its first stage, not midway."""
+    _, identity = frozen_inputs(root)
+    paths = ('evaluations/analysis.py', 'evaluations/acceptance.py', 'evaluations/real_calls.py',
+             'evaluations/engine_checks.py', 'evaluations/tree_sitter_baseline.py', 'repo_graph/source.py',
+             'evaluations/code-understanding/source-target-lock.json',
+             'evaluations/code-understanding/source-target-locations.json', 'pyproject.toml', 'uv.lock')
+    with SourceRoot(root) as source:
+        hashes = {path: source.read(path, 1024 * 1024, hash_full=True)[1] for path in paths}
+    return {'source_identity': identity, 'commit': subprocess.check_output(
+        ['git', 'rev-parse', 'HEAD'], cwd=root, text=True, timeout=20).strip(), 'sha256': hashes}
+
+
+def compare_component(source_map, work_root=None):
+    """Run source-only experiments; absent capabilities cannot select an owner."""
+    from evaluations.real_calls import compare_real_calls
+    from evaluations.engine_checks import run_checks
+    captured = comparison_identity()
+    syntax, screen = component(), screen_engines()
+    real = compare_real_calls(source_map)
+    with worker_directory(source_map, work_root) as directory:
+        lifecycle = run_checks(evidence_directory=directory)
+    if comparison_identity() != captured:
+        raise ValueError('Comparison inputs or implementation changed between stages')
+    checks = lifecycle['check_results']
+    quality = all(value['supported_denominator'] > 0 and value['supported_ungraded'] == 0 and
+        value['selected_supported_precision'] is not None and value['selected_supported_precision'] >= .95 and
+        value['selected_supported_recall_lower_bound'] >= .85 for value in real['per_language'].values())
+    required_lifecycle = [c for c in checks if c['id'] not in ('incremental_equivalence', 'bounded_query_work')]
+    gates = [
+        {'id': 'syntax_direct_binding', 'status': syntax['status'], 'scope': syntax['scope']},
+        {'id': 'reusable_source_screen', 'status': screen['status'], 'scope': 'Eligibility only; rejected candidates not executed'},
+        {'id': 'real_call_quality', 'status': 'passed' if quality else 'failed', 'per_language': real['per_language'],
+         'targets': {'precision': .95, 'recall': .85}, 'scope': 'Sixteen independent AI-reviewed examples; tiny selected sample'},
+        {'id': 'finite_worker_lifecycle', 'status': 'passed' if required_lifecycle and
+            all(c['status'] == 'passed' for c in required_lifecycle) else 'failed',
+         'scope': 'Owned evaluation workers only; not a product lifecycle API'},
+        {'id': 'evidence_uncertainty', 'status': 'passed' if syntax['status'] == 'passed' and
+            all(c['status'] == 'passed' for c in real['case_results'] if not c['supported']) else 'failed',
+         'scope': 'Exact source ranges/provenance and conservative uncertainty; missing candidate targets reported separately'},
+        {'id': 'optional_installation', 'status': 'blocked',
+         'reason': 'Pinned optional wheels executed in isolation; actual absent-backend core-runtime check remains required'},
+        *[c for c in checks if c['id'] in ('incremental_equivalence', 'bounded_query_work')],
+    ]
+    return {'schema_version': 1, 'experiment': 'component-engine-comparison', 'status': 'blocked',
+        'engine_selected': False, 'selected_owner': None, 'qualification_complete': False,
+        'source_identity': real['source_identity'], 'source_map_sha256': real['source_map_sha256'],
+        'implementation': {k: captured[k] for k in ('commit', 'sha256')},
+        'scope': 'Finite component comparison; no product owner selected',
+        'component': syntax, 'real_calls': real, 'lifecycle': lifecycle, 'source_screen': screen,
+        'case_results': gates, 'coverage_failures': syntax['coverage_failures'],
+        'blocking_gates': [c['id'] for c in gates if c['status'] != 'passed'],
+        'decision': {'native': 'unqualified', 'reusable': 'source-rejected or install-blocked; no reusable engine executed',
+                     'owner': 'unselected', 'automatic_rewrite': False},
+        'remaining_gates': ['optional missing-backend runtime check', 'qualified incremental updates', 'bounded query adapter',
+                            'scale/update/query measurements', 'agent', 'independent human UX', 'distribution', 'release'],
+        'limitations': ['Parser syntax alone is not call resolution; individual binding/unknown/candidate results retained.',
+            'Passing an experiment would not qualify the later human-facing product.',
+            'Missing incremental/query capability and failing supported-language recall prevent selection.']}
+
+
+def profile_component(source_map, work_root=None, freeze_budgets=False):
+    """Capacity observations do not substitute for equivalent-fact/update work."""
+    from evaluations.performance import profile_structural
+    with SourceRoot(source_map.parent) as owner:
+        _, map_sha = read_json(owner, source_map.name)
+    with SourceRoot(ROOT) as owner:
+        driver_sha = owner.read('evaluations/analysis.py', 1024 * 1024, hash_full=True)[1]
+    trial = 'capacity-' + uuid.uuid4().hex[:12]
+    with worker_directory(source_map, work_root) as directory:
+        artifact = directory / (trial + '.json')
+        records = profile_structural(source_map, artifact, directory / (trial + '-logs'))
+        with SourceRoot(directory) as owner:
+            _, artifact_sha, _ = owner.read(artifact.name, 0, hash_full=True)
+    with SourceRoot(source_map.parent) as owner:
+        if read_json(owner, source_map.name)[1] != map_sha:
+            raise ValueError('Private source map changed during profiling; receipts retained')
+    if not records:
+        raise ValueError('No measured worker records')
+    with SourceRoot(ROOT) as owner:
+        if owner.read('evaluations/analysis.py', 1024 * 1024, hash_full=True)[1] != driver_sha:
+            raise ValueError('Profile driver changed; worker receipts retained')
+    _, identity = frozen_inputs(ROOT)
+    cases = []
+    for record in records:
+        result = dict(record['result'])
+        # ponytail: complete inventory receipts stay in the hashed private report;
+        # task evidence retains individual failures without a second huge export.
+        result['records'] = [dict(item, coverage={k: v for k, v in item['coverage'].items() if k != 'files'},
+            failed_files=[f for f in item['coverage'].get('files', []) if f['status'] in
+                          ('partial_parse', 'source_error', 'truncated', 'not_observed')])
+            for item in result.get('records', [])]
+        if 'coverage' in result:
+            result['coverage'] = {'file_receipt_count': len(result['coverage'].get('files', [])),
+                'full_receipts_in_hashed_private_artifact': True}
+        cases.append({'id': f"{record['corpus']}:{record['engine']}:{record['repeat']}", 'exit_code': record['exit_code'],
+            'corpus': record['corpus'], 'engine': record['engine'], 'repeat': record['repeat'],
+            'revision': record['revision'], 'identity_verified': record['identity_verified'],
+            'status': 'passed' if record['identity_verified'] and record['exit_code'] == 0 and
+                result['records'] and all(x['status'] == 'complete' for x in result['records']) else 'failed',
+            'worker_wall_seconds': record['worker_wall_seconds'], 'stdout_sha256': record['stdout_sha256'],
+            'stderr_sha256': record['stderr_sha256'], 'result': result})
+    return {'schema_version': 1, 'experiment': 'capacity-profiling', 'status': 'blocked',
+        'source_identity': identity, 'scope': 'Capacity baselines with different output workloads; no equivalent-workload gain',
+        'case_results': cases, 'private_artifact_sha256': artifact_sha,
+        'source_map_sha256': map_sha, 'implementation': dict(records[0]['implementation_after'],
+            sha256=dict(records[0]['implementation_after']['sha256'], **{'evaluations/analysis.py': driver_sha})),
+        'native_backend': {name: metadata.version(name) for name in PINS}, 'environment': environment(),
+        'engine_selected': False, 'qualification_complete': False,
+        'budget_freeze': {'requested': freeze_budgets, 'status': 'blocked',
+            'reason': 'Equivalent-fact reference, one-file/dependent updates and scoped query measurements incomplete'},
+        'rust': {'adopted': False, 'prototype_built': False, 'speed_gain_measured': False},
+        'remaining_gates': ['equivalent-fact profiling', 'one-file/dependent updates', 'query p50/p95/work budgets',
+                            'immutable reference-based large-corpus budgets'],
+        'limitations': ['Import maps and native callable facts have different outputs; no speedup ratio is valid.',
+            'All partial parses, failed workers and individual measured trials remain evidence.',
+            'Rust adoption requires separate approval and ADR0006 measured equivalent-workload thresholds.']}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument('--engine', choices=['tree-sitter'])
     modes.add_argument('--screen-engines', action='store_true')
+    modes.add_argument('--compare', action='store_true')
+    modes.add_argument('--profile', action='store_true')
+    parser.add_argument('--freeze-budgets', action='store_true')
+    parser.add_argument('--source-map', type=Path, default=os.environ.get('REPO_GRAPH_EVAL_SOURCE_MAP'),
+                        help='private pinned source map; alternatively REPO_GRAPH_EVAL_SOURCE_MAP')
+    parser.add_argument('--work-root', type=Path, help='private directory outside all source roots')
     parser.add_argument('--suite', choices=['component'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int, default=1024 * 1024)
@@ -321,11 +484,30 @@ def main(argv=None):
     parser.add_argument('--max-source-bytes', type=int, default=4 * 1024 * 1024)
     parser.add_argument('--max-nodes', type=int, default=200_000)
     args = parser.parse_args(argv)
-    args.output = args.output or ('evaluations/results/code-understanding/reusable-screen.json' if args.screen_engines else DEFAULT_OUTPUT)
+    if args.freeze_budgets and not args.profile:
+        parser.error('--freeze-budgets requires --profile')
+    default = ('evaluations/results/code-understanding/engine-comparison.json' if args.compare else
+               'evaluations/results/code-understanding/capacity-profile.json' if args.profile else
+               'evaluations/results/code-understanding/reusable-screen.json' if args.screen_engines else DEFAULT_OUTPUT)
+    args.output = args.output or default
     started = time.perf_counter()
     try:
         if args.max_result_bytes <= 0:
             raise ValueError('Output budget must be positive')
+        if args.compare or args.profile:
+            if args.source_map is None:
+                result = {'schema_version': 1, 'status': 'blocked', 'source_identity': None,
+                          'case_results': [], 'reason': 'Private pinned --source-map or REPO_GRAPH_EVAL_SOURCE_MAP required',
+                          'engine_selected': False, 'qualification_complete': False}
+            else:
+                result = (compare_component(args.source_map, args.work_root) if args.compare else
+                          profile_component(args.source_map, args.work_root, args.freeze_budgets))
+            size = write_result(ROOT, args.output, result, args.max_result_bytes)
+            if args.output == default:
+                record_task(ROOT, 'T007' if args.compare else 'T008', result, args.output, args.max_result_bytes)
+            print(json.dumps({'status': result['status'], 'result': args.output, 'result_bytes': size,
+                              'engine_selected': False, 'qualification_complete': False}))
+            return 0 if result['status'] == 'passed' else 1
         if args.screen_engines:
             result = screen_engines()
             size = write_result(ROOT, args.output, result, args.max_result_bytes)
@@ -355,11 +537,22 @@ def main(argv=None):
             write_result(ROOT, args.output, result, args.max_result_bytes)
             if args.output == DEFAULT_OUTPUT:
                 record_task(ROOT, 'T005', result, args.output, args.max_result_bytes)
+            elif (args.compare or args.profile) and args.output == default:
+                record_task(ROOT, 'T007' if args.compare else 'T008', result, args.output, args.max_result_bytes)
         except (OSError, ValueError):
             pass
         print(json.dumps(result, separators=(',', ':')))
         return 2
     except (OSError, ValueError, KeyError, TypeError) as error:
+        if args.compare or args.profile:
+            result = {'schema_version': 1, 'status': 'blocked', 'error_kind': type(error).__name__,
+                      'source_identity': None, 'case_results': [], 'engine_selected': False, 'qualification_complete': False}
+            try:
+                write_result(ROOT, args.output, result, args.max_result_bytes)
+                if args.output == default:
+                    record_task(ROOT, 'T007' if args.compare else 'T008', result, args.output, args.max_result_bytes)
+            except (OSError, ValueError):
+                pass
         print(json.dumps({'status': 'failed', 'error_kind': type(error).__name__, 'reason': str(error)}, separators=(',', ':')))
         return 1
 
