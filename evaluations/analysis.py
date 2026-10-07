@@ -2621,7 +2621,7 @@ def profile_fixture_pilot(root, evidence_directory):
         try:
             with owner.open('stdout.log', create=True) as stdout, owner.open('stderr.log', create=True) as stderr:
                 process = subprocess.Popen([sys.executable, '-I', '-B', str(root / 'evaluations/performance.py'),
-                    '--persistent-supervisor', str(bridge), '--creator-pid', str(os.getpid())],
+                    '--persistent-supervisor', str(Path('/proc/self/fd') / str(owner.fd)), '--creator-pid', str(os.getpid())],
                     cwd=bridge, env=checks._environment(bridge), pass_fds=(owner.fd,),
                     stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, start_new_session=True)
                 receipt['returncode'] = process.wait(timeout=95)

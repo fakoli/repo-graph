@@ -85,6 +85,39 @@ class BackendTests(unittest.TestCase):
                 self.assertTrue(receipt['cleanup']['group_absent'])
                 self.assertTrue(all(row['complete'] for row in receipt['logs']))
 
+    @unittest.skipUnless(sys.platform == 'linux', 'Descriptor handoff requires Linux procfs')
+    def test_fixture_pilot_launcher_hands_evidence_to_creating_child(self):
+        from evaluations import engine_checks as checks
+        original = subprocess.Popen
+        admitted = []
+        child = "\n".join((
+            'import json,sys',
+            'from pathlib import Path',
+            'sys.path.insert(0, ' + repr(str(ROOT)) + ')',
+            'from evaluations import engine_checks as checks',
+            'with checks._adapter_run(Path(sys.argv[1]), Path(sys.argv[2]), "fd-admission") as (run,name):',
+            '    assert run.is_dir()',
+            'print(json.dumps(dict(kind="persistent_fixture_profile",status="complete",cases=[],',
+            '    engine_selected=False,qualification_complete=False,resource_budgets_frozen=False,',
+            '    representative_corpus_profiled=False,all_owned_source_reads_measured=False)))',
+        ))
+        def launch(command, **options):
+            evidence = command[command.index('--persistent-supervisor') + 1]
+            fd, = options['pass_fds']
+            admitted.append((evidence, fd))
+            return original([command[0], '-I', '-B', '-c', child, str(ROOT), evidence], **options)
+        with tempfile.TemporaryDirectory(prefix='pilot-fd-handoff-') as scratch, \
+                patch.object(analysis.subprocess, 'Popen', side_effect=launch):
+            result = analysis.profile_fixture_pilot(ROOT, Path(scratch))
+            self.assertEqual(result['status'], 'complete', result)
+            evidence, fd = admitted[0]
+            self.assertEqual(evidence, str(Path('/proc/self/fd') / str(fd)))
+            directory, = Path(scratch).iterdir()
+            receipt = json.loads((directory / 'command.json').read_text())
+            self.assertEqual(receipt['returncode'], 0)
+            self.assertTrue(receipt['cleanup']['leader_reaped'])
+            self.assertTrue(receipt['cleanup']['group_absent'])
+
     def test_required_comparison_command_uses_configured_evidence_root(self):
         with tempfile.TemporaryDirectory() as scratch:
             directory = Path(scratch)
