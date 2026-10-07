@@ -19,6 +19,56 @@ from evaluations.acceptance import PINS
 
 
 class ObservedProfile(unittest.TestCase):
+    def test_live_storage_scan_retains_unlink_and_atomic_publication_gaps(self):
+        """Synthetic list/stat races; no collector, parser, corpus or profile run."""
+        for operation in ('unlink_request', 'atomic_publish'):
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as scratch:
+                root = Path(scratch); (root / 'stable.bin').write_bytes(b'abc')
+                with performance.SourceRoot(root) as owner:
+                    if operation == 'unlink_request':
+                        (root / 'request.json').write_bytes(b'pending')
+                        publish = lambda: os.unlink('request.json', dir_fd=owner.fd)
+                    else:
+                        writer = owner.atomic_writer('ready.json')
+                        writer.__enter__().write(b'ready')
+                        publish = lambda: writer.__exit__(None, None, None)
+                    listed = os.listdir
+                    pending = [True]
+                    def raced(fd):
+                        names = listed(fd)
+                        if pending[0]: pending[0] = False; publish()
+                        return names
+                    with patch.object(performance.os, 'listdir', side_effect=raced):
+                        usage = performance._persistent_storage_usage(root, max_files=16, check=lambda: None)
+                    self.assertEqual(usage, dict(bytes=3, files=1, missing_entry_observations=1))
+                    settled = performance._persistent_storage_usage(root, max_files=16, check=lambda: None)
+                    self.assertEqual(settled['missing_entry_observations'], 0)
+                    self.assertEqual(settled['bytes'], 3 if operation == 'unlink_request' else 8)
+                    with self.assertRaisesRegex(ValueError, 'reference ceiling'):
+                        performance._persistent_storage_usage(root, max_files=0, check=lambda: None)
+                    (root / 'link').symlink_to(root / 'stable.bin')
+                    with self.assertRaisesRegex(ValueError, 'nonregular'):
+                        performance._persistent_storage_usage(root, max_files=16, check=lambda: None)
+                    (root / 'link').unlink()
+                    stated = os.stat
+                    def denied(name, **kwargs):
+                        if name == 'stable.bin' and 'dir_fd' in kwargs:
+                            raise PermissionError(errno.EACCES, 'synthetic denied metadata')
+                        return stated(name, **kwargs)
+                    with patch.object(performance.os, 'stat', side_effect=denied), self.assertRaises(PermissionError):
+                        performance._persistent_storage_usage(root, max_files=16, check=lambda: None)
+                    budget = performance._persistent_budget(root, root, performance.time.monotonic() + 5)
+                    self.assertEqual(budget.observed['missing_entry_observations'], 0)
+                    self.assertIn('non-atomic', budget.observed['scope'])
+                    (root / 'request.json').write_bytes(b'pending')
+                    pending[0] = True
+                    publish = lambda: os.unlink('request.json', dir_fd=owner.fd)
+                    with patch.object(performance.os, 'listdir', side_effect=raced): budget()
+                    self.assertEqual(budget.observed['missing_entry_observations'], 1)
+                    compact = performance.compact_persistent_result(dict(kind='persistent_corpus_profile',
+                        status='failed', artifact_budget_observations=budget.observed))
+                    self.assertEqual(compact['artifact_budget_observations']['missing_entry_observations'], 1)
+
     def test_representative_watchdog_bounds_each_job_and_retains_unknown_descendants(self):
         """Immediate synthetic timeouts; no worker, query, parser or profile pair."""
         from evaluations import engine_checks as checks

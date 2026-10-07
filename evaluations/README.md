@@ -136,8 +136,11 @@ the phase receipt. Obsolete evaluator-owned live indexes are removed only after
 their retained evidence is validated. The 4 GiB job and 8 GiB pair caps remain;
 this storage policy is a measured-size feasibility correction, not qualified
 capacity. Failed controller causes and actual source cleanup remain observable
-when execution stops. Use a distinct `--report` path for the revised attempt;
-previous reports are never overwritten.
+when execution stops. Live storage scans retain gaps when a worker removes a
+listed request or publishes a temporary file before its metadata is read.
+These scans observe allocated lengths without claiming an atomic total; other
+metadata and ownership errors still stop the run. Use a distinct `--output`
+path for the revised attempt; previous reports are never overwritten.
 
 For the pinned local corpus checkouts, supply a private JSON source map with
 `schema_version: 1` and a `corpora` array of `{id, source, revision}` entries.

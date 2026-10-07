@@ -1689,22 +1689,28 @@ def _persistent_snapshot(index, directory, label, *, check, limits, prior_proofs
 
 def _persistent_storage_usage(directory, *, max_files, check):
     """Count allocated artifact lengths, including live temporary SQLite files."""
-    total, files = 0, 0
+    total, files, missing = 0, 0, 0
     with SourceRoot(directory) as root:
         def visit(fd):
-            nonlocal total, files
+            nonlocal total, files, missing
             for name in os.listdir(fd):
-                check(); info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                check()
+                try: info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    # Owned workers unlink requests and atomically publish temporary files.
+                    missing += 1
+                    if files + missing > max_files: raise ValueError('Artifact reference ceiling exhausted')
+                    continue
                 if stat.S_ISDIR(info.st_mode):
                     child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
                     try: visit(child)
                     finally: os.close(child)
                 elif stat.S_ISREG(info.st_mode):
                     files += 1; total += info.st_size
-                    if files > max_files: raise ValueError('Artifact reference ceiling exhausted')
+                    if files + missing > max_files: raise ValueError('Artifact reference ceiling exhausted')
                 else: raise ValueError('Owned artifact tree contains a nonregular entry')
         visit(root.fd)
-    return dict(bytes=total, files=files)
+    return dict(bytes=total, files=files, missing_entry_observations=missing)
 
 
 def _persistent_budget(directory, pair, deadline, *, cancel=None, pair_only=False):
@@ -1712,7 +1718,8 @@ def _persistent_budget(directory, pair, deadline, *, cancel=None, pair_only=Fals
     identities = {}
     observed = dict(checks=0, job_bytes=None if pair_only else 0, pair_bytes=0,
         job_files=None if pair_only else 0, pair_files=0,
-        scope='cooperative observed file lengths including live/tmp; full scans at allocation, phase, batch and one-second SQL checkpoints; no kernel aggregate quota')
+        missing_entry_observations=0,
+        scope='cooperative non-atomic observed file lengths including live/tmp; disappeared entries retained as scan gaps; full scans at allocation, phase, batch and one-second SQL checkpoints; no kernel aggregate quota')
     for path in (directory, pair):
         with SourceRoot(path) as owner: identities[str(path)] = owner.identity
     def clock():
@@ -1726,6 +1733,7 @@ def _persistent_budget(directory, pair, deadline, *, cancel=None, pair_only=Fals
             with SourceRoot(path) as owner:
                 if owner.identity != identities[str(path)]: raise ValueError('Artifact directory owner changed')
             usage = _persistent_storage_usage(path, max_files=refs, check=clock)
+            observed['missing_entry_observations'] += usage.get('missing_entry_observations', 0)
             label = 'pair' if path == pair else 'job'
             observed[label + '_bytes'] = max(observed[label + '_bytes'], usage['bytes'])
             observed[label + '_files'] = max(observed[label + '_files'], usage['files'])
@@ -3059,7 +3067,7 @@ def compact_persistent_result(wrapper):
     if representative:
         result.update(select(report, 'corpus protocol_sha256 repetition planned_repetitions representative_matrix_complete ceilings'))
         result['artifact_budget_observations'] = select(report.get('artifact_budget_observations'),
-            'checks job_bytes pair_bytes job_files pair_files scope')
+            'checks job_bytes pair_bytes job_files pair_files missing_entry_observations scope')
         result['source_materialization'] = [select(row, 'mode operations successful_operations failed_operations open_operations '
             'stream_bytes hashed_bytes returned_prefix_bytes hash_passes inclusive_read_ns by_pass scope')
             for row in report.get('source_materialization') or []]
@@ -3138,7 +3146,7 @@ def compact_persistent_result(wrapper):
                 if control is not None else None)
         rss = raw.get('owned_rss') or {}
         if representative: row['artifact_budget_observations'] = select(raw.get('artifact_budget_observations'),
-            'checks job_bytes pair_bytes job_files pair_files scope')
+            'checks job_bytes pair_bytes job_files pair_files missing_entry_observations scope')
         row['owned_rss'] = {key: rss[key] for key in ('peak_sampled_owned_rss_bytes', 'sample_count', 'complete_sample_count',
             'sample_gap_count', 'created_child_count', 'largest_start_interval_ns', 'max_read_skew_ns', 'queue_high_water',
             'requested_interval_seconds', 'per_window_limits', 'max_windows', 'unsampled_peak_bound', 'all_created_children_registered',
