@@ -19,6 +19,7 @@ import time
 from urllib.parse import urlsplit
 from repo_graph import jev
 from repo_graph.jev import typesafe_key
+from repo_graph.source import SourceRoot
 
 
 PAGE_SIZE = 24
@@ -28,7 +29,7 @@ CODE_EXTENSIONS = {".go", ".py", ".js", ".jsx", ".ts", ".tsx"}
 ROLES = ("application", "library", "infrastructure", "tests", "documentation", "examples", "tooling", "other")
 
 
-def repo_files(root: Path) -> list[str]:
+def repo_files(root: Path, *, coverage: dict | None = None) -> list[str]:
     command = ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"]
     result = subprocess.run(command, cwd=root, capture_output=True, check=False) if shutil.which("git") else None
     if result is not None and result.returncode == 0:
@@ -38,9 +39,21 @@ def repo_files(root: Path) -> list[str]:
         for base, dirs, files in os.walk(root):
             dirs[:] = [name for name in dirs if name not in SKIP_DIRS and not name.startswith(".")]
             paths.extend((Path(base) / name).relative_to(root) for name in files)
-    return sorted({path.as_posix() for path in paths
-                   if path.parts and not any(part.startswith(".") or part in SKIP_DIRS for part in path.parts)
-                   and (root / path).is_file() and not (root / path).is_symlink()})
+    valid, failures = set(), []
+    with SourceRoot(root) as source:
+        for path in paths:
+            if not path.parts or any(part.startswith('.') or part in SKIP_DIRS for part in path.parts):
+                continue
+            try:
+                source.info(path.as_posix())
+                valid.add(path.as_posix())
+            except OSError as error:
+                failures.append({'path': path.as_posix(), 'reason': error.strerror})
+                continue
+        if coverage is not None:
+            coverage.update(identity=source.identity, secure_reads=source.secure,
+                            failed=len(failures), failures=failures[:50])
+    return sorted(valid)
 
 
 def tree_index(files: list[str]) -> dict[str, dict]:
@@ -122,13 +135,29 @@ def local_target(path: str, imported: str, module: str, tree: dict[str, dict]) -
 
 
 def extract_dependencies(root: Path, files: list[str], tree: dict[str, dict], cache_path: Path) -> tuple[list[dict], dict]:
+    with SourceRoot(root) as source:
+        return _extract_dependencies(source, files, tree, cache_path)
+
+
+def _extract_dependencies(source: SourceRoot, files: list[str], tree: dict[str, dict], cache_path: Path):
     module = ""
-    if (root / "go.mod").is_file():
-        match = re.search(r"(?m)^module\s+(\S+)", (root / "go.mod").read_text(encoding="utf-8", errors="replace")[:4096])
-        module = match.group(1) if match else ""
+    failures = []
     try:
-        old = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        data, _, _ = source.read('go.mod', 4096, hash_full=False)
+        match = re.search(r"(?m)^module\s+(\S+)", data.decode('utf-8', errors='replace'))
+        module = match.group(1) if match else ""
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        failures.append({'path': 'go.mod', 'reason': error.strerror})
+    identity = {'schema': 2, 'repository': source.identity, 'analyzer': 'imports-v2',
+                'read_limit': READ_LIMIT, 'extensions': sorted(CODE_EXTENSIONS)}
+    try:
+        with SourceRoot(cache_path.parent) as cache_root, cache_root.open(cache_path.name) as stream:
+            cached = json.load(stream)
+        old = cached['files'] if all(cached.get(k) == v for k, v in identity.items()) else {}
+        if not isinstance(old, dict): old = {}
+    except (OSError, ValueError, KeyError, AttributeError):
         old = {}
     current, edges = {}, Counter()
     scanned = reused = truncated = 0
@@ -138,30 +167,32 @@ def extract_dependencies(root: Path, files: list[str], tree: dict[str, dict], ca
             if posixpath.splitext(file)[1] not in CODE_EXTENSIONS:
                 continue
             try:
-                stat = (root / file).stat()
-                stamp = [stat.st_mtime_ns, stat.st_size]
+                data, digest, stat = source.read(file, READ_LIMIT)
                 cached = old.get(file)
-                if cached and cached[:2] == stamp:
-                    imports = cached[2]
+                if (isinstance(cached, dict) and cached.get('digest') == digest
+                        and isinstance(cached.get('imports'), list) and all(isinstance(i, str) for i in cached['imports'])):
+                    imports = cached['imports']
                     reused += 1
                 else:
-                    with (root / file).open("rb") as stream:
-                        source = stream.read(READ_LIMIT).decode("utf-8", errors="replace")
-                    imports = imports_from(file, source)
+                    imports = imports_from(file, data.decode('utf-8', errors='replace'))
                     scanned += 1
                 truncated += stat.st_size > READ_LIMIT
-            except OSError:
+            except OSError as error:
+                failures.append({'path': file, 'reason': error.strerror})
                 continue
-            current[file] = [*stamp, imports]
+            current[file] = {'digest': digest, 'imports': imports}
             source_dir = posixpath.dirname(file)
             for imported in imports:
                 target_dir = local_target(file, imported, module, tree)
                 if target_dir is not None and target_dir != source_dir:
                     edges[source_dir, target_dir] += 1
-    cache_path.write_text(json.dumps(current, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    with SourceRoot(cache_path.parent) as cache_root:
+        if cache_root.secure:
+            cache_root.write_json(cache_path.name, dict(identity, files=current))
     return ([{"source": a, "target": b, "count": n, "relation": "imports"}
              for (a, b), n in sorted(edges.items())],
-            {"scanned": scanned, "reused": reused, "truncated": truncated, "code_files": len(current)})
+            {"scanned": scanned, "reused": reused, "truncated": truncated, "code_files": len(current),
+             'identity': identity, 'failed': len(failures), 'failures': failures[:50], 'secure_reads': source.secure})
 
 
 def scope_edges(dependencies: list[dict]) -> dict[str, list[dict]]:
@@ -340,7 +371,8 @@ def main(argv=None) -> int:
     if output == root or root in output.parents:
         parser.error("output directory must be outside the repository")
     output.mkdir(parents=True, exist_ok=True)
-    files = repo_files(root)
+    inventory = {}
+    files = repo_files(root, coverage=inventory)
     if not files:
         raise RuntimeError("No readable repository files found.")
     tree = tree_index(files)
@@ -371,6 +403,7 @@ def main(argv=None) -> int:
                 worker = threading.Thread(target=classify, daemon=True)
                 worker.start()
     dependencies, scan = extract_dependencies(root, files, tree, output / "scan-cache.json")
+    scan['inventory'] = inventory
     if worker:
         worker.join(timeout=max(0, 3.2 - (time.monotonic() - started)))
         if not worker.is_alive():
@@ -381,7 +414,13 @@ def main(argv=None) -> int:
         else:
             jev_status = "timed out"
     from repo_graph.search import catalog
-    search = catalog(root, files, output)
+    search = {'documents': 0, 'scanned': 0, 'reused': 0, 'secure_reads': False,
+              'status': 'unavailable', 'reason': 'Secure source reads unavailable; metadata-only offline map'}
+    if scan['secure_reads']:
+        try:
+            search = catalog(root, files, output)
+        except OSError:
+            search['reason'] = 'Secure index access unavailable; offline map preserved'
     edges = scope_edges(dependencies)
     display_name = Path(urlsplit(args.repo).path.rstrip("/")).name.removesuffix(".git") if args.repo.startswith("https://") else root.name
     graph = {"schema": 1, "name": display_name, "file_count": len(files), "files": files,

@@ -4,14 +4,347 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
+import os
+import subprocess
+import sys
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from repo_graph import search
 from repo_graph.server import create_server
+from repo_graph.source import SourceRoot
+from repo_graph import source as source_module
 
 
 class SearchTests(unittest.TestCase):
+    def test_failed_native_open_cleans_uncached_private_snapshot(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch)
+            with closing(search.connect(out)): pass
+            snapshots = []
+            original = tempfile.TemporaryDirectory
+            def captured(*args, **kwargs):
+                temporary = original(*args, **kwargs)
+                snapshots.append(Path(temporary.name))
+                return temporary
+            with patch.object(search.tempfile, 'TemporaryDirectory', side_effect=captured), patch.object(
+                    search.sqlite3, 'connect', side_effect=search.sqlite3.OperationalError('synthetic open failure')):
+                for readonly in (False, True):
+                    with self.assertRaises(search.sqlite3.OperationalError): search.connect(out, readonly=readonly)
+            self.assertEqual(len(snapshots), 2)
+            self.assertTrue(all(not path.exists() for path in snapshots))
+
+    def test_index_publication_cas_interruption_and_durability_uncertainty(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch)
+            with closing(search.connect(out)): pass
+            first, second = search.connect(out), search.connect(out)
+            try:
+                with first: first.execute("INSERT INTO docs(path,stamp,digest,body,terms) VALUES('first.py','','first','first','first')")
+                first.close()
+                accepted = (out / 'search.db').read_bytes()
+                with self.assertRaisesRegex(RuntimeError, 'stale'):
+                    with second: second.execute("INSERT INTO docs(path,stamp,digest,body,terms) VALUES('second.py','','second','second','second')")
+            finally: first.close(); second.close()
+            self.assertEqual((out / 'search.db').read_bytes(), accepted)
+            with patch.object(source_module.os, 'replace', side_effect=OSError('synthetic pre-commit failure')):
+                with self.assertRaises(OSError):
+                    with closing(search.connect(out)) as db, db:
+                        db.execute("UPDATE docs SET body='interrupted'")
+            self.assertEqual((out / 'search.db').read_bytes(), accepted)
+            original_sync = os.fsync
+            def fail_directory(fd):
+                import stat
+                if stat.S_ISDIR(os.fstat(fd).st_mode): raise OSError('synthetic post-commit failure')
+                return original_sync(fd)
+            with patch.object(source_module.os, 'fsync', side_effect=fail_directory):
+                with self.assertRaisesRegex(RuntimeError, 'published.*durability is uncertain'):
+                    with closing(search.connect(out)) as db, db: db.execute("UPDATE docs SET body='committed'")
+            with closing(search.connect(out, readonly=True)) as db:
+                self.assertEqual(db.execute('SELECT body FROM docs').fetchone()[0], 'committed')
+            self.assertFalse(list(out.glob('.search.db.*.tmp')))
+
+    def test_legacy_hot_journal_refused_before_native_open_without_recovery_or_deletion(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch)
+            with closing(search.connect(out)) as db, db:
+                db.execute("INSERT INTO docs(path,stamp,digest,body,terms) VALUES('control.py','','control','control','control')")
+            # Crash an old, in-place writer against a synthetic artifact; the new reader must not recover it.
+            script = """import sqlite3, sys, os
+db=sqlite3.connect(sys.argv[1]);db.execute('PRAGMA cache_size=1');db.execute('BEGIN IMMEDIATE')
+db.execute("UPDATE docs SET body=?", ('changed' * 4096,));os._exit(0)
+"""
+            subprocess.run([sys.executable, '-c', script, str(out / 'search.db')], check=True)
+            journal = out / 'search.db-journal'
+            self.assertTrue(journal.is_file())
+            before = {p.name:p.read_bytes() for p in (out / 'search.db', journal)}
+            with patch.object(search.sqlite3, 'connect') as native:
+                for readonly in (False, True):
+                    with self.assertRaisesRegex(RuntimeError, 'sidecars'): search.connect(out, readonly=readonly)
+                native.assert_not_called()
+            self.assertEqual({p.name:p.read_bytes() for p in (out / 'search.db', journal)}, before)
+
+    def test_failed_embedding_job_keeps_previously_published_vectors(self):
+        class FakeEmbedding:
+            name = 'synthetic'
+            packed = staticmethod(lambda vector: vector)
+            def __init__(self): self.calls = 0
+            def passages(self, texts):
+                self.calls += 1
+                if self.calls == 2: raise RuntimeError('synthetic model failure')
+                return [b'private-vector' for _ in texts]
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / 'repo'; root.mkdir(); out = Path(scratch) / 'out'; out.mkdir()
+            for i in range(257): (root / f'file{i}.py').write_text(f'def function{i}(): pass\n')
+            search.catalog(root, [p.name for p in root.iterdir()], out)
+            with closing(search.connect(out)) as db, db:
+                db.execute("INSERT INTO meta VALUES('model','synthetic')")
+                db.execute("UPDATE docs SET vector=x'00' WHERE path='file0.py'")
+            embedder = FakeEmbedding()
+            # One ready vector plus 256 missing would use only one batch; add one missing document.
+            (root / 'extra.py').write_text('def extraFunction(): pass\n')
+            search.catalog(root, [p.name for p in root.iterdir()], out)
+            with self.assertRaisesRegex(RuntimeError, 'model failure'): search.embed_index(out, embedder)
+            self.assertEqual(embedder.calls, 2)
+            with closing(search.connect(out, readonly=True)) as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM docs WHERE vector IS NOT NULL').fetchone()[0], 1)
+                self.assertEqual(db.execute("SELECT vector FROM docs WHERE path='file0.py'").fetchone()[0], b'\x00')
+
+    def test_immutable_readers_keep_snapshot_during_atomic_remap_and_repeated_connections(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / 'repo'; root.mkdir(); out = Path(scratch) / 'out'; out.mkdir()
+            (root / 'main.py').write_text('def oldFunction(): pass\n')
+            search.catalog(root, ['main.py'], out)
+            engine = search.Search(out)
+            with closing(engine.connect()) as first:
+                first.execute('BEGIN')
+                before = first.execute('SELECT body FROM docs').fetchone()[0]
+                self.assertIn('oldFunction', before)
+                for _ in range(3):
+                    with closing(engine.connect()) as reader:
+                        self.assertEqual(reader.execute('SELECT body FROM docs').fetchone()[0], before)
+                cached = engine.snapshot['temporary'].name
+                with patch.object(search.shutil, 'copyfileobj', side_effect=AssertionError('Warm query copied the index')):
+                    self.assertEqual(engine.run('oldFunction', mode='keyword')['documents'], 1)
+                self.assertEqual(engine.snapshot['temporary'].name, cached)
+                (root / 'main.py').write_text('def newFunction(): pass\n')
+                search.catalog(root, ['main.py'], out)
+                for _ in range(3):
+                    with closing(engine.connect()) as reader:
+                        self.assertIn('newFunction', reader.execute('SELECT body FROM docs').fetchone()[0])
+                self.assertEqual(first.execute('SELECT body FROM docs').fetchone()[0], before)
+            engine.close()
+
+    def test_private_sqlite_snapshots_prevent_directory_aba_reads_and_writes(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch) / 'out'; out.mkdir()
+            outside = Path(scratch) / 'outside'; outside.mkdir()
+            saved = Path(scratch) / 'saved'
+            with closing(search.connect(out)): pass
+            with closing(search.connect(outside)) as db, db:
+                db.execute('INSERT INTO docs(path,stamp,digest,body,terms) VALUES(?,?,?,?,?)',
+                           ('outside.py', '', 'foreign', 'outsideSentinel', search.words('outsideSentinel')))
+            foreign_bytes = (outside / 'search.db').read_bytes()
+            original_connect = search.sqlite3.connect
+            def aba(*args, **kwargs):
+                out.rename(saved); outside.rename(out)
+                try: return original_connect(*args, **kwargs)
+                finally: out.rename(outside); saved.rename(out)
+            for readonly in (False, True):
+                with self.subTest(readonly=readonly), patch.object(search.sqlite3, 'connect', side_effect=aba):
+                    with closing(search.connect(out, readonly=readonly)) as db:
+                        self.assertFalse(any('outsideSentinel' in row[0] for row in db.execute('SELECT body FROM docs')))
+                        if not readonly:
+                            with db: db.execute("INSERT INTO docs(path,stamp,digest,body,terms) VALUES('inside.py','','safe','safeControl','safeControl')")
+            with patch.object(search.sqlite3, 'connect', side_effect=aba):
+                self.assertEqual(search.Search(out).run('outsideSentinel', mode='keyword')['results'], [])
+            self.assertEqual((outside / 'search.db').read_bytes(), foreign_bytes)
+            with closing(search.connect(outside, readonly=True)) as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM docs').fetchone()[0], 1)
+
+    def test_unsupported_safe_reads_preserve_existing_index_without_opening_sqlite(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch)
+            with closing(search.connect(out)) as db, db:
+                db.execute('INSERT INTO docs(path,stamp,digest,body,terms) VALUES(?,?,?,?,?)',
+                           ('kept.py', '', 'kept', 'keptEvidence', search.words('keptEvidence')))
+            before = (out / 'search.db').read_bytes()
+            with patch.object(source_module, 'DESCRIPTOR_OPENS', False), patch.object(search.sqlite3, 'connect') as native:
+                for readonly in (False, True):
+                    with self.assertRaises(OSError): search.connect(out, readonly=readonly)
+                with self.assertRaises(OSError): search.Search(out).run('keptEvidence', mode='keyword')
+                native.assert_not_called()
+            self.assertEqual((out / 'search.db').read_bytes(), before)
+
+    def test_sqlite_owner_rejects_file_and_directory_substitution_for_read_and_write(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch) / 'out'; out.mkdir()
+            outside = Path(scratch) / 'outside'; outside.mkdir()
+            with closing(search.connect(out)): pass
+            with closing(search.connect(outside)) as db, db:
+                db.execute('INSERT INTO docs(path,stamp,digest,body,terms) VALUES(?,?,?,?,?)', ('outside.py', '', 'outside', 'outsideSentinel', 'outsideSentinel'))
+            engine = search.Search(out)
+            with create_server(engine) as server:
+                thread = threading.Thread(target=server.serve_forever); thread.start()
+                base = f'http://127.0.0.1:{server.server_port}'
+                try:
+                    (out / 'search.db').rename(out / 'original.db')
+                    (out / 'search.db').symlink_to(outside / 'search.db')
+                    for readonly in (False, True):
+                        with self.assertRaises(OSError): search.connect(out, readonly=readonly)
+                    for request in [base + '/api/status', Request(base + '/api/search', b'{"query":"outsideSentinel","mode":"keyword"}', headers={'Content-Type': 'application/json'})]:
+                        with self.assertRaises(HTTPError) as caught: urlopen(request)
+                        self.assertEqual(caught.exception.code, 409); caught.exception.close()
+                    (out / 'search.db').unlink(); (out / 'original.db').rename(out / 'search.db')
+                    original_connect = search.sqlite3.connect
+                    def swap(*args, **kwargs):
+                        (out / 'search.db').rename(out / 'original.db')
+                        (out / 'search.db').symlink_to(outside / 'search.db')
+                        return original_connect(*args, **kwargs)
+                    with patch.object(search.sqlite3, 'connect', side_effect=swap), self.assertRaises(OSError):
+                        search.connect(out)
+                    (out / 'search.db').unlink(); (out / 'original.db').rename(out / 'search.db')
+                    out.rename(Path(scratch) / 'original-output'); out.symlink_to(outside, target_is_directory=True)
+                    with self.assertRaisesRegex(RuntimeError, 'owner changed'): engine.run('outsideSentinel', mode='keyword')
+                finally: server.shutdown(); thread.join()
+            with self.assertRaisesRegex(RuntimeError, 'owner changed'): create_server(engine)
+            with closing(search.connect(outside, readonly=True)) as db:
+                self.assertEqual(db.execute('SELECT count(*) FROM docs').fetchone()[0], 1)
+
+    def test_legacy_keyword_data_survives_embedding_identity_refusal(self):
+        class FakeEmbedding:
+            name = 'synthetic'
+            def passages(self, _): raise AssertionError('Legacy source must not reach a model')
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch)
+            with closing(search.connect(out)) as db, db:
+                db.execute('INSERT INTO docs(path,stamp,digest,body,terms) VALUES(?,?,?,?,?)', ('old.py', '', 'old', 'legacyKeyword', search.words('legacyKeyword')))
+                db.execute("INSERT INTO meta VALUES('schema','1')")
+            with self.assertRaisesRegex(RuntimeError, 'Legacy'): search.embed_index(out, FakeEmbedding())
+            self.assertEqual(search.Search(out).run('legacyKeyword', mode='keyword')['results'][0]['path'], 'old.py')
+            with closing(search.connect(out)) as db: self.assertIsNone(db.execute('SELECT vector FROM docs').fetchone()[0])
+
+    def test_catalogue_and_http_inspection_reject_source_and_artifact_symlinks(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / 'repo'; root.mkdir()
+            out = Path(scratch) / 'out'; out.mkdir()
+            outside = Path(scratch) / 'outside'; outside.mkdir()
+            (root / 'src').mkdir(); (root / 'src/main.py').write_text('def safeControl(): pass\n')
+            (outside / 'main.py').write_text('def outsideSentinel(): pass\n')
+            search.catalog(root, ['src/main.py'], out)
+            (root / 'src/main.py').unlink(); (root / 'src').rmdir()
+            (root / 'src').symlink_to(outside, target_is_directory=True)
+            result = search.catalog(root, ['src/main.py', '../outside/main.py'], out)
+            self.assertEqual((result['documents'], result['failed']), (0, 2))
+            (root / 'control.py').write_text('def safeControl(): pass\n')
+            search.catalog(root, ['control.py'], out)
+            (out / 'architecture.html').write_text('safe artifact')
+            (out / 'graph.json').symlink_to(outside / 'main.py')
+            with create_server(search.Search(out)) as server:
+                thread = threading.Thread(target=server.serve_forever); thread.start()
+                base = f'http://127.0.0.1:{server.server_port}'
+                try:
+                    with urlopen(base + '/architecture.html') as response: self.assertEqual(response.read(), b'safe artifact')
+                    with self.assertRaises(HTTPError) as caught: urlopen(base + '/graph.json')
+                    self.assertEqual(caught.exception.code, 404); caught.exception.close()
+                    with urlopen(Request(base + '/api/search', json.dumps({'query': 'outsideSentinel', 'mode': 'keyword'}).encode(), headers={'Content-Type': 'application/json'})) as response:
+                        self.assertEqual(json.load(response)['results'], [])
+                    out.rename(Path(scratch) / 'original-output')
+                    out.symlink_to(outside, target_is_directory=True)
+                    (outside / 'architecture.html').write_text('outside artifact')
+                    with urlopen(base + '/architecture.html') as response: self.assertEqual(response.read(), b'safe artifact')
+                finally: server.shutdown(); thread.join()
+
+    @unittest.skipUnless(os.open in os.supports_dir_fd and hasattr(os, 'O_NOFOLLOW'), 'Descriptor-relative opens unavailable')
+    def test_catalogue_pins_directory_during_ancestor_swap(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / 'repo'; root.mkdir()
+            out = Path(scratch) / 'out'; out.mkdir()
+            outside = Path(scratch) / 'outside'; outside.mkdir()
+            (root / 'src').mkdir(); (root / 'src/main.py').write_text('def safeControl(): pass\n')
+            (outside / 'main.py').write_text('def outsideSentinel(): pass\n')
+            original_open = os.open
+            def swap(path, flags, *args, **kwargs):
+                if path == 'main.py':
+                    (root / 'src').rename(root / 'original')
+                    (root / 'src').symlink_to(outside, target_is_directory=True)
+                return original_open(path, flags, *args, **kwargs)
+            with SourceRoot(root) as bound:
+                with patch.object(search, 'SourceRoot', side_effect=lambda owner: bound if owner == root else SourceRoot(owner)), patch.object(source_module.os, 'open', side_effect=swap):
+                    self.assertEqual(search.catalog(root, ['src/main.py'], out)['documents'], 1)
+            self.assertEqual(search.Search(out).run('outsideSentinel', mode='keyword')['results'], [])
+            self.assertEqual(search.Search(out).run('safeControl', mode='keyword')['results'][0]['path'], 'src/main.py')
+
+    def test_catalogue_identity_content_and_failed_migration(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            out = Path(scratch) / 'out'; out.mkdir()
+            roots = [Path(scratch) / n for n in ('one', 'two')]
+            for root, name in zip(roots, ('store', 'cache')):
+                root.mkdir(); (root / 'main.py').write_text(f'def {name}(): pass\n')
+                os.utime(root / 'main.py', ns=(10**15, 10**15))
+            first = search.catalog(roots[0], ['main.py'], out)
+            with closing(search.connect(out)) as db, db: db.execute("UPDATE docs SET vector=x'00'")
+            second = search.catalog(roots[1], ['main.py'], out)
+            self.assertNotEqual(first['identity']['repository'], second['identity']['repository'])
+            self.assertEqual(second['reused'], 0)
+            with closing(search.connect(out)) as db: self.assertIsNone(db.execute('SELECT vector FROM docs').fetchone()[0])
+            (roots[1] / 'main.py').write_text('def store(): pass\n')
+            os.utime(roots[1] / 'main.py', ns=(10**15, 10**15))
+            self.assertEqual(search.catalog(roots[1], ['main.py'], out)['scanned'], 1)
+            self.assertEqual(search.Search(out).run('cache', mode='keyword')['results'], [])
+            with closing(search.connect(out)) as db, db: db.execute("UPDATE meta SET value='legacy' WHERE key='schema'")
+            with patch.object(search, 'synopsis', side_effect=RuntimeError('synthetic interruption')):
+                with self.assertRaises(RuntimeError): search.catalog(roots[1], ['main.py'], out)
+            self.assertEqual(search.Search(out).run('store', mode='keyword')['documents'], 1)
+            self.assertEqual(search.catalog(roots[1], ['main.py'], out)['reused'], 0)
+
+    def test_stale_embedding_compare_and_set_and_keyword_independence(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / 'source'; root.mkdir(); out = Path(scratch) / 'out'; out.mkdir()
+            path = root / 'main.py'; path.write_text('def oldFunction(): pass\n')
+            class FakeEmbedding:
+                name = 'synthetic'
+                packed = staticmethod(lambda vector: vector)
+                def passages(self, texts):
+                    return [b'fresh-vector' for _ in texts]
+            for mutation in ('content', 'generation', 'model'):
+                search.catalog(root, ['main.py'], out)
+                with closing(search.connect(out)) as db, db: db.execute("DELETE FROM meta WHERE key='model'"); db.execute('UPDATE docs SET vector=NULL')
+                class ConcurrentEmbedding(FakeEmbedding):
+                    def passages(self, texts):
+                        if mutation == 'content': path.write_text('def newFunction(): pass\n')
+                        if mutation in ('content', 'generation'): search.catalog(root, ['main.py'], out)
+                        else:
+                            with closing(search.connect(out)) as db, db: db.execute("UPDATE meta SET value='different-model' WHERE key='model'")
+                        return [b'stale-vector' for _ in texts]
+                with self.subTest(mutation=mutation), self.assertRaisesRegex(RuntimeError, 'stale'):
+                    search.embed_index(out, ConcurrentEmbedding())
+                with closing(search.connect(out)) as db: self.assertIsNone(db.execute('SELECT vector FROM docs').fetchone()[0])
+                self.assertEqual(search.Search(out).run('newFunction', mode='keyword')['documents'], 1)
+            with closing(search.connect(out)) as db, db: db.execute("DELETE FROM meta WHERE key='model'")
+            self.assertEqual(search.embed_index(out, FakeEmbedding())['embedded'], 1)
+            self.assertEqual(search.embed_index(out, FakeEmbedding())['reused'], 1)
+
+    def test_content_identity_includes_bytes_beyond_excerpt_limit(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch) / 'source'; root.mkdir(); out = Path(scratch) / 'out'; out.mkdir()
+            path = root / 'main.py'
+            path.write_bytes(b'def keptExcerpt(): pass\n' + b' ' * search.READ_LIMIT + b'a')
+            search.catalog(root, ['main.py'], out)
+            stamp = path.stat()
+            with closing(search.connect(out)) as db, db:
+                before = db.execute('SELECT body,content_digest FROM docs').fetchone()
+                db.execute("UPDATE docs SET vector=x'00'")
+            with path.open('r+b') as stream: stream.seek(-1, 2); stream.write(b'b')
+            os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+            self.assertEqual(search.catalog(root, ['main.py'], out)['scanned'], 1)
+            with closing(search.connect(out)) as db:
+                after = db.execute('SELECT body,content_digest,vector FROM docs').fetchone()
+            self.assertEqual(before['body'], after['body'])
+            self.assertNotEqual(before['content_digest'], after['content_digest'])
+            self.assertIsNone(after['vector'])
+
     def test_incremental_index_invalidation_deletion_and_safe_paths(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch) / 'source'; root.mkdir()
@@ -57,10 +390,11 @@ class SearchTests(unittest.TestCase):
             def query(self, text): return [1, 0]
             def passages(self, texts): return [[1, 0] if 'queue' in text else [0, 1] for text in texts]
         with tempfile.TemporaryDirectory() as scratch:
-            output = Path(scratch)
-            with closing(search.connect(output)) as db, db:
-                for path, body in [('queue.py', 'queue handles deferred work'), ('cache.py', 'cache stores copies')]:
-                    db.execute('INSERT INTO docs(path,stamp,digest,body,terms) VALUES(?,?,?,?,?)', (path, '', path, body, body))
+            output = Path(scratch) / 'out'; output.mkdir()
+            root = Path(scratch) / 'source'; root.mkdir()
+            for path, body in [('queue.py', '# queue handles deferred work'), ('cache.py', '# cache stores copies')]:
+                (root / path).write_text(body)
+            search.catalog(root, ['queue.py', 'cache.py'], output)
             embedder = FakeEmbedding()
             self.assertEqual(search.embed_index(output, embedder)['embedded'], 2)
             engine = search.Search(output, embedder)
@@ -89,6 +423,9 @@ class SearchTests(unittest.TestCase):
                 db.executemany('INSERT INTO docs(path,stamp,digest,body,terms,vector) VALUES(?,?,?,?,?,?)',
                     ((path, '', path, 'queue', 'queue', vector) for path in paths))
                 db.execute("INSERT INTO meta VALUES('model','synthetic')")
+                db.executemany('INSERT INTO meta VALUES(?,?)', [('schema', '2'), ('repository', 'synthetic-source'),
+                    ('generation', 'synthetic-generation'), ('analyzer', 'synopsis-v2'), ('config', 'synthetic-config')])
+                db.execute('UPDATE docs SET content_digest=path')
                 db.execute("UPDATE docs SET vector=NULL WHERE path='code2/outside.py'")
             engine = search.Search(output, FakeEmbedding())
             for mode in ('keyword', 'semantic', 'hybrid'):
