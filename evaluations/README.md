@@ -8,7 +8,8 @@ questions and update scenarios. [Corpus pins](code-understanding/corpora.json)
 and [real-call candidates](code-understanding/real-calls.json) retain all sixteen
 selected sites. Their original proposed targets remain unreviewed metadata;
 the separately locked source key records actual independent AI judgments.
-Incremental equivalence and independent human evaluation remain unmeasured.
+Finite candidate incremental equivalence has been measured; product scale and
+independent human evaluation remain unqualified.
 
 Check the prepared inputs:
 
@@ -109,6 +110,13 @@ share the collector, resolver, source identity, incremental publication and
 bounded query implementation. Serial uses one worker; queued accepts one to
 four workers. Failed, cancelled or exhausted updates preserve the prior ready
 generation. Both modes are required, regardless of relative speed.
+
+Optional collector telemetry records backend setup, parsing, traversal/lowering,
+handoff and controller timings outside the structural facts and cache payloads.
+Source-free readiness events register verified owned processes before parsing;
+observer refusal, overflow or failure stops the measurement while retaining
+owned cleanup. These observations do not establish resource defaults. A blocking
+callback or filesystem operation still requires a finite outer supervisor.
 
 The retained component run includes 36 updates matching clean rebuilds in both
 modes, 20 physical query checks and nine actual missing-backend checks. Acceptance
