@@ -783,7 +783,7 @@ def record_constructs(root, result, maximum):
     return record_structural(root, 'T010', result, maximum)
 
 
-def impact(root=ROOT, budget=None):
+def impact(root=ROOT, budget=None, *, interfaces=False):
     """Exercise captured reverse imports/calls against the locked source key."""
     from repo_graph.analysis import IndexLimits, StructuralIndex
     from repo_graph.analysis_queries import Queries, encoded
@@ -803,10 +803,15 @@ def impact(root=ROOT, budget=None):
         'cancelled_without_facts', 'invalid_area_refused', 'unimplemented_contract_refused',
         'changed_clean_shared_projection_parity', 'git_body_and_deleted_preimage_boundary',
         'changed_impact_cursor_refused', 'ordinary_calls_keep_captured_snapshot', 'implementation_stable']
+    if interfaces:
+        question_ids += ['cli_owned_git_capture', 'cli_impact_relation_filters',
+            'http_and_direct_impact_agree', 'http_captured_import_evidence',
+            'http_stale_source_refused', 'system_explore_shared_snapshot']
     declarations = {r['id']: r for r in fixture['definitions']}
     paths = ('evaluations/analysis.py', 'repo_graph/analysis.py', 'repo_graph/analysis_queries.py',
              'repo_graph/analysis_native.py', 'repo_graph/analysis_queue.py', 'repo_graph/source.py',
              'repo_graph/search.py', 'tests/test_analysis.py', 'pyproject.toml', 'uv.lock')
+    if interfaces: paths += ('repo_graph/cli.py', 'repo_graph/server.py', 'repo_graph/builder.py')
     with SourceRoot(root) as owner:
         before = {p: owner.read(p, 2 * 1024 * 1024, hash_full=True)[1] for p in paths}
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True, timeout=5).strip()
@@ -853,10 +858,106 @@ def impact(root=ROOT, budget=None):
         index = StructuralIndex(source, directory / 'index', budget=budget, limits=limits)
         receipt = index.refresh(list(inventory.values()))
         modes.append({'phase': 'base', 'receipt': receipt})
+        if interfaces and receipt['status'] == 'ready':
+            from contextlib import redirect_stdout
+            from io import StringIO
+            from repo_graph.cli import main as command
+            def capture_cli(args):
+                stream = StringIO()
+                with redirect_stdout(stream): code = command(args)
+                response = observed({'returncode': code, 'response': json.loads(stream.getvalue())})
+                assert code == 0, 'Required product command failed'
+                return response['response']
+            def capture_git():
+                result = capture_cli(['analyze', str(source), '--output', str(index.output), '--git-base', base])
+                assert result['status'] == 'ready'
+                return result
+            case('cli_owned_git_capture', capture_git)
+            if cases[-1]['status'] == 'passed':
+                receipt = cases[-1]['observed']
+                modes.append({'phase': 'cli-captured-base', 'receipt': receipt})
         if receipt['status'] != 'ready':
             cases.append({'id': 'base_publication', 'status': 'failed', 'observed': receipt})
         else:
             with Queries(index.output) as queries:
+                if interfaces:
+                    target_path = declarations[next(r for r in imported if r['id'] == 'PY-IMPORT')['targets'][0]]['path']
+                    payload = {'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': [target_path]},
+                               'role': 'all', 'relations': ['import'], 'limits': {'max_edges': 4}}
+                    def cli_filters():
+                        answers = observed([])
+                        for relation in ('import', 'call'):
+                            expected = queries.run(dict(payload, relations=[relation]))
+                            actual = capture_cli(['query', str(index.output), '--operation', 'impact',
+                                '--source-area', target_path, '--role', 'all', '--relation', relation,
+                                '--certainty', 'resolved', '--certainty', 'candidate', '--certainty', 'unresolved',
+                                '--limits', json.dumps(payload['limits'])])
+                            answers.append({'relation': relation, 'cli': actual, 'direct': expected})
+                            observed(answers)
+                            assert actual['rows'] == expected['rows'] and actual['generation'] == expected['generation']
+                            assert all(row['relation'] == relation for row in actual['rows'])
+                            assert actual['cursor'] is None
+                        return answers
+                    case('cli_impact_relation_filters', cli_filters)
+                    from repo_graph.search import Search
+                    from repo_graph.server import create_server
+                    from threading import Thread
+                    from urllib.request import Request, urlopen
+                    from urllib.error import HTTPError
+                    with create_server(Search(index.output)) as server:
+                        thread = Thread(target=server.serve_forever, kwargs={'poll_interval': .01}); thread.start()
+                        def post(endpoint, request):
+                            body = encoded(request)
+                            assert len(body) <= 8192
+                            action = Request('http://127.0.0.1:' + str(server.server_port) + endpoint, body,
+                                headers={'Content-Type': 'application/json', 'X-Repo-Graph-Output': server.engine.owner})
+                            try:
+                                with urlopen(action, timeout=5) as response: code, raw = response.status, response.read(32769)
+                            except HTTPError as error:
+                                with error: code, raw = error.code, error.read(32769)
+                            result = observed({'status': code, 'bytes': len(raw), 'response': json.loads(raw)})
+                            assert len(raw) <= 32768
+                            return result
+                        try:
+                            def http_query():
+                                actual, expected = post('/api/query', payload), queries.run(payload)
+                                assert actual['status'] == 200 and actual['response']['rows'] == expected['rows']
+                                assert actual['response']['impact_identity'] == expected['impact_identity']
+                                return actual
+                            case('http_and_direct_impact_agree', http_query)
+                            imports = queries.run(payload)
+                            site = next(row['site'] for row in imports['rows'] if row['relation'] == 'import')
+                            handle = {k: site[k] for k in ('id', 'path', 'range', 'source_sha256')}
+                            request = {'generation': imports['generation'], 'handle': handle, 'max_excerpt_bytes': 4096}
+                            def import_source():
+                                result = post('/api/source', request)
+                                assert result['status'] == 200
+                                response = result['response']; span = handle['range']
+                                assert response['source_sha256'] == handle['source_sha256'] and response['range'] == span
+                                assert response['text'].encode() == blobs[handle['path']][span['start_byte']:span['end_byte']]
+                                assert response['kind'] == 'import' and response['targets_exhaustive'] is False
+                                assert response['scope'] == 'admitted_source_candidates_runtime_unqualified'
+                                return result
+                            case('http_captured_import_evidence', import_source)
+                            def stale_source():
+                                result = post('/api/source', dict(request, generation='f' * 64))
+                                assert result['status'] == 409 and 'text' not in result['response']
+                                return result
+                            case('http_stale_source_refused', stale_source)
+                        finally:
+                            server.shutdown(); thread.join(timeout=5)
+                            assert not thread.is_alive(), 'Owned interface server did not stop'
+                    def system_bridge():
+                        from repo_graph.builder import main as mapping
+                        with redirect_stdout(StringIO()): result = mapping([str(source), '--output', str(index.output)])
+                        graph = json.loads((index.output / 'graph.json').read_text())
+                        observation = observed({k: graph[k] for k in ('scan', 'system', 'scope_edges', 'index_status')})
+                        assert result == 0 and graph['scan']['basis'] == 'shared_structural_index'
+                        assert graph['scan']['source_reads_during_map'] == 0
+                        assert graph['scan']['identities']['generation'] == receipt['generation']
+                        assert len(graph['system']['nodes']) <= 12 and graph['files'] == sorted(inventory)
+                        return observation
+                    case('system_explore_shared_snapshot', system_bridge)
                 for expected in imported:
                     target = declarations[expected['targets'][0]]
                     payload = {'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': [target['path']]}, 'role': 'all'}
@@ -953,7 +1054,7 @@ def impact(root=ROOT, budget=None):
         after = {p: owner.read(p, 2 * 1024 * 1024, hash_full=True)[1] for p in paths}
     cases.append({'id': 'implementation_stable', 'status': 'passed' if before == after else 'failed'})
     failures = [r for r in cases if r['status'] != 'passed']
-    return {'schema_version': 1, 'suite': 'impact', 'status': 'failed' if failures else 'passed',
+    return {'schema_version': 1, 'suite': 'impact-interface' if interfaces else 'impact', 'status': 'failed' if failures else 'passed',
         'source_identity': {'inputs': frozen, 'implementation': {'commit': revision, 'sha256': before},
             'question_ids': question_ids, 'question_core_sha256': hashlib.sha256(encoded(question_ids)).hexdigest(),
             'update_recipe': 'same-size Python helper body edit and deletion of frozen Go helper'},
@@ -967,7 +1068,7 @@ def impact(root=ROOT, budget=None):
 def record_view(root, task, result, maximum):
     with SourceRoot(root) as source:
         report, _ = read_json(source, VIEWS_OUTPUT, maximum)
-    if type(report) is not dict or report.get('schema_version') != 1 or 'T016' not in report.get('tasks', {}) or task != 'T043':
+    if type(report) is not dict or report.get('schema_version') != 1 or 'T016' not in report.get('tasks', {}) or task not in ('T021', 'T043', 'T044', 'T045'):
         raise ValueError('Existing Calls proof and known view task required')
     report['tasks'][task] = result
     return write_result(root, VIEWS_OUTPUT, report, maximum)
@@ -2893,7 +2994,7 @@ def main(argv=None):
                         help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
-    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact'], default='component')
+    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact', 'impact-interface'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
                         help='finite report cap: 2 MiB for comparison/structural suites, 1 MiB otherwise')
@@ -2902,7 +3003,7 @@ def main(argv=None):
     parser.add_argument('--max-nodes', type=int, default=200_000)
     args = parser.parse_args(argv)
     structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012', 'coverage': 'T013', 'evidence': 'T014'}.get(args.suite)
-    view_task = 'T043' if args.suite == 'impact' else None
+    view_task = {'impact': 'T043', 'impact-interface': 'T044'}.get(args.suite)
     if not (args.engine or args.screen_engines or args.compare or args.profile or args.profile_pilot) and structural_task is None and view_task is None:
         parser.error('an engine, screening, comparison or profiling mode is required for component')
     if (structural_task or view_task) and (args.screen_engines or args.compare or args.profile or args.profile_pilot):
@@ -2960,7 +3061,7 @@ def main(argv=None):
             return 0 if result['status'] == 'complete' else 1
         if view_task:
             result = impact(ROOT, Budget(max_files=args.max_files,
-                max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes))
+                max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes), interfaces=view_task == 'T044')
             result['resources'] = {'impact_elapsed_seconds': time.perf_counter() - started}
             size = (record_view(ROOT, view_task, result, args.max_result_bytes) if args.output == VIEWS_OUTPUT else
                     write_result(ROOT, args.output, result, args.max_result_bytes))

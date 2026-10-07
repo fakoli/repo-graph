@@ -25,6 +25,87 @@ SPEC.loader.exec_module(repo_graph)
 
 
 class RepoGraphTests(unittest.TestCase):
+    def test_map_artifact_replacement_does_not_follow_source_symlinks_or_hardlinks(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir(); out.mkdir()
+            source = root / 'main.py'; original = 'def untouched(): pass\n'; source.write_text(original)
+            names = ('graph.json', 'architecture.html', 'graph.html', 'architecture.mmd', 'architecture.md')
+            for secure in (True, False):
+                for i, name in enumerate(names):
+                    path = out / name; path.unlink(missing_ok=True)
+                    if i % 2: os.link(source, path)
+                    else: path.symlink_to(source)
+                with patch.object(source_module, 'DESCRIPTOR_OPENS', secure), redirect_stdout(StringIO()):
+                    self.assertEqual(repo_graph.main([str(root), '--output', str(out)]), 0)
+                self.assertEqual(source.read_text(), original)
+                for name in names:
+                    self.assertFalse((out / name).is_symlink())
+                    self.assertNotEqual((out / name).stat().st_ino, source.stat().st_ino)
+
+    def test_native_map_uses_captured_inventory_imports_and_generation_without_source_rescan(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis backend unavailable')
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph import search
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir()
+            blobs = {'pkg/__init__.py': '', 'pkg/app/__init__.py': '', 'pkg/core/__init__.py': '',
+                'pkg/app/main.py': 'from ..core.helper import finish\nimport unavailable_external\ndef entry(value): return finish(value)\n',
+                'pkg/core/helper.py': 'def finish(value): return value * 2\n', 'docs/readme.md': '# Synthetic documentation\n'}
+            for path, text in blobs.items():
+                file = root / path; file.parent.mkdir(parents=True, exist_ok=True); file.write_text(text)
+            receipt = StructuralIndex(root, out).refresh(list(blobs))
+            self.assertEqual(receipt['status'], 'ready')
+            (root / 'new_unadmitted.py').write_text('def new(): pass\n')
+            (root / 'pkg/core/helper.py').write_text('def finish(value): return value * 3\n')
+            with SourceRoot(root) as source: source_owner = source.identity
+            original = SourceRoot.read
+            def guarded(source, *args, **kwargs):
+                if source.identity == source_owner: raise AssertionError('Map must not rescan source bytes')
+                return original(source, *args, **kwargs)
+            forbidden = AssertionError('Structural-ready map must not run the legacy scanner/catalogue')
+            with patch.object(SourceRoot, 'read', guarded), \
+                    patch.object(repo_graph, 'repo_files', side_effect=forbidden), \
+                    patch.object(repo_graph, 'extract_dependencies', side_effect=forbidden), \
+                    patch.object(search, 'catalog', side_effect=forbidden), redirect_stdout(StringIO()):
+                self.assertEqual(repo_graph.main([str(root), '--output', str(out)]), 0)
+            graph = json.loads((out / 'graph.json').read_text())
+            self.assertEqual(graph['files'], sorted(blobs))
+            self.assertEqual(graph['scan']['basis'], 'shared_structural_index')
+            self.assertEqual(graph['scan']['source_reads_during_map'], 0)
+            self.assertEqual(graph['scan']['unresolved_import_bindings'], 1)
+            self.assertEqual(graph['scan']['import_certainty_counts'], {'resolved': 1, 'candidate': 0, 'unresolved': 1})
+            self.assertEqual(graph['dependencies'], [{'source': 'pkg/app', 'target': 'pkg/core', 'count': 1, 'relation': 'imports'}])
+            self.assertEqual(graph['scope_edges']['pkg'][0]['count'], 1)
+            self.assertEqual(graph['index_status']['structural']['identities']['generation'], receipt['generation'])
+            self.assertEqual(graph['index_status']['structural']['freshness'], 'unknown')
+            self.assertLessEqual(len(graph['system']['nodes']), 12)
+            self.assertEqual(sum(row['count'] for row in graph['system']['nodes']), len(blobs))
+            self.assertEqual(sum(row['count'] for row in graph['system']['edges']), 1)
+            html = (out / 'architecture.html').read_text()
+            self.assertNotIn('return value * 2', html)
+            self.assertNotIn('new_unadmitted.py', html)
+            foreign = Path(scratch) / 'foreign'; foreign.mkdir()
+            with self.assertRaisesRegex(ValueError, 'another repository'):
+                repo_graph.captured_map(foreign, out)
+
+    def test_native_map_refuses_mixed_snapshot_and_keeps_legacy_map_explicit(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis backend unavailable')
+        from repo_graph.analysis import StructuralIndex
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir()
+            (root / 'main.py').write_text('def entry(): pass\n')
+            self.assertEqual(StructuralIndex(root, out).refresh(['main.py'])['status'], 'ready')
+            status = repo_graph.offline_index_status(out)
+            status['structural']['identities']['generation'] = 'f' * 64
+            with patch.object(repo_graph, 'offline_index_status', return_value=status), \
+                    self.assertRaisesRegex(ValueError, 'generation changed'):
+                repo_graph.captured_map(root, out)
+            empty = Path(scratch) / 'empty'; empty.mkdir()
+            with redirect_stdout(StringIO()): self.assertEqual(repo_graph.main([str(root), '--output', str(empty)]), 0)
+            self.assertEqual(json.loads((empty / 'graph.json').read_text())['scan']['basis'], 'legacy_import_map')
+
     def test_source_accounting_counts_actual_streams_and_failed_partial_hashes(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)

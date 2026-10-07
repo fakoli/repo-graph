@@ -13,6 +13,13 @@ from . import builder
 from .search import Embeddings, Search, connect, embed_index, MODEL
 
 
+def _captured_commit(value):
+    from .analysis_queries import _impact_options
+    try: _impact_options({'kind': 'git_change', 'base_revision': value}, None, None)
+    except ValueError as error: raise argparse.ArgumentTypeError(str(error)) from error
+    return value
+
+
 def _remote_query(address, payload, owner):
     """The CLI can continue the loopback server's captured query session."""
     url = urlsplit(address)
@@ -41,6 +48,15 @@ def _query_command(parsed, output):
     from .analysis_queries import Queries, encoded
     payload = dict(operation=parsed.operation, seed=parsed.seed, depth=parsed.depth,
                    prefix=parsed.prefix, scope=parsed.scope, role=parsed.role)
+    if parsed.source_area is not None or parsed.git_base is not None or parsed.relation is not None or parsed.certainty is not None:
+        if parsed.operation != 'impact': raise ValueError('Impact selectors and filters require --operation impact')
+        if parsed.stdio: raise ValueError('Use selector/filter JSON for --stdio impact requests')
+        if parsed.source_area is not None:
+            payload['selector'] = {'kind': 'source_area', 'paths': parsed.source_area}
+        elif parsed.git_base is not None:
+            payload['selector'] = {'kind': 'git_change', 'base_revision': parsed.git_base}
+        if parsed.relation is not None: payload['relations'] = parsed.relation
+        if parsed.certainty is not None: payload['certainties'] = parsed.certainty
     if parsed.limits is not None:
         payload['limits'] = json.loads(parsed.limits)
     if parsed.cursor is not None:
@@ -88,12 +104,18 @@ def main(argv=None):
     analyze.add_argument('--output', required=True, type=Path)
     analyze.add_argument('--mode', choices=['serial', 'queued'], default='serial')
     analyze.add_argument('--workers', type=int, default=1)
+    analyze.add_argument('--git-base', type=_captured_commit, help='Capture changed paths against this exact Git commit during analysis')
     query = subs.add_parser('query', help='Bounded structural queries; --stdio or --server retains pagination')
     query.add_argument('output', type=Path)
     query.add_argument('--operation', choices=['symbol', 'reference', 'call', 'callees', 'callers', 'reachable', 'impact'], default='symbol')
     query.add_argument('--seed'); query.add_argument('--depth', type=int, default=2)
     query.add_argument('--prefix', default=''); query.add_argument('--scope', default='')
     query.add_argument('--role', choices=['call', 'reference', 'all'], default='call')
+    selectors = query.add_mutually_exclusive_group()
+    selectors.add_argument('--source-area', action='append', help='Impact of captured path/directory; repeat for multiple areas')
+    selectors.add_argument('--git-base', type=_captured_commit, help='Impact from producer-captured changes against this exact commit')
+    query.add_argument('--relation', action='append', choices=['call', 'import'], help='Impact relation filter; repeat to include both')
+    query.add_argument('--certainty', action='append', choices=['resolved', 'candidate', 'unresolved'], help='Impact certainty filter; repeat for multiple levels')
     query.add_argument('--limits', help='JSON object reducing or overriding finite query limits')
     query.add_argument('--stdio', action='store_true', help='Read JSON requests and write bounded JSON responses, one per line')
     query.add_argument('--server', help='Reuse a loopback server session at http://127.0.0.1:PORT')
@@ -148,7 +170,8 @@ def main(argv=None):
             paths = builder.repo_files(root, coverage=coverage)
             if coverage.get('failed'):
                 raise ValueError('Inventory contains unreadable or unsafe paths; no structural generation published')
-            result = StructuralIndex(root, output).refresh(paths, mode=parsed.mode, concurrency=parsed.workers)
+            result = StructuralIndex(root, output).refresh(paths, mode=parsed.mode, concurrency=parsed.workers,
+                git_base=parsed.git_base)
             print(json.dumps(result, ensure_ascii=False))
             return 0 if result['status'] == 'ready' else 1
         if not (output / 'search.db').is_file():

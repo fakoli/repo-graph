@@ -707,6 +707,8 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
     started = time.monotonic()
     result = {'status': 'ok', 'output_owner': owner, 'structural': _status_component(),
               'semantic_index': _status_component(), 'storage': {'deadline_seconds': 0.5}}
+    result['structural']['impact'] = dict(state='unavailable', receipt=None, query_available=False,
+        freshness='unknown', freshness_basis='unobserved_live_source', live_source_observed=False)
     result['semantic_index'].update(model=None, backend_available=backend_available,
         compatibility='unknown_legacy', generation_basis='keyword-docs-v2', structural_generation_affinity='unknown',
         catalog_receipt=None, catalog_receipt_knowledge='missing')
@@ -739,12 +741,16 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
                         db.set_progress_handler(progress, 64)
                         keys = ('structural_schema', 'structural_repository', 'structural_source',
                                 'structural_generation', 'structural_analyzer', 'structural_config',
-                                'structural_receipt', 'schema', 'repository', 'generation',
+                                'structural_receipt', 'structural_impact_schema', 'structural_impact_receipt',
+                                'schema', 'repository', 'generation',
                                 'analyzer', 'config', 'model', 'semantic_receipt', 'catalog_receipt',
                                 'function_receipt', 'function_generation', 'function_config', 'function_model', 'function_semantic_receipt')
                         meta = dict(db.execute('SELECT key,substr(value,1,?) FROM meta WHERE key IN (' +
                             ','.join('?' for _ in keys) + ')', (ATTEMPT_BYTES + 1, *keys)))
                         check()
+                        if any(len(meta.get(key, '').encode()) > ATTEMPT_BYTES for key in
+                                ('structural_impact_schema', 'structural_impact_receipt')):
+                            meta.pop('structural_impact_schema', None); meta.pop('structural_impact_receipt', None)
                         if any(type(value) is not str or len(value.encode()) > ATTEMPT_BYTES for value in meta.values()):
                             raise ValueError('Persisted index status receipt exceeds its byte budget')
                         structural = result['structural']
@@ -767,6 +773,18 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
                         structural['query_available'] = structural['artifact_ready']
                         structural['state'] = 'ready' if structural['artifact_ready'] else (
                             'unknown_legacy' if meta.get('structural_generation') else 'not_scanned')
+                        if structural['artifact_ready'] and meta.get('structural_impact_receipt'):
+                            try:
+                                captured_impact = _captured_impact_receipt(meta, structural['identities'])
+                                captured_impact = _portable_impact_receipt(captured_impact)
+                                names = db.execute("SELECT count(*) FROM sqlite_master WHERE "
+                                    "(type='table' AND name IN ('structural_import_relationships','structural_git_changes')) OR "
+                                    "(type='index' AND name IN ('structural_reverse_import','structural_unassigned_occurrence'))").fetchone()[0]
+                                check()
+                                if names == 4:
+                                    structural['impact'].update(state='ready', receipt=captured_impact, query_available=True)
+                            except (ValueError, KeyError, TypeError, sqlite3.Error):
+                                pass  # Missing/foreign impact metadata cannot disable ordinary captured queries.
                         if expected_source is not None and meta.get('structural_source'):
                             structural['freshness_basis'] = 'caller_expected_source'
                             structural['freshness'] = 'current' if expected_source == meta['structural_source'] else 'stale'
@@ -855,6 +873,8 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
         function['freshness'] = result['structural']['freshness']
         function['freshness_basis'] = result['structural']['freshness_basis']
     function['attempt_attribution'] = _attempt_attribution(attempt, 'function_semantic', meta)
+    result['structural']['impact']['freshness'] = result['structural']['freshness']
+    result['structural']['impact']['freshness_basis'] = result['structural']['freshness_basis']
     if (attempt and attempt['status'] != 'ready' and result['status'] == 'ok' and
             function['attempt_attribution'] in ('captured_repository', 'unpublished_repository')):
         function['semantic_state'] = attempt['status']
@@ -1405,6 +1425,60 @@ class CapturedSourceConflict(ValueError):
     """The caller's captured generation or output owner no longer matches."""
 
 
+def _captured_impact_receipt(meta, identities):
+    from .analysis_queries import IMPACT_RULE_VERSION, validate_impact_receipt
+    if meta.get('structural_impact_schema') != IMPACT_RULE_VERSION:
+        raise ValueError('Missing captured impact projection')
+    expected = {key: identities[key] for key in ('repository_identity', 'source_identity', 'analyzer_identity', 'config_identity')}
+    expected['generation'] = identities.get('structural_generation', identities.get('generation'))
+    impact = validate_impact_receipt(_json_record(meta.get('structural_impact_receipt')), expected)
+    foundation = _json_record(meta['structural_receipt'])
+    if foundation.get('impact_identity') != impact['identity'] or foundation['revision_dirty'] != impact['revision_dirty']:
+        raise ValueError('Captured impact/foundation affinity differs')
+    return impact
+
+
+def _portable_impact_receipt(impact):
+    """Status exposes captured identifiers and fixed labels, never arbitrary metadata."""
+    if set(impact) != {'schema', 'repository_identity', 'source_identity', 'analyzer_identity', 'config_identity',
+            'generation', 'revision_dirty', 'git_change', 'base_snapshot', 'historical_call_closure', 'contracts_available', 'identity'}:
+        raise ValueError('Unexpected captured impact metadata')
+    revision, change = impact['revision_dirty'], impact['git_change']
+    if (set(revision) - {'revision', 'dirty', 'knowledge', 'reason', 'dirty_basis', 'content_identity'} or
+            revision.get('reason') not in (None, 'git_revision_unavailable', 'git_dirty_not_observed_without_project_commands',
+                'git_capture_unavailable_or_bounded_stop', 'git_changed_during_capture') or
+            revision.get('dirty_basis') not in (None, 'unobserved_repository_configured_status') or
+            set(change) - {'status', 'base_revision', 'current_revision', 'source_byte_affinity', 'dirty', 'basis',
+                           'count', 'changes_sha256', 'reason'} or
+            change.get('status') not in ('ready', 'not_requested', 'unavailable') or
+            change.get('source_byte_affinity') != 'unobserved_worktree' or change.get('dirty') is not None or
+            change.get('basis') != 'committed_changed_paths_current_captured_definitions' or
+            change.get('reason') not in (None, 'git_source_root_not_repository_root',
+                'git_change_capture_unavailable_or_bounded_stop', 'git_changed_during_capture')):
+        raise ValueError('Nonportable captured impact metadata')
+    for key in ('base_revision', 'current_revision'):
+        value = change.get(key)
+        if value is not None and (type(value) is not str or re.fullmatch('[0-9a-f]{40}|[0-9a-f]{64}', value) is None):
+            raise ValueError('Exact captured Git identity required')
+    if 'count' in change:
+        if type(change['count']) is not int or not 0 <= change['count'] <= 256: raise ValueError('Bounded captured change count required')
+    if 'changes_sha256' in change: _hash(change['changes_sha256'])
+    base = impact['base_snapshot']
+    if base is not None:
+        if type(base) is not dict or set(base) != {'repository_identity', 'source_identity', 'analyzer_identity', 'config_identity', 'generation'}:
+            raise ValueError('Captured base snapshot identities required')
+        for value in base.values(): _hash(value)
+    # Construct the public shape explicitly even after validating the stored shape.
+    public = {key: impact[key] for key in ('schema', 'repository_identity', 'source_identity', 'analyzer_identity',
+        'config_identity', 'generation', 'historical_call_closure', 'contracts_available', 'identity')}
+    public['revision_dirty'] = {key: revision[key] for key in ('revision', 'dirty', 'knowledge', 'reason', 'dirty_basis', 'content_identity') if key in revision}
+    public['git_change'] = {key: change[key] for key in ('status', 'base_revision', 'current_revision', 'source_byte_affinity',
+        'dirty', 'basis', 'count', 'changes_sha256', 'reason') if key in change}
+    public['base_snapshot'] = ({key: base[key] for key in ('repository_identity', 'source_identity', 'analyzer_identity',
+        'config_identity', 'generation')} if base is not None else None)
+    return public
+
+
 def captured_source(engine, request, *, cancel=None):
     """Inspect one admitted captured member, without opening its source file.
 
@@ -1413,7 +1487,7 @@ def captured_source(engine, request, *, cancel=None):
     blocking filesystem/SQLite calls cannot be interrupted by this deadline.
     """
     started = time.monotonic()
-    from .analysis_queries import SQLSnapshot
+    from .analysis_queries import SQLSnapshot, encoded
     if (type(request) is not dict or set(request) - {'generation', 'handle', 'max_excerpt_bytes'} or
             not {'generation', 'handle'} <= set(request)):
         raise ValueError('Exact captured source request required')
@@ -1422,6 +1496,7 @@ def captured_source(engine, request, *, cancel=None):
     if type(handle) is not dict or set(handle) != {'id', 'path', 'range', 'source_sha256'}:
         raise ValueError('Exact captured source handle required')
     _string(handle['id'], 8192); _string(handle['path'], 4096)
+    is_import = re.fullmatch(r'import:[0-9a-f]{64}', handle['id']) is not None
     try: SourceRoot.parts(handle['path'])
     except OSError as error: raise ValueError('Invalid captured source path') from error
     _hash(handle['source_sha256']); _function_range(handle['range'])
@@ -1456,6 +1531,7 @@ def captured_source(engine, request, *, cancel=None):
                 check(); raise
             check(); return rows
         keys = (*FUNCTION_META.values(), 'structural_schema', 'structural_receipt', 'repository')
+        if is_import: keys += ('structural_impact_schema', 'structural_impact_receipt')
         meta = dict(read('SELECT key,substr(value,1,?) FROM meta WHERE key IN (' +
             ','.join('?' for _ in keys) + ')', (ATTEMPT_BYTES + 1, *keys)))
         check()
@@ -1467,22 +1543,35 @@ def captured_source(engine, request, *, cancel=None):
             raise ValueError('Foreign captured repository')
         if identities['structural_generation'] != request['generation']:
             raise CapturedSourceConflict('Captured source generation changed')
-        # Two primary-key probes in one statement; never enumerate a graph or file.
-        rows = read('''SELECT 'declaration' AS member_kind,s.id,s.path,NULL AS role,
+        impact = None
+        if is_import:
+            _hash(handle['id'][len('import:'):])
+            impact = _captured_impact_receipt(meta, identities); check()
+            # One physical membership via projection PK; original syntax via (path,ordinal) PK.
+            # Candidate target rows share this physical import, so inspect only one membership.
+            rows = read('''SELECT 'import' AS member_kind,p.id,p.path,'import' AS role,p.ordinal,
+                p.start_byte,p.end_byte,p.certainty,substr(CAST(p.data AS BLOB),1,32769) AS projection,
+                substr(CAST(i.data AS BLOB),1,8388609) AS data,
+                substr(CAST(f.record AS BLOB),1,32769) AS file_record,f.status
+                FROM structural_import_relationships p JOIN structural_imports i ON i.path=p.path AND i.ordinal=p.ordinal
+                JOIN structural_files f ON f.path=p.path WHERE p.id=? ORDER BY p.target_path LIMIT 1''', (handle['id'],))
+        else:
+            # Two primary-key probes in one statement; never enumerate a graph or file.
+            rows = read('''SELECT 'declaration' AS member_kind,s.id,s.path,NULL AS role,
             substr(CAST(s.data AS BLOB),1,8388609) AS data,
             substr(CAST(f.record AS BLOB),1,32769) AS file_record,f.status
             FROM structural_symbols s JOIN structural_files f ON f.path=s.path WHERE s.id=?
             UNION ALL SELECT 'callsite',s.id,s.path,s.role,
             substr(CAST(s.data AS BLOB),1,8388609),substr(CAST(f.record AS BLOB),1,32769),f.status
             FROM structural_sites s JOIN structural_files f ON f.path=s.path WHERE s.id=? LIMIT 2''',
-            (handle['id'], handle['id']))
+                (handle['id'], handle['id']))
         check()
         if len(rows) != 1: raise ValueError('Unknown or ambiguous captured source handle')
         row = rows[0]
         if len(row['data']) > 8388608 or len(row['file_record']) > 32768:
             raise ValueError('Captured source exceeds its validation bound')
         item, record = json.loads(row['data']), json.loads(row['file_record']); check()
-        _required(item, 'id path language text range provenance')
+        _required(item, ('path language text range provenance role' if impact else 'id path language text range provenance'))
         _required(record, 'path sha256 bytes language kind'); _count(record['bytes'])
         provenance = item['provenance']
         if type(provenance) is not dict or type(item['text']) is not str:
@@ -1490,7 +1579,7 @@ def captured_source(engine, request, *, cancel=None):
         captured = SQLSnapshot._source_handle(dict(id=row['id'], path=row['path'],
             span=json.dumps(item['range']), span_type='object' if type(item['range']) is dict else None,
             digest=provenance.get('source_sha256'), file_digest=record['sha256']))
-        if (captured != handle or item['id'] != row['id'] or item['path'] != row['path'] or
+        if (captured != handle or item.get('id', row['id']) != row['id'] or item['path'] != row['path'] or
                 record['path'] != row['path'] or record['kind'] != 'source' or
                 row['status'] not in ('parsed', 'partial_parse') or item['language'] != record['language'] or
                 provenance.get('evidence_kind') != 'static_syntax' or
@@ -1501,7 +1590,23 @@ def captured_source(engine, request, *, cancel=None):
         _string(provenance.get('syntax_kind'))
         certainty, exhaustive, reason = None, None, ''
         expected_id = f"{row['path']}:{handle['range']['start_byte']}:{handle['range']['end_byte']}"
-        if row['member_kind'] == 'callsite':
+        if row['member_kind'] == 'import':
+            if len(row['projection']) > 32768: raise ValueError('Captured import projection exceeds its byte bound')
+            projection = json.loads(row['projection']); check()
+            _required(projection, 'id path range language source_sha256 provenance certainty targets_exhaustive source_candidates_exhaustive reason scope')
+            certainty, exhaustive, reason = projection['certainty'], projection['targets_exhaustive'], projection['reason']
+            expected_id = 'import:' + hashlib.sha256(encoded([row['path'], row['ordinal'], item['range']])).hexdigest()
+            if (type(row['ordinal']) is not int or row['ordinal'] < 0 or item['role'] != 'import' or
+                    projection['id'] != row['id'] or projection['path'] != row['path'] or
+                    projection['range'] != item['range'] or projection['language'] != item['language'] or
+                    projection['source_sha256'] != handle['source_sha256'] or projection['provenance'] != provenance or
+                    row['start_byte'] != handle['range']['start_byte'] or row['end_byte'] != handle['range']['end_byte'] or
+                    certainty != row['certainty'] or certainty not in ('resolved', 'candidate', 'unresolved') or
+                    exhaustive is not False or type(projection['source_candidates_exhaustive']) is not bool or
+                    projection['scope'] != 'admitted_source_candidates_runtime_unqualified'):
+                raise ValueError('Captured import membership/source affinity differs')
+            if type(reason) is not str or len(reason.encode()) > 4096: raise ValueError('Bounded captured reason required')
+        elif row['member_kind'] == 'callsite':
             certainty, exhaustive, reason = item.get('certainty'), item.get('targets_exhaustive'), item.get('reason')
             if (row['role'] not in ('call', 'reference') or item.get('role') != row['role'] or
                     certainty not in ('resolved', 'candidate', 'unresolved') or type(exhaustive) is not bool):
@@ -1540,6 +1645,9 @@ def captured_source(engine, request, *, cancel=None):
             raw_digest=hashlib.sha256(raw[:end]).hexdigest(), redacted=bool(redactions), truncated=end < len(raw),
             budgets=dict(max_excerpt_bytes=maximum, max_response_bytes=32768, timeout_seconds=.5),
             storage=dict(elapsed_seconds=round(time.monotonic() - started, 6)))
+        if impact:
+            result.update(impact_identity=impact['identity'], impact_schema=impact['schema'],
+                scope=projection['scope'], source_candidates_exhaustive=projection['source_candidates_exhaustive'])
         if len(_evidence_encoded(result)) > limits.max_response_bytes:
             raise ValueError('Captured source response exceeds its byte bound')
         check(); return result

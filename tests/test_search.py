@@ -20,6 +20,240 @@ from repo_graph import source as source_module
 
 
 class SearchTests(unittest.TestCase):
+    def test_impact_cli_selectors_filters_and_producer_git_base_forwarding(self):
+        from repo_graph import cli, analysis, analysis_queries
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir(); out.mkdir()
+            (out / 'search.db').touch()
+            calls = []
+            class Session:
+                owner = 'synthetic-owner'
+                def __init__(self, *args): pass
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+                def run(self, payload): calls.append(payload); return dict(cursor=None, stub=True)
+            base = 'a' * 40
+            with patch.object(analysis_queries, 'Queries', Session), redirect_stdout(io.StringIO()), \
+                    patch('sys.stderr', new_callable=io.StringIO):
+                self.assertEqual(cli.main(['query', str(out), '--operation', 'impact', '--source-area', 'pkg/',
+                    '--source-area', 'main.py', '--relation', 'import', '--certainty', 'candidate']), 0)
+                self.assertEqual(calls[-1]['selector'], dict(kind='source_area', paths=['pkg/', 'main.py']))
+                self.assertEqual(calls[-1]['relations'], ['import']); self.assertEqual(calls[-1]['certainties'], ['candidate'])
+                self.assertEqual(cli.main(['query', str(out), '--operation', 'impact', '--git-base', base]), 0)
+                self.assertEqual(calls[-1]['selector'], dict(kind='git_change', base_revision=base))
+                self.assertEqual(cli.main(['query', str(out), '--operation', 'call', '--relation', 'import']), 1)
+                self.assertEqual(cli.main(['query', str(out), '--operation', 'impact', '--stdio', '--source-area', '.']), 1)
+                for argv in (['query', str(out), '--git-base', 'main'],
+                        ['analyze', str(root), '--output', str(out), '--git-base', 'HEAD'],
+                        ['query', str(out), '--source-area', '.', '--git-base', base]):
+                    with self.assertRaises(SystemExit): cli.main(argv)
+                self.assertEqual(len(calls), 2)
+            with patch.object(cli.builder, 'repo_files', return_value=['main.py']), \
+                    patch.object(analysis, 'StructuralIndex') as index, redirect_stdout(io.StringIO()):
+                index.return_value.refresh.return_value = dict(status='ready', stub=True)
+                self.assertEqual(cli.main(['analyze', str(root), '--output', str(out), '--git-base', base]), 0)
+                self.assertEqual(index.return_value.refresh.call_args.kwargs['git_base'], base)
+
+    def test_captured_import_source_multilanguage_and_http_share_snapshot_contract(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        import hashlib
+        from repo_graph import analysis_native
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph.analysis_queries import Queries, encoded
+        secret = 'sk-' + 'A' * 24
+        sources = {
+            'helper.py': 'def leaf(): pass\n', 'main.py': 'from .helper import leaf\ndef start(): pass\n',
+            'helper.js': 'export function leaf() {}\n',
+            'main.js': 'import {leaf as café} from "./helper.js";\nimport unused from "' + secret + '";\n',
+            'helper.ts': 'export interface Item { value: number }\n', 'main.ts': 'import type {Item} from "./helper";\n',
+            'go.mod': 'module example.test/captured\n\ngo 1.22\n',
+            'main.go': 'package app\nimport "example.test/captured/lib"\nfunc Start() {}\n',
+            'lib/a.go': 'package lib\nfunc A() {}\n', 'lib/b.go': 'package lib\nfunc B() {}\n'}
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir()
+            for name, body in sources.items():
+                target = root / name; target.parent.mkdir(parents=True, exist_ok=True); target.write_text(body)
+            receipt = StructuralIndex(root, out).refresh(sources)
+            self.assertEqual(receipt['status'], 'ready', receipt)
+            request = dict(operation='impact', selector=dict(kind='source_area', paths=['.']), relations=['import'])
+            with Queries(out) as queries: impact = queries.run(request)
+            rows = [row for row in impact['rows'] if row['relation'] == 'import']
+            self.assertTrue(rows)
+            engine = search.Search(out); languages, redacted = set(), False
+            for name in sources: (root / name).unlink()
+            forbidden = AssertionError('Import inspection must remain captured; no source, parser, Git or model')
+            with patch.object(SourceRoot, 'read', side_effect=forbidden), \
+                    patch.object(StructuralIndex, 'refresh', side_effect=forbidden), \
+                    patch.object(analysis_native, 'backend', side_effect=forbidden), \
+                    patch.object(search.Embeddings, '__init__', side_effect=forbidden), \
+                    patch.object(subprocess, 'run', side_effect=forbidden):
+                for row in rows:
+                    handle = {key: row['site'][key] for key in ('id', 'path', 'range', 'source_sha256')}
+                    observed = search.captured_source(engine, dict(generation=impact['generation'], handle=handle, max_excerpt_bytes=48))
+                    languages.add(observed['language']); redacted |= observed['redacted']
+                    self.assertEqual(observed['kind'], 'import'); self.assertEqual(observed['role'], 'import')
+                    self.assertEqual(observed['certainty'], row['certainty']); self.assertFalse(observed['targets_exhaustive'])
+                    self.assertEqual(observed['impact_identity'], impact['impact_identity'])
+                    self.assertEqual(observed['handle'], handle); self.assertLessEqual(len(observed['text'].encode()), 48)
+                    raw = sources[handle['path']].encode()[observed['range']['start_byte']:observed['range']['end_byte']]
+                    self.assertEqual(observed['raw_digest'], hashlib.sha256(raw).hexdigest())
+                    self.assertNotIn(secret, observed['text']); self.assertLessEqual(len(search._evidence_encoded(observed)), 32768)
+            self.assertEqual(languages, {'python', 'go', 'javascript', 'typescript'}); self.assertTrue(redacted)
+            self.assertGreater(len([row for row in rows if row['site']['path'] == 'main.go']), 1)
+            with create_server(engine) as server:
+                thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .01}); thread.start()
+                address = f'http://127.0.0.1:{server.server_port}'
+                def post(endpoint, payload, headers=None):
+                    return urlopen(Request(address + endpoint, encoded(payload), headers={'Content-Type': 'application/json', **(headers or {})}))
+                try:
+                    with post('/api/query', dict(operation='impact', selector=dict(kind='source_area', paths=['helper.py']),
+                            relations=['import'], certainties=['resolved'])) as response:
+                        current = json.loads(response.read())
+                    handle = {key: current['rows'][0]['site'][key] for key in ('id', 'path', 'range', 'source_sha256')}
+                    payload = dict(generation=current['generation'], handle=handle)
+                    with post('/api/source', payload) as response:
+                        observed = json.loads(response.read())
+                        self.assertEqual(response.headers['Cache-Control'], 'no-store')
+                    self.assertEqual(observed['kind'], 'import'); self.assertEqual(observed['impact_identity'], current['impact_identity'])
+                    for values, headers, code in ((dict(payload, generation='0' * 64), {}, 409),
+                            (dict(payload, handle=dict(handle, source_sha256='0' * 64)), {}, 400),
+                            (payload, {'X-Repo-Graph-Output': '0' * 64}, 409)):
+                        with self.assertRaises(HTTPError) as caught: post('/api/source', values, headers)
+                        self.assertEqual(caught.exception.code, code); caught.exception.close()
+                finally: server.shutdown(); thread.join()
+
+    def test_captured_import_source_rejects_forgery_and_old_projection_is_optional(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph.analysis_queries import Queries, encoded
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir()
+            (root / 'main.py').write_text('from .helper import leaf\ndef start():\n    leaf()\n'); (root / 'helper.py').write_text('def leaf(): pass\n')
+            index = StructuralIndex(root, out); receipt = index.refresh(['main.py', 'helper.py'])
+            self.assertEqual(receipt['status'], 'ready', receipt)
+            with Queries(out) as queries:
+                result = queries.run(dict(operation='impact', selector=dict(kind='source_area', paths=['helper.py']), relations=['import']))
+            handle = {key: result['rows'][0]['site'][key] for key in ('id', 'path', 'range', 'source_sha256')}
+            request = dict(generation=receipt['generation'], handle=handle)
+            engine = search.Search(out); self.addCleanup(engine.close)
+            with closing(search.connect(out, readonly=True)) as db:
+                original = db.execute('SELECT data FROM structural_import_relationships WHERE id=?', (handle['id'],)).fetchone()[0]
+            for key, value in (('source_sha256', '0' * 64), ('targets_exhaustive', True),
+                    ('range', dict(handle['range'], start_byte=1))):
+                changed = json.loads(original); changed[key] = value
+                with closing(search.connect(out)) as db, db:
+                    db.execute('UPDATE structural_import_relationships SET data=? WHERE id=?', (encoded(changed), handle['id']))
+                with self.subTest(key=key), self.assertRaises(ValueError): search.captured_source(engine, request)
+            with closing(search.connect(out)) as db, db:
+                db.execute('UPDATE structural_import_relationships SET data=? WHERE id=?', (original, handle['id']))
+                forged = json.loads(original); forged['id'] = 'import:' + 'a' * 64
+                db.execute('UPDATE structural_import_relationships SET id=?,data=? WHERE id=?', (forged['id'], encoded(forged), handle['id']))
+            with self.assertRaisesRegex(ValueError, 'ID differs'):
+                search.captured_source(engine, dict(request, handle=dict(handle, id=forged['id'])))
+            with closing(search.connect(out)) as db, db:
+                db.execute('UPDATE structural_import_relationships SET id=?,data=? WHERE id=?', (handle['id'], original, forged['id']))
+            with self.assertRaises(InterruptedError): search.captured_source(engine, request, cancel=lambda: True)
+            with self.assertRaises(ValueError): search.captured_source(engine, dict(request, max_excerpt_bytes=8193))
+            declaration = next(index.read_facts('definitions'))
+            physical = {key: declaration[key] for key in ('id', 'path', 'range')} | {'source_sha256': declaration['provenance']['source_sha256']}
+            # File navigation handles are never fabricated into source excerpts.
+            with self.assertRaises(ValueError):
+                search.captured_source(engine, dict(request, handle=dict(handle, id=result['selected_files'][0]['id'])))
+            with closing(search.connect(out)) as db, db:
+                db.execute("DELETE FROM meta WHERE key IN ('structural_impact_schema','structural_impact_receipt')")
+                db.execute('DROP TABLE structural_import_relationships'); db.execute('DROP TABLE structural_git_changes')
+            self.assertEqual(search.captured_source(engine, dict(request, handle=physical))['kind'], 'declaration')
+            for facts, kind in (('definitions', 'declaration'), ('sites', 'callsite')):
+                ordinary = next(row for row in index.read_facts(facts) if row['path'] == 'main.py')
+                ordinary_handle = {key: ordinary[key] for key in ('id', 'path', 'range')} | {'source_sha256': ordinary['provenance']['source_sha256']}
+                observed = search.captured_source(engine, dict(request, handle=ordinary_handle))
+                self.assertEqual(observed['kind'], kind); self.assertEqual(observed['text'], ordinary['text'])
+                self.assertEqual(observed['handle'], ordinary_handle)
+                # Worker admission excludes colon filenames. This narrow forged ID tests
+                # ordinary dispatch/membership only, without pretending native acceptance.
+                with self.assertRaisesRegex(ValueError, 'Unknown or ambiguous captured source handle'):
+                    search.captured_source(engine, dict(request,
+                        handle=dict(ordinary_handle, id='import:' + ordinary_handle['id'])))
+            with self.assertRaises(ValueError): search.captured_source(engine, request)
+            status = search.index_status(out)
+            self.assertTrue(status['structural']['query_available']); self.assertEqual(status['structural']['impact']['state'], 'unavailable')
+            with Queries(out) as queries: self.assertTrue(queries.run(dict(operation='symbol'))['rows'])
+
+    def test_captured_impact_git_status_allowlist_and_interface_invalidation(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        import hashlib
+        from repo_graph.cli import main
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph.analysis_queries import encoded
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir()
+            def git(*args):
+                return subprocess.run(['git', '-c', 'core.hooksPath=/dev/null', *args], cwd=root,
+                    capture_output=True, text=True, check=True, timeout=5).stdout.strip()
+            git('init', '-q')
+            for path in ('main.py', 'other.py'): (root / path).write_text('from .helper import leaf\ndef start(): pass\n')
+            (root / 'helper.py').write_text('def leaf(): pass\n')
+            git('add', '.'); git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'base')
+            base = git('rev-parse', 'HEAD')
+            (root / 'helper.py').write_text('def leaf():\n    return 1\n')
+            git('add', '.'); git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'change')
+            buffer = io.StringIO()
+            with redirect_stdout(buffer): self.assertEqual(main(['analyze', str(root), '--output', str(out), '--git-base', base]), 0)
+            receipt = json.loads(buffer.getvalue())
+            status = search.index_status(out); captured = status['structural']['impact']
+            self.assertEqual(captured['state'], 'ready'); self.assertFalse(captured['live_source_observed'])
+            self.assertEqual(captured['receipt']['git_change']['base_revision'], base)
+            self.assertEqual(captured['receipt']['git_change']['source_byte_affinity'], 'unobserved_worktree')
+            buffer = io.StringIO()
+            with patch.object(subprocess, 'run', side_effect=AssertionError('No query-time Git/source worker')), redirect_stdout(buffer):
+                self.assertEqual(main(['query', str(out), '--operation', 'impact', '--git-base', base,
+                    '--relation', 'import', '--certainty', 'resolved']), 0)
+            current = json.loads(buffer.getvalue()); self.assertEqual(current['generation'], receipt['generation'])
+            self.assertEqual(len(current['rows']), 2)
+            with closing(search.connect(out, readonly=True)) as db:
+                old_impact = db.execute("SELECT value FROM meta WHERE key='structural_impact_receipt'").fetchone()[0]
+                old_foundation = db.execute("SELECT value FROM meta WHERE key='structural_receipt'").fetchone()[0]
+            canary = 'PRIVATE_IMPACT_METADATA_CANARY'
+            for kind in ('extra', 'nested_extra', 'reason', 'oversized'):
+                changed = json.loads(old_impact)
+                if kind in ('extra', 'oversized'): changed['operator_note'] = canary * (2000 if kind == 'oversized' else 1)
+                elif kind == 'nested_extra': changed['git_change']['operator_note'] = canary
+                else: changed['git_change']['reason'] = canary
+                changed['identity'] = hashlib.sha256(encoded({key: value for key, value in changed.items() if key != 'identity'})).hexdigest()
+                foundation = json.loads(old_foundation); foundation['impact_identity'] = changed['identity']
+                with closing(search.connect(out)) as db, db:
+                    db.execute("UPDATE meta SET value=? WHERE key='structural_impact_receipt'", (encoded(changed).decode(),))
+                    db.execute("UPDATE meta SET value=? WHERE key='structural_receipt'", (encoded(foundation).decode(),))
+                safe = search.index_status(out)
+                with self.subTest(kind=kind):
+                    self.assertEqual(safe['structural']['impact']['state'], 'unavailable')
+                    self.assertTrue(safe['structural']['query_available']); self.assertNotIn(canary, json.dumps(safe))
+            with closing(search.connect(out)) as db, db:
+                db.execute("UPDATE meta SET value=? WHERE key='structural_impact_receipt'", (old_impact,))
+                db.execute("UPDATE meta SET value=? WHERE key='structural_receipt'", (old_foundation,))
+            with create_server(search.Search(out)) as server:
+                thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .01}); thread.start()
+                address = f'http://127.0.0.1:{server.server_port}'
+                request = dict(operation='impact', selector=dict(kind='source_area', paths=['helper.py']),
+                    relations=['import'], limits=dict(max_edges=1))
+                def post(endpoint, payload):
+                    return urlopen(Request(address + endpoint, encoded(payload), headers={'Content-Type': 'application/json'}))
+                try:
+                    with post('/api/query', request) as response: page = json.loads(response.read())
+                    self.assertIsNotNone(page['cursor']); self.assertEqual(len(page['rows']), 1)
+                    handle = {key: page['rows'][0]['site'][key] for key in ('id', 'path', 'range', 'source_sha256')}
+                    (root / 'helper.py').write_text('def leaf():\n    return 2\n')
+                    updated = StructuralIndex(root, out).refresh(['main.py', 'other.py', 'helper.py'], git_base=base)
+                    self.assertEqual(updated['status'], 'ready', updated); self.assertNotEqual(updated['generation'], page['generation'])
+                    for endpoint, values, code in (('/api/query', dict(request, cursor=page['cursor']), 400),
+                            ('/api/source', dict(generation=page['generation'], handle=handle), 409)):
+                        with self.assertRaises(HTTPError) as caught: post(endpoint, values)
+                        self.assertEqual(caught.exception.code, code); caught.exception.close()
+                finally: server.shutdown(); thread.join()
+
     def test_captured_source_exact_handles_utf8_redaction_and_byte_caps(self):
         from tests.test_analysis import AVAILABLE
         if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')

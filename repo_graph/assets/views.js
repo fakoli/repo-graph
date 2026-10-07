@@ -240,6 +240,9 @@ const RepoViews = (() => {
         value.provenance?.source_sha256!==handle.source_sha256 || !/^[0-9a-f]{64}$/.test(value.raw_digest || '') ||
         typeof value.text!=='string' || typeof value.redacted!=='boolean' || typeof value.truncated!=='boolean')
       throw new Error('Source evidence identity mismatch');
+    if(/^import:[0-9a-f]{64}$/.test(handle.id) && (value.kind!=='import' || value.role!=='import' || value.impact_schema!=='captured-impact-v1' ||
+        value.impact_identity!==captured.impact_identity || value.targets_exhaustive!==false || typeof value.source_candidates_exhaustive!=='boolean' ||
+        value.scope!=='admitted_source_candidates_runtime_unqualified'))throw new Error('Import source capture mismatch');
     const span=value.range;
     if(!span || ['start_byte','end_byte','start_line','end_line'].some(key=>!Number.isSafeInteger(span[key])) ||
         span.start_byte<handle.range.start_byte || span.end_byte>handle.range.end_byte || span.end_byte<span.start_byte ||
@@ -248,6 +251,77 @@ const RepoViews = (() => {
     return value;
   }
   const snapshotKeys=['generation','repository_identity','source_identity','analyzer_identity','config_identity'];
+  function impactSelector(value) {
+    const exact=(row,keys)=>row && typeof row==='object' && !Array.isArray(row) && Object.keys(row).length===keys.length && keys.every(key=>Object.hasOwn(row,key));
+    if(value?.kind==='git_change' && exact(value,['kind','base_revision']) && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(value.base_revision || ''))return {kind:value.kind,base_revision:value.base_revision};
+    if(!exact(value,['kind','paths']) || value.kind!=='source_area' || !Array.isArray(value.paths) || !value.paths.length || value.paths.length>50)throw new Error('Invalid impact selection');
+    for(const path of value.paths) {
+      const parts=typeof path==='string' ? path.replace(/\/$/,'').split('/') : [];
+      if(typeof path!=='string' || !path || new TextEncoder().encode(path).length>4096 || /[\\\0]/.test(path) || path!=='.' && parts.some(part=>!part || part==='.' || part==='..'))throw new Error('Invalid impact selection');
+    }
+    const result={kind:value.kind,paths:[...new Set(value.paths)].sort()};
+    if(new TextEncoder().encode(JSON.stringify(result)).length>8192)throw new Error('Impact selection exceeds its budget');
+    return result;
+  }
+  function impactFile(value) {
+    if(!/^file:[0-9a-f]{64}$/.test(value?.id || '') || typeof value.path!=='string' || !value.path || value.path.length>4096 ||
+        !/^[0-9a-f]{64}$/.test(value.source_sha256 || '') || !Number.isSafeInteger(value.source_bytes) || value.source_bytes<0 ||
+        typeof value.admission_status!=='string' || !/^[a-z_]{1,64}$/.test(value.admission_status) || typeof value.kind!=='string' || value.kind.length>64 ||
+        value.change_status!==undefined && !['A','D','M','T'].includes(value.change_status))throw new Error('Invalid captured impact file');
+    impactSelector({kind:'source_area',paths:[value.path]});return value;
+  }
+  function impactPage(value,request,captured=null) {
+    for(const key of snapshotKeys)if(!/^[0-9a-f]{64}$/.test(value?.[key] || '') || captured && value[key]!==captured[key])throw new Error('Index changed; select impact again');
+    if(!/^[0-9a-f]{64}$/.test(value.impact_identity || '') || captured && value.impact_identity!==captured.impact_identity)throw new Error('Impact capture changed; select again');
+    if(value.impact_schema!=='captured-impact-v1' || value.contracts_available!==false || value.runtime_complete!==false || value.live_source_observed!==false ||
+        value.historical_call_closure!=='unavailable_current_index_only' || value.scope?.claim!=='possible_captured_reachability' || value.scope.evidence_kind!=='static_syntax' ||
+        value.selection?.seed!==null || JSON.stringify(impactSelector(value.selection.selector))!==JSON.stringify(impactSelector(request.selector)) ||
+        value.scope.depth!==request.depth || value.scope.path_filter!=='' || value.scope.name_prefix!=='' || value.scope.role!=='all' ||
+        JSON.stringify(value.scope.relations)!==JSON.stringify([...request.relations].sort()) || JSON.stringify(value.scope.certainties)!==JSON.stringify([...request.certainties].sort()))throw new Error('Impact filter or capture mismatch');
+    if(typeof value.truncated!=='boolean' || value.cursor!==null && !/^[0-9a-f]{64}$/.test(value.cursor || '') ||
+        !['exact','lower_bound','unknown'].includes(value.total_count?.kind) || !(Number.isSafeInteger(value.total_count.value) && value.total_count.value>=0 || value.total_count.kind==='unknown' && value.total_count.value===null) ||
+        value.stop_reason!=null && !/^[a-z_]{1,128}$/.test(value.stop_reason))throw new Error('Invalid bounded impact page');
+    if(!value.unknown_boundaries || typeof value.unknown_boundaries!=='object' || Array.isArray(value.unknown_boundaries) || Object.keys(value.unknown_boundaries).length>32 ||
+        Object.entries(value.unknown_boundaries).some(([key,count])=>!/^[a-z_]{1,128}$/.test(key) || !Number.isSafeInteger(count) || count<0))throw new Error('Invalid impact boundaries');
+    for(const key of ['rows','selected_files','selected_symbols','unavailable_paths'])if(!Array.isArray(value[key]) || value[key].length>8)throw new Error('Impact page exceeds its budget');
+    const symbols=new Set(),files=new Set(),entities=new Set();
+    const symbol=handle=>{sourceHandle(handle);if(typeof handle.name!=='string' || handle.name.length>256)throw new Error('Invalid impact declaration');symbols.add(handle.id);entities.add(handle.id);};
+    const file=handle=>{impactFile(handle);files.add(handle.id);entities.add(handle.id);};
+    value.selected_symbols.forEach(symbol);value.selected_files.forEach(file);
+    for(const row of value.unavailable_paths) {
+      if(!/^unavailable-source:[0-9a-f]{64}$/.test(row?.id || '') || row.source_sha256!==null || typeof row.reason!=='string' || row.reason.length>256 || !['A','D','M','T'].includes(row.change_status))throw new Error('Invalid unavailable impact path');
+      impactSelector({kind:'source_area',paths:[row.path]});entities.add(row.id);
+    }
+    for(const row of value.rows) {
+      sourceHandle(row.site);
+      if(!['call','import'].includes(row.relation) || row.site.role!==row.relation || !['resolved','candidate','unresolved'].includes(row.certainty) ||
+          typeof row.targets_exhaustive!=='boolean' || typeof row.reason!=='string' || row.reason.length>256 || row.evidence_kind!=='static_syntax')throw new Error('Invalid impact relation evidence');
+      if(row.relation==='call'){if(row.caller)symbol(row.caller);if(row.target)symbol(row.target);}
+      else {file(row.importer);if(row.target)file(row.target);if(row.targets_exhaustive!==false || typeof row.source_candidates_exhaustive!=='boolean')throw new Error('Invalid import certainty');}
+    }
+    if(entities.size>request.limits.max_entities || value.rows.length>request.limits.max_edges || value.returned_entities!==entities.size ||
+        value.returned_symbol_handles!==symbols.size || value.returned_file_handles!==files.size || value.returned_edges!==value.rows.length)throw new Error('Impact counters exceed their budget');
+    if(request.selector.kind==='git_change' && (value.selection.git_change?.status!=='ready' || value.selection.git_change.base_revision!==request.selector.base_revision ||
+        !/^[0-9a-f]{64}$/.test(value.selection.git_change.changes_sha256 || '') || value.selection.git_change.source_byte_affinity!=='unobserved_worktree'))throw new Error('Captured Git base unavailable');
+    return value;
+  }
+  function impactScene(prior,page) {
+    const files=new Map((prior?.files || []).map(value=>[value.id,value])),symbols=new Map((prior?.symbols || []).map(value=>[value.id,value]));
+    const unavailable=new Map((prior?.unavailable || []).map(value=>[value.id,value])),sites=new Map((prior?.sites || []).map(row=>[row.site.id,{...row,targets:[...row.targets]}]));
+    const file=value=>{const old=files.get(value.id);if(old && (old.path!==value.path || old.source_sha256!==value.source_sha256 || old.source_bytes!==value.source_bytes || old.admission_status!==value.admission_status || old.change_status && value.change_status && old.change_status!==value.change_status))throw new Error('Changed captured impact file');files.set(value.id,{...old,...value});};
+    const symbol=value=>{if(symbols.has(value.id) && !sameHandle(symbols.get(value.id),value))throw new Error('Changed source handle');symbols.set(value.id,value);};
+    page.selected_files.forEach(file);page.selected_symbols.forEach(symbol);
+    for(const value of page.unavailable_paths){const old=unavailable.get(value.id);if(old && JSON.stringify(old)!==JSON.stringify(value))throw new Error('Changed unavailable impact path');unavailable.set(value.id,value);}
+    for(const row of page.rows) {
+      if(row.relation==='call'){if(row.caller)symbol(row.caller);if(row.target)symbol(row.target);}else{file(row.importer);if(row.target)file(row.target);}
+      let site=sites.get(row.site.id);
+      if(site) {if(!sameHandle(site.site,row.site) || site.relation!==row.relation || site.certainty!==row.certainty || site.targets_exhaustive!==row.targets_exhaustive || site.reason!==row.reason || site.caller?.id!==row.caller?.id || site.importer?.id!==row.importer?.id)throw new Error('Changed impact occurrence');}
+      else {site={...row,targets:[]};sites.set(row.site.id,site);}
+      if(row.target && !site.targets.some(value=>value.id===row.target.id))site.targets.push(row.target);
+    }
+    if(files.size+symbols.size+sites.size+unavailable.size>24)throw new Error('24 element impact limit reached');
+    return {files:[...files.values()],symbols:[...symbols.values()],sites:[...sites.values()],unavailable:[...unavailable.values()]};
+  }
   function capturedSnapshot(status) {
     const identities=status?.structural?.identities;
     if(status?.status!=='ok' || status.structural?.artifact_ready!==true ||
@@ -260,8 +334,9 @@ const RepoViews = (() => {
       Object.keys(row).length===keys.length && keys.every(key=>Object.hasOwn(row,key));
     const text=(s,max)=>typeof s==='string' && s.length<=max;
     const fail=()=>{throw new Error('Invalid saved view; clear it and select again');};
-    if(!exact(value,['version','view','scope','sort','kind','page','selected','snapshot','calls']) || value.version!==1 ||
-        !['system','atlas','tree','radial','treemap','table','matrix','search','calls'].includes(value.view) ||
+    if(!(value?.version===1 && exact(value,['version','view','scope','sort','kind','page','selected','snapshot','calls']) ||
+        value?.version===2 && exact(value,['version','view','scope','sort','kind','page','selected','snapshot','calls','impact'])) ||
+        !['system','atlas','tree','radial','treemap','table','matrix','search','calls','impact'].includes(value.view) || value.view==='impact' && value.version!==2 ||
         !text(value.scope,4096) || !['name','files','imports'].includes(value.sort) ||
         !['all','directory','file'].includes(value.kind) || !Number.isSafeInteger(value.page) || value.page<0 ||
         value.selected!==null && (!text(value.selected,8192) || !value.selected))fail();
@@ -285,6 +360,18 @@ const RepoViews = (() => {
             step.limits.max_response_bytes!==32768 || step.limits.max_excerpt_bytes!==0)fail();
       }
     }
+    if(value.version===2 && value.impact!==null) {
+      const impact=value.impact;
+      if(value.view!=='impact' || value.calls!==null || value.snapshot===null || !exact(impact,['selector','relations','certainties','depth','size','identity','selected','intents']) ||
+          !/^[0-9a-f]{64}$/.test(impact.identity || '') || ![1,2].includes(impact.depth) || ![1,4,8].includes(impact.size) ||
+          impact.selected!==null && (!text(impact.selected,8192) || !impact.selected) || !Array.isArray(impact.intents) || impact.intents.length>24)fail();
+      impactSelector(impact.selector);
+      for(const [key,allowed] of [['relations',['call','import']],['certainties',['resolved','candidate','unresolved']]])if(!Array.isArray(impact[key]) || !impact[key].length || impact[key].length>allowed.length || new Set(impact[key]).size!==impact[key].length || impact[key].some(choice=>!allowed.includes(choice)))fail();
+      for(const step of impact.intents)if(!exact(step,['continuation','reset','limits']) || typeof step.continuation!=='boolean' || typeof step.reset!=='boolean' ||
+          !exact(step.limits,['max_entities','max_edges','max_response_bytes','max_excerpt_bytes']) ||
+          !Number.isSafeInteger(step.limits.max_entities) || step.limits.max_entities<1 || step.limits.max_entities>8 ||
+          !Number.isSafeInteger(step.limits.max_edges) || step.limits.max_edges<1 || step.limits.max_edges>8 || step.limits.max_response_bytes!==32768 || step.limits.max_excerpt_bytes!==0)fail();
+    }
     return value;
   }
   function bookmarkFragment(value) {
@@ -299,6 +386,6 @@ const RepoViews = (() => {
     if(!fragment.startsWith('#view='))throw new Error('invalid_bookmark');
     return savedView(JSON.parse(decodeURIComponent(fragment.slice(6))));
   }
-  return {metrics,ordered,layout,csv,systemOverview,indexStatus,sourceHandle,queryPage,callScene,sourceEvidence,capturedSnapshot,sameSnapshot,savedView,bookmarkFragment,bookmarkView};
+  return {metrics,ordered,layout,csv,systemOverview,indexStatus,sourceHandle,queryPage,callScene,sourceEvidence,impactSelector,impactPage,impactScene,capturedSnapshot,sameSnapshot,savedView,bookmarkFragment,bookmarkView};
 })();
 if (typeof module !== 'undefined') module.exports = RepoViews;

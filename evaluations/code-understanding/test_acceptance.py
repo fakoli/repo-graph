@@ -118,6 +118,28 @@ class AdapterEvidence(unittest.TestCase):
 
 
 class FreezeInputs(unittest.TestCase):
+    def test_impact_aggregate_refuses_failed_foreign_and_stale_child_evidence(self):
+        fixture, frozen = analysis.frozen_inputs(gate.ROOT)
+        original = json.loads((gate.ROOT / 'evaluations/results/code-understanding/views.json').read_text())
+        original['tasks']['T045'] = {'status': 'passed', 'qualification_complete': False, 'task_accepted': False,
+            'source_identity': copy.deepcopy(original['tasks']['T044']['source_identity']),
+            'case_results': [{'id': name, 'status': 'passed'} for name in gate.IMPACT_BROWSER_CASES]}
+        # Synthetic aggregate-validation inputs; no browser/producer success is inferred.
+        for mutation, expected in (('failed', 'T044:cases'), ('foreign', 'T043:frozen_inputs'),
+                                   ('stale', 'T045:current_source')):
+            report = copy.deepcopy(original)
+            if mutation == 'failed': report['tasks']['T044']['case_results'][0]['status'] = 'failed'
+            elif mutation == 'foreign': report['tasks']['T043']['source_identity']['inputs'] = {}
+            else:
+                report['tasks']['T045']['source_identity']['implementation']['sha256']['repo_graph/analysis_queries.py'] = '0' * 64
+            with self.subTest(mutation=mutation), patch.object(analysis, 'frozen_inputs', return_value=(fixture, frozen)), \
+                    patch.object(gate, 'read_json', return_value=(report, '0' * 64)), \
+                    patch.object(gate, 'committed', return_value=True), patch.object(analysis, 'record_view'):
+                result = gate.impact_gate()
+                self.assertEqual(result['status'], 'blocked')
+                self.assertEqual(next(row for row in result['case_results'] if row['id'] == expected)['status'], 'failed')
+                self.assertFalse(result['task_accepted']); self.assertFalse(result['human_ux_qualified'])
+
     def test_strict_json_rejects_numeric_overflow_and_duplicates(self):
         for raw in (b'{"measurement":1e999}', b'{"id":1,"id":2}'):
             source = SimpleNamespace(read=lambda *args, **kwargs: (raw, '0' * 64, SimpleNamespace(st_size=len(raw))))

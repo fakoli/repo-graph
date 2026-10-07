@@ -35,6 +35,19 @@ def encoded(value):
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
 
 
+def validate_impact_receipt(receipt, identities):
+    """Pure captured identity check shared by queries, status and source inspection."""
+    if (type(receipt) is not dict or receipt.get('schema') != IMPACT_RULE_VERSION or
+            any(receipt.get(k) != v for k, v in identities.items()) or
+            type(receipt.get('git_change')) is not dict or type(receipt.get('revision_dirty')) is not dict or
+            receipt.get('contracts_available') is not False or
+            receipt.get('historical_call_closure') != 'unavailable_current_index_only' or
+            len(encoded(receipt)) > 32768 or
+            receipt.get('identity') != hashlib.sha256(encoded({k: v for k, v in receipt.items() if k != 'identity'})).hexdigest()):
+        raise ValueError('Missing, stale or foreign impact projection; refresh the index')
+    return receipt
+
+
 def _row_entities(row):
     """Declaration handles consume entities; physical occurrences consume edges."""
     if 'site' not in row:
@@ -559,13 +572,7 @@ class SQLSnapshot(Snapshot):
         receipt = self.impact_receipt
         expected = dict(repository_identity=self.repository_identity, source_identity=self.source_identity,
             analyzer_identity=self.analyzer_identity, config_identity=self.config_identity, generation=self.generation)
-        if (type(receipt) is not dict or receipt.get('schema') != IMPACT_RULE_VERSION or
-                any(receipt.get(k) != v for k, v in expected.items()) or
-                type(receipt.get('git_change')) is not dict or type(receipt.get('revision_dirty')) is not dict or
-                receipt.get('contracts_available') is not False or
-                receipt.get('historical_call_closure') != 'unavailable_current_index_only' or
-                receipt.get('identity') != hashlib.sha256(encoded({k: v for k, v in receipt.items() if k != 'identity'})).hexdigest()):
-            raise ValueError('Missing, stale or foreign impact projection; refresh the index')
+        validate_impact_receipt(receipt, expected)
         schema = self._read("SELECT value FROM meta WHERE key='structural_impact_schema'")
         if schema is None or schema[0] != IMPACT_RULE_VERSION:
             raise ValueError('Missing impact projection version; refresh the index')

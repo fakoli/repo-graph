@@ -10,14 +10,22 @@ import { once } from 'node:events';
 const scratch = mkdtempSync(resolve(tmpdir(),'repo-graph-ux-'));
 const repo = resolve(scratch,'source'), output = process.env.REPO_GRAPH_UX_OUTPUT || resolve(scratch,'output');
 const python = process.env.REPO_GRAPH_PYTHON || 'python3';
+let gitBase=null;
 if (!process.env.REPO_GRAPH_UX_OUTPUT) {
   for (let i=0;i<75;i++) { const dir=resolve(repo,'src','component'+String(i).padStart(2,'0')); mkdirSync(dir,{recursive:true}); writeFileSync(resolve(dir,'main.py'),'def process():\n    """Apply access control permissions to a request."""\n'); }
   writeFileSync(resolve(repo,'src','component00','main.py'),'def process():\n    """Apply access control permissions to a request."""\n'+
     'def view_leaf():\n    return 1\ndef view_middle():\n    return view_leaf()\ndef view_entry():\n    view_middle()\n    unknown_handler()\n'+
     'def view_callback(fn):\n    return fn()\ndef view_fanout():\n'+Array(30).fill('    view_leaf()\n').join(''));
+  writeFileSync(resolve(repo,'src','component01','main.py'),'from src.component00.main import view_leaf\nimport unavailable_service\n\ndef impact_caller():\n    return view_leaf()\n');
+  const git=(...args)=>{const result=spawnSync('git',['-C',repo,'-c','core.hooksPath=/dev/null','-c','user.name=Fixture','-c','user.email=fixture@example.invalid',...args],{encoding:'utf8'});assert.equal(result.status,0,result.stderr);return result.stdout.trim();};
+  git('init','-q');
+  const changedPath=resolve(repo,'src','component00','main.py'),postimage=readFileSync(changedPath,'utf8');
+  writeFileSync(resolve(repo,'obsolete.py'),'def removed():\n    return 1\n');
+  writeFileSync(changedPath,postimage.replace('    return 1\n','    return 0\n'));git('add','.');git('commit','-qm','Synthetic base');gitBase=git('rev-parse','HEAD');
+  writeFileSync(changedPath,postimage);rmSync(resolve(repo,'obsolete.py'));git('add','.');git('commit','-qm','Synthetic body change and deletion');
   const scan=spawnSync(python,['scripts/repo_graph.py','map',repo,'--output',output],{encoding:'utf8'});
   assert.equal(scan.status,0,scan.stderr);
-  const analysis=spawnSync(python,['scripts/repo_graph.py','analyze',repo,'--output',output,'--mode','serial'],{encoding:'utf8'});
+  const analysis=spawnSync(python,['scripts/repo_graph.py','analyze',repo,'--output',output,'--mode','serial','--git-base',gitBase],{encoding:'utf8'});
   assert.equal(analysis.status,0,analysis.stderr);
   const captured=spawnSync(python,['scripts/repo_graph.py','map',repo,'--output',output],{encoding:'utf8'});
   assert.equal(captured.status,0,captured.stderr);
@@ -31,7 +39,7 @@ const browser=await chromium.launch({executablePath:process.env.REPO_GRAPH_CHROM
 const context=await browser.newContext({viewport:{width:1440,height:1000}});
 const page=await context.newPage(), errors=[];
 page.on('pageerror',error=>errors.push(error.message));
-const checks=[],callsResponses=[],responseReads=[],callsChecks=[],savedChecks=[],savedObservations=[];
+const checks=[],callsResponses=[],responseReads=[],callsChecks=[],savedChecks=[],savedObservations=[],impactChecks=[],impactObservations=[];
 try {
   const start=Date.now(); await page.goto(url); await page.locator('.node').first().waitFor();
   const loadMs=Date.now()-start;
@@ -76,6 +84,7 @@ try {
     await offline.goto(pathToFileURL(resolve(output,'architecture.html')).toString());
     await offline.click('#tab-system');
     assert.ok(await offline.locator('.node').count()<=12);
+    if(!process.env.REPO_GRAPH_UX_OUTPUT)assert.match(await offline.locator('#map-subtitle').innerText(),/Shared index: admitted import bindings.*candidate bindings.*unresolved bindings \(omitted from edges\)/);
     assert.match(await offline.locator('#index-heading').innerText(),/captured export/);
     assert.match(await offline.locator('#index-summary').innerText(),/Live freshness unobserved/);
     if (!process.env.REPO_GRAPH_UX_OUTPUT) assert.match(await offline.locator('#index-summary').innerText(),/captured artifact ready/);
@@ -109,6 +118,13 @@ try {
   }
   await page.click('#tab-system');
   assert.ok(await page.locator('.node').count()<=12);
+  if(!process.env.REPO_GRAPH_UX_OUTPUT) {
+    assert.equal(graph.scan.basis,'shared_structural_index');
+    for(const key of ['generation','repository_identity','source_identity','analyzer_identity','config_identity'])assert.equal(graph.scan.identities[key],liveStatus.structural.identities[key]);
+    assert.match(await page.locator('#map-subtitle').innerText(),new RegExp(graph.scan.import_certainty_counts.candidate+' candidate bindings'));
+    assert.match(await page.locator('#map-subtitle').innerText(),new RegExp(graph.scan.unresolved_import_bindings+' unresolved bindings \\(omitted from edges\\)'));
+    impactChecks.push('online/offline System uses shared admitted import projection and visible candidate/unresolved counts without resolving unknown edges');
+  }
   const grouped=(graph.system?.edges || []).reduce((sum,edge)=>sum+edge.count,0);
   assert.match(await page.locator('#map-subtitle').innerText(),new RegExp(grouped.toLocaleString('en-US')+' captured imports'));
   await page.evaluate(()=>new Promise(requestAnimationFrame));
@@ -394,16 +410,142 @@ try {
     await page.getByRole('button',{name:'New view at selected symbol',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('rows in this page'));
     savedObservations.push({case:'new bounded view after overflow',record:(await readSaved()).value});
     if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-saved.png'});
+
+    await page.setViewportSize({width:1440,height:1000});await page.click('#tab-impact');
+    const impactStatus=page.locator('.impact-panel .calls-status[role="status"]');
+    const findImpact=async(path,relation='all',certainty='all',kind='source_area')=>{
+      await page.getByLabel('Impact input',{exact:true}).selectOption(kind);
+      if(kind==='source_area')await page.getByLabel('Impact source area or captured base').fill(path);
+      await page.getByLabel('Impact relation',{exact:true}).selectOption(relation);await page.getByLabel('Impact certainty',{exact:true}).selectOption(certainty);
+      await page.getByRole('button',{name:'Find impact',exact:true}).click();
+      await page.waitForFunction(()=>document.querySelector('.impact-panel .calls-status[role="status"]').textContent.includes('physical relations in this page'));
+    };
+    const impactScene=()=>page.locator('.impact-element').evaluateAll(cards=>cards.map(card=>({id:card.dataset.id,type:card.dataset.type,relation:card.dataset.relation,top:card.offsetTop,left:card.offsetLeft})));
+    const showImpactBoundaries=async()=>{const details=page.locator('.impact-panel details');if(await details.getAttribute('open')===null)await details.locator('summary').click();};
+    const collectImpact=async()=>{
+      const physical=new Map();let pages=0;
+      while(true) {
+        assert.ok(await page.locator('.impact-element').count()<=24);
+        for(const card of await impactScene())if(card.type==='site')physical.set(card.id,card.relation);
+        const more=page.getByRole('button',{name:/^(More impact|Next impact page \(replace scene\))$/});
+        if(await more.isDisabled())break;
+        assert.ok(++pages<40,'bounded impact page count');await more.click();
+        await page.waitForFunction(()=>document.querySelector('.impact-panel .calls-status[role="status"]').textContent.includes('physical relations in this page'));
+      }
+      return physical;
+    };
+    await findImpact('src/component00/main.py');await Promise.all(responseReads);
+    const firstImpact=callsResponses.filter(value=>value.endpoint==='/api/query' && value.request.operation==='impact').at(-1);
+    assert.ok(firstImpact.response.cursor);assert.equal(firstImpact.response.contracts_available,false);assert.equal(firstImpact.response.runtime_complete,false);
+    const changedFilter=await page.request.post(new URL('/api/query',url).toString(),{data:{...firstImpact.request,relations:['import'],cursor:firstImpact.response.cursor}});
+    assert.equal(changedFilter.status(),400);
+    const firstImpactCard=await page.locator('.impact-element').first().evaluate(card=>{window.__impactFirst=card;return {top:card.offsetTop,left:card.offsetLeft};});
+    if(await page.getByRole('button',{name:'More impact',exact:true}).count()) {
+      await page.getByRole('button',{name:'More impact',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.impact-panel .calls-status[role="status"]').textContent.includes('physical relations in this page'));
+      assert.deepEqual(await page.locator('.impact-element').first().evaluate(card=>({top:card.offsetTop,left:card.offsetLeft})),firstImpactCard);
+      assert.ok(await page.locator('.impact-element').first().evaluate(card=>card===window.__impactFirst));
+    }
+    const physical=await collectImpact();
+    await Promise.all(responseReads);
+    // Source-owned expected physical call intervals, independent of returned target/rank rows.
+    const expectedCalls=new Set();
+    for(const path of ['src/component00/main.py','src/component01/main.py']) {
+      const raw=readFileSync(resolve(repo,path),'utf8');
+      for(const match of raw.matchAll(/(?:return |    )(view_leaf|view_middle|unknown_handler|fn)\(\)/g)) {
+        const start=match.index+match[0].lastIndexOf(match[1]+'('),end=start+match[1].length+2;expectedCalls.add(`${path}:${start}:${end}:call`);
+      }
+    }
+    // First page may have been replaced later; include its observed physical evidence.
+    for(const exchange of callsResponses.filter(value=>value.request.operation==='impact' && value.request.selector?.paths?.[0]==='src/component00/main.py' && value.request.relations.length===2))
+      for(const row of exchange.response.rows)physical.set(row.site.id,row.relation);
+    assert.deepEqual(new Set([...physical].filter(([,relation])=>relation==='call').map(([id])=>id)),expectedCalls);
+    assert.ok([...physical.values()].includes('import'));assert.match(await impactStatus.innerText(),/Runtime effects unknown/);
+    await showImpactBoundaries();
+    assert.match(await page.locator('.impact-panel details').innerText(),/unassigned incoming targets not enumerable/);
+    impactChecks.push('actual source-area reverse imports/calls retain source-owned physical intervals; <=24 cards, stable append positions and filter-bound continuation');
+
+    await findImpact('src/component00/main.py','import');await collectImpact();
+    assert.ok((await impactScene()).filter(value=>value.type==='site').every(value=>value.relation==='import'));
+    await findImpact('src/component01/main.py','import','unresolved');await collectImpact();
+    assert.match(await page.locator('.impact-element[data-type="site"]').innerText(),/Import · unresolved.*Unresolved target.*not exhaustive/s);
+    assert.equal(await page.getByLabel('Impact relation',{exact:true}).locator('option[value="contract"]').isDisabled(),true);
+    assert.match(await page.locator('.impact-panel').innerText(),/Contract filters unavailable/);
+    assert.equal(callsResponses.some(value=>value.request.relations?.includes('contract')),false);
+    impactChecks.push('relation/certainty filters use actual backend rows; unknown external import explicit; Contracts disabled without requests');
+
+    await findImpact('src/component00/main.py','import');
+    await collectImpact();const physicalImport=page.locator('.impact-element[data-relation="import"]').filter({hasText:'src/component01/main.py'}).first();
+    await physicalImport.getByRole('button',{name:'Inspect import',exact:true}).click();await page.locator('.impact-panel .call-evidence pre').waitFor();
+    assert.match(await page.locator('.impact-panel .call-evidence pre').innerText(),/from src\.component00\.main import view_leaf/);
+    assert.match(await page.locator('.impact-panel .call-evidence').innerText(),/excerpt digest verified/);await page.keyboard.press('Escape');
+    assert.equal(await physicalImport.getByRole('button',{name:'Inspect import',exact:true}).evaluate(button=>button===document.activeElement),true);
+    await page.route('**/api/source',async route=>{const response=await route.fetch();const body=await response.json();body.impact_identity='0'.repeat(64);await route.fulfill({response,body:JSON.stringify(body)});});
+    await physicalImport.getByRole('button',{name:'Inspect import',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.impact-panel .calls-status[role="status"]').textContent.includes('Import source capture mismatch'));
+    assert.equal(await page.locator('.impact-panel .call-evidence').isVisible(),false);await page.unroute('**/api/source');
+    impactChecks.push('physical import source membership/range/digest and impact identity verified; forged capture refuses excerpt with keyboard focus return');
+
+    await findImpact(null,'call','all','git_change');
+    assert.equal(await page.getByLabel('Impact source area or captured base').inputValue(),gitBase);
+    assert.match(await page.locator('.impact-panel').innerText(),/worktree byte affinity unobserved.*historical call closure unavailable/s);
+    const deletedFile=page.locator('.impact-element[data-type="unavailable"]').filter({hasText:'obsolete.py'});assert.match(await deletedFile.innerText(),/Changed path D.*current closure unavailable/s);
+    await deletedFile.getByRole('button',{name:'Open file in Explore',exact:true}).click();assert.match(await impactStatus.innerText(),/File absent from the captured map/);
+    assert.equal(await page.locator('.impact-panel .call-evidence').isVisible(),false);
+    const changedFile=page.locator('.impact-element[data-type="file"]').filter({hasText:'Changed path M'}).first();
+    assert.match(await changedFile.innerText(),/src\/component00\/main.py/);await changedFile.getByRole('button',{name:'Open file in Explore',exact:true}).click();
+    await page.getByRole('button',{name:'Close details'}).waitFor();assert.match(await page.locator('#inspector').innerText(),/src\/component00\/main.py/);
+    await page.keyboard.press('Escape');impactChecks.push('actual captured Git-base modified file opens the mapped area; deleted source refuses navigation/excerpts and historical/worktree boundaries remain visible');
+
+    await page.click('#tab-impact');await findImpact('missing.py','call');await collectImpact();
+    await showImpactBoundaries();
+    assert.equal(await page.locator('.impact-element').count(),0);assert.match(await page.locator('.impact-panel details').innerText(),/source area not in admitted inventory/);
+    assert.match(await impactStatus.innerText(),/lower bound/);impactChecks.push('nonadmitted source area stays unknown with exhausted captured traversal; no known-empty runtime claim');
+    await page.getByLabel('Impact rows per page').selectOption('1');await findImpact('src/component00/main.py','call');
+    assert.match(await impactStatus.innerText(),/(edge|entity) budget exceeded/);assert.match(await impactStatus.innerText(),/bounded continuation/);
+    await page.getByLabel('Impact rows per page').selectOption('8');assert.equal(await page.getByRole('button',{name:/^(More impact|Next impact page \(replace scene\))$/}).isDisabled(),true);
+    impactChecks.push('actual edge/entity exhaustion shown; changed controls retire old continuation before a fresh query');
+
+    await findImpact('src/component01/main.py','import');await collectImpact();
+    await page.locator('.impact-element[data-type="site"]').first().getByRole('button',{name:'Select impact item',exact:true}).click();
+    const savedImpact=(await readSaved()).value,impactBeforeReload=await impactScene();assert.equal(savedImpact.version,2);assert.equal(savedImpact.view,'impact');
+    for(const key of ['cursor','rows','text','query','prefix','response'])assert.equal(JSON.stringify(savedImpact).includes('"'+key+'"'),false);
+    await page.reload();await restored();assert.deepEqual(await impactScene(),impactBeforeReload);assert.equal(await page.locator('.impact-element[aria-current="true"]').count(),1);
+    assert.equal(await page.locator('.impact-panel .call-evidence').isVisible(),false);
+    await page.getByRole('button',{name:'Copy bookmark',exact:true}).click();await page.getByLabel('Bookmark URL').waitFor();const impactBookmark=await page.getByLabel('Bookmark URL').inputValue();
+    const impactTab=await context.newPage();
+    try{await impactTab.goto(impactBookmark);await impactTab.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.startsWith('Restored bookmark: Impact'));assert.deepEqual(await impactTab.locator('.impact-element').evaluateAll(cards=>cards.map(card=>({id:card.dataset.id,type:card.dataset.type,relation:card.dataset.relation,top:card.offsetTop,left:card.offsetLeft}))),impactBeforeReload);}
+    finally{await impactTab.close();}
+    impactObservations.push({case:'snapshot-fenced Impact reload/bookmark',record:savedImpact,scene:impactBeforeReload});
+    const changedImpact=structuredClone(savedImpact);changedImpact.impact.identity='0'.repeat(64);await writeSaved(changedImpact);await page.reload();await page.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.includes('snapshot is stale'));
+    assert.equal(await page.locator('.impact-element').count(),0);await writeSaved(savedImpact);await page.reload();await restored();
+    impactChecks.push('Impact reload/bookmark replays typed intents/filters/selection without cached facts or cursors; changed impact identity refuses even on same structural snapshot');
+
+    await page.route('**/api/query',async route=>{const response=await route.fetch();const body=await response.json();body.generation='0'.repeat(64);await route.fulfill({response,body:JSON.stringify(body)});});
+    await page.getByRole('button',{name:'Find impact',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.impact-panel .calls-status[role="status"]').textContent.includes('Index changed'));
+    assert.equal(await page.locator('.impact-element').count(),0);await page.unroute('**/api/query');
+    let impactRelease,impactStarted;const impactWaiting=new Promise(resolve=>{impactStarted=resolve;}),impactBarrier=new Promise(resolve=>{impactRelease=resolve;});
+    await page.route('**/api/query',async route=>{const response=await route.fetch();impactStarted();await impactBarrier;try{await route.fulfill({response});}catch{}});
+    await page.getByRole('button',{name:'Find impact',exact:true}).click();await impactWaiting;await page.getByRole('button',{name:'Cancel request',exact:true}).click();impactRelease();await page.waitForTimeout(100);
+    assert.equal(await page.locator('.impact-element').count(),0);assert.match(await impactStatus.innerText(),/Stopped waiting/);await page.unroute('**/api/query');
+    impactChecks.push('stale initial capture refused before scene publication; cancellation discards late actual backend reply');
+
+    await findImpact('src/component00/main.py','import');await collectImpact();await page.setViewportSize({width:360,height:900});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    assert.ok(await page.locator('.impact-panel form').evaluate(form=>[...form.querySelectorAll('input,select,button')].every(control=>{const rect=control.getBoundingClientRect();return rect.width<=innerWidth && rect.height>=44;})));
+    const importButton=page.locator('.impact-element[data-relation="import"]').first().getByRole('button',{name:'Inspect import',exact:true});await importButton.focus();await page.keyboard.press('Enter');await page.locator('.impact-panel .call-evidence pre').waitFor();await page.keyboard.press('Escape');
+    assert.equal(await importButton.evaluate(button=>button===document.activeElement),true);
+    impactChecks.push('360px Impact forms/cards stay bounded; labelled44px controls and Enter/Escape import inspection preserve focus');
+    if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-impact-narrow.png',fullPage:true});
+    await page.setViewportSize({width:1440,height:1000});if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-impact.png'});
   }
   await Promise.all(responseReads);
   assert.deepEqual(errors,[]); assert.ok(loadMs<5000); checks.push('no browser errors; load under 5 seconds');
   if(process.env.REPO_GRAPH_UX_REPORT) {
-    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',reranker:method,loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,savedChecks,savedObservations,callsResponses,browserErrors:errors},null,2)+'\n');
+    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',reranker:method,loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,savedChecks,savedObservations,impactChecks,impactObservations,callsResponses,browserErrors:errors},null,2)+'\n');
   }
-  console.log(JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,savedChecks,browserErrors:errors}));
+  console.log(JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,savedChecks,impactChecks,browserErrors:errors}));
 } catch(error) {
   if(process.env.REPO_GRAPH_UX_REPORT) {
-    writeFileSync(process.env.REPO_GRAPH_UX_REPORT+'-failure.json',JSON.stringify({checks,callsChecks,savedChecks,savedObservations,callsResponses,browserErrors:errors,failure:{name:error.name,message:error.message,stack:error.stack}},null,2)+'\n');
+    writeFileSync(process.env.REPO_GRAPH_UX_REPORT+'-failure.json',JSON.stringify({checks,callsChecks,savedChecks,savedObservations,impactChecks,impactObservations,callsResponses,browserErrors:errors,failure:{name:error.name,message:error.message,stack:error.stack}},null,2)+'\n');
     await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-failure.png',fullPage:true}).catch(()=>{});
   }
   throw error;

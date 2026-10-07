@@ -47,7 +47,7 @@
   .view-options { display:grid; gap:9px; margin-bottom:20px; }
   .view-options label { display:grid; grid-template-columns:42px minmax(0,1fr); gap:6px; align-items:center; color:var(--muted); font-size:11px; }
   .view-options select { width:100%; min-height:33px; border:1px solid var(--line); border-radius:8px; background:#f8f9fc; padding:5px 8px; color:var(--ink); font:inherit; }
-  .view-tabs { display:flex; gap:5px; margin-bottom:15px; }
+  .view-tabs { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:15px; }
   .view-tabs button { flex:1; min-height:40px; border:1px solid var(--line); border-radius:8px; padding:8px 4px; background:#fff; color:#53607a; font:700 11px "Segoe UI",sans-serif; }
   .view-tabs button[aria-selected="true"] { background:#273469; border-color:#273469; color:#fff; }
   .search-view .view-options label:not(:first-child),.search-view .stat-grid,.search-view .navigation,.search-view .section-line,.search-view .pages,.search-view .component-list,.search-view .side-foot { display:none; }
@@ -77,12 +77,14 @@
   .call-element h3 { margin:0 0 7px; font-size:14px; }
   .call-element p { margin:6px 0; font-size:12px; }
   .call-element button { margin:4px 4px 0 0; color:#354bab; }
+  .impact-cards { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 16px; }
+  .impact-element[aria-current="true"] { border:2px solid #354bab; }
   .saved-view { margin:12px 0; font-size:11px; color:var(--muted); }
   .saved-view p { margin:0 0 6px; overflow-wrap:anywhere; }
   .saved-view button { min-height:44px; padding:7px; border:1px solid var(--line); background:#fff; border-radius:7px; color:var(--ink); cursor:pointer; }
   .saved-view input { width:100%; min-height:44px; margin-top:5px; border:1px solid var(--line); border-radius:7px; padding:7px; font:inherit; }
   .call-evidence pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.5 monospace; max-height:320px; overflow:auto; }
-  @media (max-width:720px) { .calls-columns { grid-template-columns:1fr; } .calls-panel { padding:12px; } .calls-panel label { flex:1 1 100%; } }
+  @media (max-width:720px) { .calls-columns,.impact-cards { grid-template-columns:1fr; } .calls-panel { padding:12px; } .calls-panel label { flex:1 1 100%; } }
   .data-panel[hidden] { display:none; }
   .data-panel table { border-collapse:collapse; width:100%; font-size:12px; }
   .data-panel th,.data-panel td { padding:12px; text-align:left; border-bottom:1px solid #e8ecf3; white-space:nowrap; }
@@ -209,9 +211,9 @@
       <h2 class="side-title">Explore the repository.</h2>
       <p class="side-copy">A grounded map of files and relationships. Select a component to follow its connections.</p>
       <section class="index-status" aria-labelledby="index-heading"><h3 id="index-heading">Index coverage</h3><div id="index-summary" role="status" aria-live="polite"></div><p id="index-errors" class="index-errors"></p><details><summary>Coverage and snapshot details</summary><ul id="index-details"></ul></details></section>
-      <div class="view-tabs" role="tablist" aria-label="Repository views"><button type="button" role="tab" id="tab-system" aria-selected="false">System</button><button type="button" role="tab" id="tab-explore" aria-selected="true">Explore</button><button type="button" role="tab" id="tab-data" aria-selected="false">Data</button><button type="button" role="tab" id="tab-search" aria-selected="false">Search</button><button type="button" role="tab" id="tab-calls" aria-selected="false">Calls</button></div>
+      <div class="view-tabs" role="tablist" aria-label="Repository views"><button type="button" role="tab" id="tab-system" aria-selected="false">System</button><button type="button" role="tab" id="tab-explore" aria-selected="true">Explore</button><button type="button" role="tab" id="tab-data" aria-selected="false">Data</button><button type="button" role="tab" id="tab-search" aria-selected="false">Search</button><button type="button" role="tab" id="tab-calls" aria-selected="false">Calls</button><button type="button" role="tab" id="tab-impact" aria-selected="false">Impact</button></div>
       <div class="view-options">
-        <label>View<select id="view-mode"><option value="system">System overview</option><option value="atlas" selected>Card diagram</option><option value="tree">Top-down tree</option><option value="radial">Radial map</option><option value="treemap">File-count treemap</option><option value="table">Data table</option><option value="matrix">Dependency matrix</option><option value="search">Repository search</option><option value="calls">Calls</option></select></label>
+        <label>View<select id="view-mode"><option value="system">System overview</option><option value="atlas" selected>Card diagram</option><option value="tree">Top-down tree</option><option value="radial">Radial map</option><option value="treemap">File-count treemap</option><option value="table">Data table</option><option value="matrix">Dependency matrix</option><option value="search">Repository search</option><option value="calls">Calls</option><option value="impact">Impact</option></select></label>
         <label>Sort<select id="sort-mode"><option value="name">Name</option><option value="files">Most files</option><option value="imports">Most imports</option></select></label>
         <label>Show<select id="kind-filter"><option value="all">Directories and files</option><option value="directory">Directories</option><option value="file">Files</option></select></label>
       </div>
@@ -289,8 +291,8 @@ __VIEW_HELPERS__
 
   function renderScope() {
     scheduleSavedView();
-    document.getElementById('workspace').classList.toggle('search-view',['search','calls'].includes(viewMode));
-    for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-calls',viewMode === 'calls'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) {
+    document.getElementById('workspace').classList.toggle('search-view',['search','calls','impact'].includes(viewMode));
+    for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-calls',viewMode === 'calls'],['tab-impact',viewMode === 'impact'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) {
       const tab = document.getElementById(id); tab.setAttribute('aria-selected',String(active)); tab.setAttribute('tabindex',active ? '0' : '-1'); tab.setAttribute('aria-controls','view-panel');
       if (active) document.getElementById('view-panel').setAttribute('aria-labelledby',id);
     }
@@ -298,12 +300,13 @@ __VIEW_HELPERS__
     document.getElementById('selection-location').hidden = true;
     document.getElementById('inspector').classList.remove('open');
     document.getElementById('inspector-toggle').setAttribute('aria-expanded','false');
-    document.getElementById('sort-mode').disabled = ['system','search','calls'].includes(viewMode);
-    document.getElementById('kind-filter').disabled = ['system','search','calls'].includes(viewMode);
-    document.getElementById('search').hidden = ['search','calls'].includes(viewMode);
+    document.getElementById('sort-mode').disabled = ['system','search','calls','impact'].includes(viewMode);
+    document.getElementById('kind-filter').disabled = ['system','search','calls','impact'].includes(viewMode);
+    document.getElementById('search').hidden = ['search','calls','impact'].includes(viewMode);
     document.getElementById('data-panel').className='data-panel';
     if (viewMode === 'search') { renderSearch(); return; }
     if (viewMode === 'calls') { renderCalls(); return; }
+    if (viewMode === 'impact') { renderImpact(); return; }
     if (viewMode === 'system') { renderSystem(); return; }
     document.getElementById('export-csv').disabled = false;
     const branch = data.tree[scopePath];
@@ -474,13 +477,17 @@ __VIEW_HELPERS__
 
   let callsState={lookup:null,matches:[],selected:null,captured:null,scene:null,branch:null,page:null,prefix:'',scope:'',size:8,intents:[],saveBlocked:false};
   let callsUI=null,callsController=null,callsEpoch=0;
+  let impactState={selector:null,relations:['call','import'],certainties:['candidate','resolved','unresolved'],depth:2,size:8,captured:null,page:null,scene:null,selected:null,intents:[],saveBlocked:false};
+  let impactUI=null;
   let savedStorage=null,savedBooting=true,savedScheduled=false,savedControl=null,savedCleared=false;
   const savedKey='repo-graph:view:'+location.pathname;
   const callElement=(tag,text='',className='')=>{const el=document.createElement(tag);el.textContent=text;el.className=className;return el;};
   const callButton=(text,action)=>{const button=callElement('button',text);button.type='button';button.addEventListener('click',action);return button;};
   function stopCalls(announce=true) {
     callsEpoch++; callsController?.abort(); callsController=null;
-    if(callsUI) {callsUI.cancel.disabled=true;if(announce)callsUI.status.textContent='Stopped waiting. Bounded server work may finish; late responses will not be shown.';}
+    for(const ui of [callsUI,impactUI])if(ui)ui.cancel.disabled=true;
+    const ui=viewMode==='impact' ? impactUI : callsUI;
+    if(ui && announce)ui.status.textContent='Stopped waiting. Bounded server work may finish; late responses will not be shown.';
     if(announce && savedControl)cancelSavedRestore('Restore partial: cancelled. Bounded server work may finish; late responses are ignored.');
   }
   async function callsJSON(response) {
@@ -493,21 +500,22 @@ __VIEW_HELPERS__
     try {return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(result));}
     catch {throw new Error('Invalid bounded response');}
   }
-  async function callsRequest(endpoint,payload,publish,replay=false) {
+  async function callsRequest(endpoint,payload,publish,replay=false,mode='calls') {
+    const ui=mode==='impact' ? impactUI : callsUI;
     if(savedControl && !replay)cancelSavedRestore('Restore partial: another action stopped replay.');
     stopCalls(false);const epoch=callsEpoch,controller=new AbortController();callsController=controller;
-    callsUI.cancel.disabled=false;callsUI.status.textContent='Reading bounded captured evidence…';
+    ui.cancel.disabled=false;ui.status.textContent='Reading bounded captured evidence…';
     try {
       const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal});
       const result=await callsJSON(response);
-      if(epoch!==callsEpoch || viewMode!=='calls')return false;
-      await publish(result,()=>epoch===callsEpoch && viewMode==='calls');
+      if(epoch!==callsEpoch || viewMode!==mode)return false;
+      await publish(result,()=>epoch===callsEpoch && viewMode===mode);
       return true;
     } catch(error) {
-      if(epoch===callsEpoch && viewMode==='calls')callsUI.status.textContent=error.name==='AbortError' ? 'Stopped waiting; late responses will not be shown.' : error.message;
+      if(epoch===callsEpoch && viewMode===mode)ui.status.textContent=error.name==='AbortError' ? 'Stopped waiting; late responses will not be shown.' : error.message;
       if(replay)throw error;
       return false;
-    } finally {if(epoch===callsEpoch){callsController=null;callsUI.cancel.disabled=true;}}
+    } finally {if(epoch===callsEpoch){callsController=null;ui.cancel.disabled=true;}}
   }
   function callStatus(page) {
     const count=page.total_count;
@@ -518,9 +526,9 @@ __VIEW_HELPERS__
     const edges=Math.min(callsState.size,Math.max(1,remaining));
     return {max_entities:Math.min(8,Math.max(1,remaining-edges+1)),max_edges:edges,max_response_bytes:32768,max_excerpt_bytes:0};
   }
-  function showCallSource(handle,button) {
-    const captured=callsState.captured;
-    callsUI.evidence.hidden=true;callsUI.evidence.replaceChildren();
+  function showCallSource(handle,button,mode='calls') {
+    const captured=mode==='impact' ? impactState.captured : callsState.captured,ui=mode==='impact' ? impactUI : callsUI;
+    ui.evidence.hidden=true;ui.evidence.replaceChildren();
     callsRequest('/api/source',{generation:captured.generation,handle:RepoViews.sourceHandle(handle),max_excerpt_bytes:4096},async(result,current)=>{
       RepoViews.sourceEvidence(result,handle,captured);
       if(new TextEncoder().encode(result.text).length>4096)throw new Error('Source excerpt exceeds requested budget');
@@ -530,13 +538,13 @@ __VIEW_HELPERS__
         if(digest!==result.raw_digest || raw.length!==result.range.end_byte-result.range.start_byte)throw new Error('Source excerpt digest mismatch');
       }
       if(!current())return;
-      const evidence=callsUI.evidence;evidence.replaceChildren();evidence.hidden=false;
+      const evidence=ui.evidence;evidence.replaceChildren();evidence.hidden=false;
       const close=callButton('Close source',()=>{evidence.hidden=true;button.focus();});
       evidence.append(close,callElement('h2',handle.path),callElement('p',`Static syntax · lines ${result.range.start_line}–${result.range.end_line} · ${result.redacted ? 'redacted; raw digest validated by captured index' : 'excerpt digest verified'}${result.truncated ? ' · excerpt truncated' : ''}`),
         callElement('p',`Source SHA256: ${handle.source_sha256}`),callElement('p',`Excerpt SHA256: ${result.raw_digest}`),callElement('pre',result.text));
       evidence.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();evidence.hidden=true;button.focus();}};
-      close.focus();close.scrollIntoView({block:'nearest'});callsUI.status.textContent='Captured source inspected; source handle and snapshot identities verified.';
-    });
+      close.focus();close.scrollIntoView({block:'nearest'});ui.status.textContent='Captured source inspected; source handle and snapshot identities verified.';
+    },false,mode);
   }
   function showCallScene(reset=false) {
     const scene=callsState.scene;if(!scene)return;
@@ -638,6 +646,122 @@ __VIEW_HELPERS__
     if(callsState.scene)showCallScene(true);
   }
 
+  const impactCount=scene=>scene ? scene.files.length+scene.symbols.length+scene.sites.length+scene.unavailable.length : 0;
+  function selectImpact(id) {
+    impactState.selected=id;
+    for(const card of impactUI.cards.children)card.setAttribute('aria-current',String(card.dataset.id===id));
+    saveView(true);
+  }
+  function openImpactFile(value) {
+    if(!RepoViews.sameSnapshot(RepoViews.capturedSnapshot(data.index_status),impactState.captured)) {
+      impactUI.status.textContent='Captured map snapshot differs from Impact. Refresh the map before opening this file; current source is not fetched.';return;
+    }
+    const directory=value.path.split('/').slice(0,-1).join('/');
+    if(!data.tree[directory]?.direct.includes(value.path)){impactUI.status.textContent='File absent from the captured map (deleted or not mapped). Current source is not fetched.';return;}
+    stopCalls(false);viewMode='atlas';document.getElementById('view-mode').value='atlas';kindFilter='all';document.getElementById('kind-filter').value='all';
+    enter(directory);focusPath('file:'+value.path);
+  }
+  function showImpactScene(reset=false) {
+    const scene=impactState.scene;if(!scene)return;
+    if(reset)impactUI.cards.replaceChildren();
+    const items=[...scene.files.map(value=>({type:'file',value})),...scene.symbols.map(value=>({type:'symbol',value})),...scene.sites.map(value=>({type:'site',value})),...scene.unavailable.map(value=>({type:'unavailable',value}))];
+    for(const {type,value} of items) {
+      const id=type==='site' ? value.site.id : value.id;
+      let card=[...impactUI.cards.children].find(card=>card.dataset.id===id);
+      const signature=JSON.stringify(value);if(card?.dataset.signature===signature)continue;
+      const focused=card?.contains(document.activeElement) ? document.activeElement.textContent : null;
+      if(!card){card=callElement('article','','call-element impact-element');card.dataset.id=id;card.dataset.type=type;impactUI.cards.appendChild(card);}
+      card.dataset.signature=signature;card.replaceChildren();card.setAttribute('aria-current',String(impactState.selected===id));
+      if(type==='site') {
+        card.dataset.relation=value.relation;
+        card.append(callElement('h3',`${value.relation==='import' ? 'Import' : 'Call'} · ${value.certainty} · ${value.site.path}:${value.site.range.start_line}`),
+          callElement('p',`${value.caller?.name || value.importer?.path || 'Unknown caller'} → ${value.targets.map(target=>target.name || target.path).join(' / ') || 'Unresolved target'}`),
+          callElement('p',`Static possibilities; targets ${value.targets_exhaustive ? 'reported exhaustive' : 'not exhaustive'}. ${value.reason}${value.reason_truncated ? ' (reason truncated)' : ''}`));
+        const inspect=callButton(value.relation==='import' ? 'Inspect import' : 'Inspect callsite',()=>{selectImpact(id);showCallSource(value.site,inspect,'impact');});card.appendChild(inspect);
+      } else if(type==='symbol') {
+        card.append(callElement('h3',value.name || value.id),callElement('p',`Captured declaration · ${value.path}:${value.range.start_line}–${value.range.end_line}`));
+        const inspect=callButton('Inspect declaration',()=>{selectImpact(id);showCallSource(value,inspect,'impact');});card.appendChild(inspect);
+      } else {
+        card.append(callElement('h3',value.path),callElement('p',type==='unavailable' ? `Changed path ${value.change_status}: ${value.reason}` : `${value.change_status ? 'Changed path '+value.change_status+' · ' : 'Captured file · '}${value.admission_status}`));
+        card.append(callElement('p',type==='unavailable' ? 'Historical/nonadmitted source: current closure unavailable.' : `Source SHA256: ${value.source_sha256}. File handle is navigation only.`));
+      }
+      card.append(callButton('Select impact item',()=>selectImpact(id)),callButton('Open file in Explore',()=>openImpactFile(type==='site' ? value.site : value)));
+      if(focused)[...card.querySelectorAll('button')].find(button=>button.textContent===focused)?.focus({preventScroll:true});
+    }
+    impactUI.capture.textContent=`${impactCount(scene)} / 24 elements · static captured reachability · snapshot ${impactState.captured.generation} · analyzer ${impactState.captured.analyzer_identity}`;
+    impactUI.more.disabled=!impactState.page?.cursor;
+    impactUI.more.textContent=24-impactCount(scene)<2 || !impactState.page?.rows.length ? 'Next impact page (replace scene)' : 'More impact';
+  }
+  function impactLimits(reset=false) {
+    const remaining=reset ? 24 : 24-impactCount(impactState.scene),entities=Math.min(8,Math.max(1,Math.floor(remaining/2)));
+    return {max_entities:entities,max_edges:Math.min(impactState.size,Math.max(1,remaining-entities)),max_response_bytes:32768,max_excerpt_bytes:0};
+  }
+  function loadImpact(cursor=null,reset=false,replay=false,limits=null) {
+    if(!reset && 24-impactCount(impactState.scene)<2){impactUI.status.textContent='24 element budget: replace the impact page to continue.';return Promise.resolve(false);}
+    const payload={operation:'impact',seed:null,selector:impactState.selector,relations:impactState.relations,certainties:impactState.certainties,
+      depth:impactState.depth,prefix:'',scope:'',role:'all',limits:limits || impactLimits(reset)};
+    if(cursor)payload.cursor=cursor;
+    impactUI.evidence.hidden=true;impactUI.evidence.replaceChildren();
+    return callsRequest('/api/query',payload,page=>{
+      RepoViews.impactPage(page,payload,impactState.captured);
+      const scene=RepoViews.impactScene(reset ? null : impactState.scene,page);
+      impactState.page=page;impactState.captured=page;impactState.scene=scene;
+      if(![...scene.files,...scene.symbols,...scene.sites.map(row=>row.site),...scene.unavailable].some(value=>value.id===impactState.selected))impactState.selected=null;
+      if(impactState.intents.length<24)impactState.intents.push({continuation:cursor!==null,reset,limits:{...payload.limits}});else impactState.saveBlocked=true;
+      showImpactScene(reset);
+      const count=page.total_count,completion=page.cursor ? 'bounded continuation' : page.truncated ? 'stopped without continuation' : 'captured traversal exhausted';
+      impactUI.status.textContent=`${page.rows.length} physical relations in this page · observed ${count.kind==='lower_bound' ? 'at least ' : ''}${count.value ?? 'unknown'} (${count.kind.replaceAll('_',' ')}) · ${completion}${page.stop_reason ? ' · '+page.stop_reason.replaceAll('_',' ') : ''}. Runtime effects unknown.`;
+      impactUI.boundaries.replaceChildren();
+      for(const [key,count] of Object.entries(page.unknown_boundaries))impactUI.boundaries.appendChild(callElement('li',`${key.replaceAll('_',' ')}: ${count}`));
+      impactUI.basis.textContent=page.selection.selector.kind==='git_change' ? `Committed changed paths from ${page.selection.git_change.base_revision}; worktree byte affinity unobserved. Current captured definitions only; historical call closure unavailable.` : 'Selected admitted source area; current captured definitions only. Unassigned incoming targets cannot be enumerated.';
+      saveView(true);
+    },replay,'impact');
+  }
+  function startImpact() {
+    const snapshot=RepoViews.capturedSnapshot(observedStatus),projection=observedStatus?.structural?.impact;
+    if(!snapshot || projection?.state!=='ready' || projection.query_available!==true || !/^[0-9a-f]{64}$/.test(projection.receipt?.identity || '')) {
+      stopCalls(false);impactUI.status.textContent='Captured impact projection unavailable. Refresh the structural index and reload; Calls may remain available.';return;
+    }
+    try {
+      const selector=RepoViews.impactSelector(impactUI.inputKind.value==='git_change' ? {kind:'git_change',base_revision:impactUI.input.value.trim()} : {kind:'source_area',paths:[impactUI.input.value.trim()]});
+      impactState={...impactState,selector,relations:impactUI.relation.value==='all' ? ['call','import'] : [impactUI.relation.value],
+        certainties:impactUI.certainty.value==='all' ? ['candidate','resolved','unresolved'] : [impactUI.certainty.value],depth:Number(impactUI.depth.value),size:Number(impactUI.size.value),
+        captured:{...snapshot,impact_identity:projection.receipt.identity},page:null,scene:null,selected:null,intents:[],saveBlocked:false};
+      impactUI.cards.replaceChildren();impactUI.capture.textContent='';impactUI.more.disabled=true;loadImpact();
+    } catch {impactUI.status.textContent='Invalid impact selection. Use an admitted source path (directory ending /), or its exact captured Git base commit.';}
+  }
+  function renderImpact() {
+    selected=null;parts=[];links=[];scopeEntries=[];renderInspector();
+    document.getElementById('map-title').textContent='Impact from captured source';document.getElementById('map-subtitle').textContent='Possible reverse import and call reachability. Unknown boundaries stay explicit; these are not runtime or business effects.';
+    renderBreadcrumb(true);svg.style.display='none';document.querySelector('.controls').style.display='none';document.querySelector('.legend').style.display='none';document.querySelector('.stage-hint').style.display='none';
+    for(const id of ['up','previous','next','export-svg','export-csv'])document.getElementById(id).disabled=true;
+    document.getElementById('component-list').replaceChildren();const panel=document.getElementById('data-panel');panel.replaceChildren();panel.hidden=false;panel.className='data-panel calls-panel impact-panel';
+    if(!online){panel.appendChild(callElement('p','Impact requires the local structural index. Offline exports retain captured coverage and System overview.','calls-status'));return;}
+    const form=callElement('form'),field=(label,control)=>{const row=callElement('label',label);row.appendChild(control);form.appendChild(row);};
+    const choice=(label,options,value)=>{const control=callElement('select');control.setAttribute('aria-label',label);for(const [key,text] of options){const option=callElement('option',text);option.value=key;control.appendChild(option);}control.value=String(value);field(label,control);return control;};
+    const capturedGit=observedStatus?.structural?.impact?.receipt?.git_change;
+    const gitReady=observedStatus?.structural?.impact?.state==='ready' && capturedGit?.status==='ready' && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(capturedGit.base_revision || '');
+    const inputKind=choice('Impact input',[['source_area','Source area'],['git_change','Captured Git base']],impactState.selector?.kind || 'source_area');
+    inputKind.querySelector('[value="git_change"]').disabled=!gitReady;
+    const input=callElement('input');input.setAttribute('aria-label','Impact source area or captured base');input.maxLength=4096;input.value=impactState.selector?.kind==='git_change' ? impactState.selector.base_revision : impactState.selector?.paths[0] || (scopePath ? scopePath+'/' : '.');field('Source path (directory ends /) or exact captured Git base',input);
+    input.readOnly=inputKind.value==='git_change';
+    inputKind.addEventListener('change',()=>{input.readOnly=inputKind.value==='git_change';input.value=input.readOnly && gitReady ? capturedGit.base_revision : (scopePath ? scopePath+'/' : '.');});
+    const relation=choice('Impact relation',[['all','Imports and calls'],['import','Imports only'],['call','Calls only']],impactState.relations.length===2 ? 'all' : impactState.relations[0]);
+    const contract=callElement('option','Contracts unavailable (T020)');contract.value='contract';contract.disabled=true;relation.appendChild(contract);
+    const certainty=choice('Impact certainty',[['all','All static certainties'],['resolved','Resolved'],['candidate','Candidate'],['unresolved','Unresolved']],impactState.certainties.length===3 ? 'all' : impactState.certainties[0]);
+    const depth=choice('Impact depth',[[1,'1'],[2,'2']],impactState.depth),size=choice('Impact rows per page',[[1,'1'],[4,'4'],[8,'8']],impactState.size);
+    const submit=callElement('button','Find impact');submit.type='submit';const cancel=callButton('Cancel request',()=>stopCalls());cancel.disabled=true;form.append(submit,cancel);
+    const status=callElement('p','Select an admitted source area or an explicitly captured Git base. No source or Git scan runs in this view.','calls-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+    const more=callButton('More impact',()=>{if(impactState.page?.cursor)loadImpact(impactState.page.cursor,24-impactCount(impactState.scene)<2 || !impactState.page.rows.length);});more.disabled=true;
+    const capture=callElement('p','','calls-status'),basis=callElement('p','','calls-status'),unknown=callElement('details'),boundaries=callElement('ul');unknown.append(callElement('summary','Unknown and excluded boundaries'),boundaries);
+    const cards=callElement('div','','impact-cards'),evidence=callElement('section','','call-evidence');evidence.hidden=true;
+    panel.append(form,callElement('p','Contract filters unavailable until validated T020 facts. '+(gitReady ? 'Git choice uses the explicitly captured base; worktree byte affinity is unobserved.' : 'Captured Git base unavailable; analyze with an explicit exact base to enable it.')),status,more,capture,basis,unknown,evidence,cards);
+    impactUI={panel,inputKind,input,relation,certainty,depth,size,status,cancel,more,capture,basis,boundaries,cards,evidence};
+    form.addEventListener('submit',event=>{event.preventDefault();startImpact();});
+    for(const control of [inputKind,input,relation,certainty,depth,size])control.addEventListener('change',()=>{stopCalls(false);impactState.page=null;more.disabled=true;status.textContent='Selection or filter changed. Find impact starts a fresh captured query; old continuation is unavailable.';});
+    if(impactState.scene)showImpactScene(true);
+  }
+
   function savedNotice(message) { document.getElementById('saved-view-status').textContent=message; }
   function scheduleSavedView() {
     if(savedBooting || savedControl)return;
@@ -657,7 +781,7 @@ __VIEW_HELPERS__
     } catch(error) {
       if(['snapshot_unavailable','intents_overflow','saved_state_overflow'].includes(error.message)) {
         try {savedStorage.removeItem(savedKey);}catch {}
-        savedNotice(error.message==='snapshot_unavailable' ? 'Snapshot unavailable or changed: this Calls selection was not saved.' : error.message==='intents_overflow' ? 'Saved state incomplete or exceeds 24 Calls intents. Start a new view to save its expansion.' : 'Saved state exceeds 32 KiB. This view was not saved; start a smaller view.');
+        savedNotice(error.message==='snapshot_unavailable' ? 'Snapshot unavailable or changed: this structural selection was not saved.' : error.message==='intents_overflow' ? `Saved state incomplete or exceeds 24 ${viewMode==='impact' ? 'Impact' : 'Calls'} intents. Start a new view to save its expansion.` : 'Saved state exceeds 32 KiB. This view was not saved; start a smaller view.');
       } else savedNotice('Tab storage unavailable. This view was not saved; ordinary navigation remains available.');
     }
   }
@@ -669,7 +793,15 @@ __VIEW_HELPERS__
       if(callsState.saveBlocked || callsState.intents.length===0)throw new Error('intents_overflow');
       snapshot=current;calls={root:RepoViews.sourceHandle(callsState.selected),direction:callsUI?.direction.value || callsState.branch.operation,size:callsState.size,intents:callsState.intents};
     }
-    const record=RepoViews.savedView({version:1,view:viewMode,scope:scopePath,sort:sortMode,kind:kindFilter,page,selected:viewMode==='calls' ? null : selected,snapshot,calls});
+    let impact=null;
+    if(viewMode==='impact' && impactState.captured) {
+      const current=RepoViews.capturedSnapshot(observedStatus);
+      if(!current || !RepoViews.sameSnapshot(current,impactState.captured))throw new Error('snapshot_unavailable');
+      if(impactState.saveBlocked || !impactState.intents.length)throw new Error('intents_overflow');
+      snapshot=current;impact={selector:impactState.selector,relations:impactState.relations,certainties:impactState.certainties,depth:impactState.depth,size:impactState.size,
+        identity:impactState.captured.impact_identity,selected:impactState.selected,intents:impactState.intents};
+    }
+    const record=RepoViews.savedView({version:viewMode==='impact' ? 2 : 1,view:viewMode,scope:scopePath,sort:sortMode,kind:kindFilter,page,selected:['calls','impact'].includes(viewMode) ? null : selected,snapshot,calls,...(viewMode==='impact' ? {impact} : {})});
     const raw=JSON.stringify(record);
     if(new TextEncoder().encode(raw).length>32768)throw new Error('saved_state_overflow');
     return {record,raw};
@@ -699,7 +831,7 @@ __VIEW_HELPERS__
   }
   function cancelSavedRestore(message='Restore partial: cancelled. Late responses are ignored.') {
     if(!savedControl)return;
-    savedControl.cancelled=true;callsState.saveBlocked=true;stopCalls(false);
+    savedControl.cancelled=true;callsState.saveBlocked=true;impactState.saveBlocked=true;stopCalls(false);
     savedNotice(message);savedControl.reject(new Error('restore_cancelled'));
   }
   async function restoreSavedView() {
@@ -737,7 +869,7 @@ __VIEW_HELPERS__
     try {
       const status=online ? await step(statusRequest) : data.index_status;
       if(record.snapshot && !RepoViews.sameSnapshot(record.snapshot,RepoViews.capturedSnapshot(status)))throw new Error('stale_snapshot');
-      if(record.calls && !online)throw new Error('offline_calls');
+      if((record.calls || record.impact) && !online)throw new Error('offline_calls');
       viewMode=record.view;scopePath=record.scope;sortMode=record.sort;kindFilter=record.kind;page=record.page;query='';
       for(const [id,value] of [['view-mode',viewMode],['sort-mode',sortMode],['kind-filter',kindFilter]])document.getElementById(id).value=value;
       renderScope();
@@ -765,6 +897,22 @@ __VIEW_HELPERS__
         }
         callsUI.symbols.querySelector('button')?.focus({preventScroll:true});
         savedNotice(fromBookmark ? 'Restored bookmark: selected symbol, snapshot and stable expansion. Source excerpts stay closed.' : 'Restored selected symbol, snapshot and stable expansion in this tab. Source excerpts stay closed.');
+      } else if(record.impact) {
+        const state=record.impact;
+        impactState={...impactState,selector:RepoViews.impactSelector(state.selector),relations:state.relations,certainties:state.certainties,depth:state.depth,size:state.size,
+          captured:{...record.snapshot,impact_identity:state.identity},page:null,scene:null,selected:null,intents:[],saveBlocked:false};
+        renderImpact();
+        for(const intent of state.intents) {
+          const cursor=intent.continuation ? impactState.page?.cursor : null;
+          if(intent.continuation && !cursor)throw new Error('invalid_continuation');
+          savedNotice(`Restoring Impact ${impactState.intents.length+1} / ${state.intents.length} against the saved snapshot…`);
+          if(!await step(loadImpact(cursor,intent.reset,true,intent.limits)))throw new Error('restore_cancelled');
+        }
+        if(state.selected) {
+          const card=[...impactUI.cards.children].find(value=>value.dataset.id===state.selected);if(!card)throw new Error('invalid_selection');
+          impactState.selected=state.selected;card.setAttribute('aria-current','true');card.querySelector('button')?.focus({preventScroll:true});
+        } else impactUI.cards.querySelector('button')?.focus({preventScroll:true});
+        savedNotice(fromBookmark ? 'Restored bookmark: Impact selection, filters, snapshot and stable pages. Source excerpts stay closed.' : 'Restored Impact selection, filters, snapshot and stable pages in this tab. Source excerpts stay closed.');
       } else if(record.selected) {
         if(!record.snapshot)throw new Error('unknown_snapshot');
         if(!byId.has(record.selected))focusPath(record.selected);
@@ -772,8 +920,8 @@ __VIEW_HELPERS__
         select(record.selected,true);savedNotice(fromBookmark ? 'Restored bookmark: view, source area and selection against the captured snapshot.' : 'Restored view, source area and selection against the captured snapshot in this tab.');
       } else savedNotice(record.snapshot ? fromBookmark ? 'Restored bookmark: view and scope against the captured snapshot.' : 'Restored view and scope against the captured snapshot in this tab.' : 'Restored navigation only; snapshot and selection are unavailable.');
     } catch(error) {
-      callsState.saveBlocked=true;
-      if(!control.cancelled)savedNotice(error.message==='stale_snapshot' || /Index changed/.test(error.message) ? fromBookmark ? 'Bookmark snapshot is stale or unavailable. Select again; the old selection was not restored.' : 'Saved snapshot is stale or unavailable. Select again; the old selection was not restored.' : error.message==='offline_calls' ? 'Saved Calls selection unavailable offline. Serve the structural index to restore it.' : 'Restore partial: invalid selection or unavailable captured evidence. Clear the saved view or select again.');
+      callsState.saveBlocked=true;impactState.saveBlocked=true;
+      if(!control.cancelled)savedNotice(error.message==='stale_snapshot' || /Index changed|Impact capture changed/.test(error.message) ? fromBookmark ? 'Bookmark snapshot is stale or unavailable. Select again; the old selection was not restored.' : 'Saved snapshot is stale or unavailable. Select again; the old selection was not restored.' : error.message==='offline_calls' ? 'Saved structural selection unavailable offline. Serve the structural index to restore it.' : 'Restore partial: invalid selection or unavailable captured evidence. Clear the saved view or select again.');
     } finally {
       clearTimeout(timer);cancel.hidden=true;savedControl=null;savedBooting=false;
     }
@@ -794,7 +942,9 @@ __VIEW_HELPERS__
     document.getElementById('page-label').textContent = 'Whole repository';
     document.getElementById('scope').textContent = 'System overview';
     document.getElementById('map-title').textContent = 'System architecture';
-    document.getElementById('map-subtitle').textContent = `${parts.length} source areas${overview.omittedAreas ? ' · '+overview.omittedAreas+' omitted at area limit' : ''} · ${links.length} of ${overview.relations} grouped import relations · ${overview.imports.toLocaleString()} captured imports. Directory roles are inferred; calls are not shown.`;
+    const importCount=value=>Number.isSafeInteger(value) && value>=0 ? value.toLocaleString() : 'unknown';
+    const basis=data.scan?.basis==='shared_structural_index' ? `Shared index: admitted import bindings · ${importCount(data.scan.import_certainty_counts?.candidate)} candidate bindings · ${importCount(data.scan.unresolved_import_bindings)} unresolved bindings (omitted from edges).` : 'Legacy captured import map; structural certainty unavailable.';
+    document.getElementById('map-subtitle').textContent = `${parts.length} source areas${overview.omittedAreas ? ' · '+overview.omittedAreas+' omitted at area limit' : ''} · ${links.length} of ${overview.relations} grouped import relations · ${overview.imports.toLocaleString()} captured imports. ${basis} Directory roles are inferred; calls are not shown.`;
     document.getElementById('stat-components').textContent = parts.length;
     document.getElementById('stat-links').textContent = links.length;
     svg.style.display = 'block'; document.getElementById('data-panel').hidden = true;
@@ -1023,7 +1173,7 @@ __VIEW_HELPERS__
   document.getElementById('fit').addEventListener('click',fit);
   function changeView(mode) {
     if(savedControl)cancelSavedRestore('Restore partial: changing view stopped replay.');
-    if(viewMode==='calls' && mode!=='calls') stopCalls(false);
+    if(['calls','impact'].includes(viewMode) && mode!==viewMode) stopCalls(false);
     if (viewMode === 'search' && mode !== 'search') searchRequest++;
     if (mode === 'system' || viewMode === 'system') { query = ''; page = 0; document.getElementById('search').value = ''; }
     viewMode = mode; document.getElementById('view-mode').value = mode; renderScope();
@@ -1031,7 +1181,7 @@ __VIEW_HELPERS__
   document.getElementById('view-mode').addEventListener('change',event => changeView(event.target.value));
   document.getElementById('sort-mode').addEventListener('change',event => { sortMode = event.target.value; page = 0; renderScope(); });
   document.getElementById('kind-filter').addEventListener('change',event => { kindFilter = event.target.value; page = 0; renderScope(); });
-  for (const [id,mode] of [['tab-system','system'],['tab-explore','atlas'],['tab-data','table'],['tab-search','search'],['tab-calls','calls']]) document.getElementById(id).addEventListener('click',() => changeView(mode));
+  for (const [id,mode] of [['tab-system','system'],['tab-explore','atlas'],['tab-data','table'],['tab-search','search'],['tab-calls','calls'],['tab-impact','impact']]) document.getElementById(id).addEventListener('click',() => changeView(mode));
   document.querySelector('.view-tabs').addEventListener('keydown',event => {
     if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
     event.preventDefault(); const tabs = [...document.querySelectorAll('.view-tabs button')], index = tabs.indexOf(document.activeElement);

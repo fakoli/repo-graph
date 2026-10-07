@@ -2124,9 +2124,77 @@ def experiment_gate(gate, root=None, *, evidence_root=None, source_map=None):
             'limitations': ['A component gate cannot establish later human or release acceptance.']}
 
 
+IMPACT_BROWSER_CASES = ('system_shared_basis', 'physical_source_area', 'relation_certainty_unknown',
+    'import_source_affinity', 'captured_git_navigation', 'unadmitted_area_unknown',
+    'budget_exhaustion', 'typed_snapshot_bookmark', 'stale_cancelled_reply', 'keyboard_narrow_view')
+
+
+def impact_gate(root=None):
+    """Bind existing child observations; never launch another analysis or browser."""
+    from evaluations.analysis import frozen_inputs, record_view
+    root = Path(root or ROOT)
+    checks, bindings = [], {}
+    def check(name, condition, detail):
+        checks.append({'id': name, 'status': 'passed' if condition else 'failed', 'detail': detail})
+    identity = None
+    try:
+        fixture, frozen = frozen_inputs(root)
+        with SourceRoot(root) as owner:
+            views, _ = read_json(owner, 'evaluations/results/code-understanding/views.json', 2 * 1024 * 1024)
+            _, gate_sha, _ = owner.read('evaluations/acceptance.py', 1024 * 1024, hash_full=True)
+        core = [row['id'] + '-reverse-impact' for row in fixture['cases']
+                if row['id'] in ('PY-IMPORT', 'GO-IMPORT', 'JS-IMPORT', 'TS-IMPORT')]
+        core += ['physical_pagination_no_duplicates', 'selection_work', 'selection_entities', 'setup_deadline',
+            'cancelled_without_facts', 'invalid_area_refused', 'unimplemented_contract_refused',
+            'changed_clean_shared_projection_parity', 'git_body_and_deleted_preimage_boundary',
+            'changed_impact_cursor_refused', 'ordinary_calls_keep_captured_snapshot', 'implementation_stable']
+        expected = {'T043': core, 'T044': core + ['cli_owned_git_capture', 'cli_impact_relation_filters',
+            'http_and_direct_impact_agree', 'http_captured_import_evidence',
+            'http_stale_source_refused', 'system_explore_shared_snapshot'], 'T045': list(IMPACT_BROWSER_CASES)}
+        current_hashes = {'evaluations/acceptance.py': gate_sha}
+        for task, questions in expected.items():
+            member = views['tasks'][task]
+            bindings[task] = digest(canonical(member))
+            cases = member['case_results']; source = member['source_identity']
+            check(task + ':cases', member['status'] == 'passed' and len(cases) == len(questions)
+                and len({row['id'] for row in cases}) == len(questions)
+                and {row['id'] for row in cases} == set(questions)
+                and all(row['status'] == 'passed' for row in cases), 'Every registered child case must retain a passing observation')
+            check(task + ':frozen_inputs', source['inputs'] == frozen, 'Unchanged locked source judgments and corpus revisions')
+            check(task + ':scope', member.get('qualification_complete') is False
+                and member.get('task_accepted') is False, 'Child checks do not claim task, human, scale or release acceptance')
+            # T044 repeats the affected sixteen core boundaries as part of its
+            # interface command. Keep the original reviewed T043 proof intact.
+            if task == 'T043':
+                continue
+            hashes = source['implementation']['sha256']
+            with SourceRoot(root) as owner:
+                valid = bool(hashes) and len(hashes) <= 128
+                for path, sha in hashes.items():
+                    SourceRoot.parts(path)
+                    raw, actual, info = owner.read(path, 1024 * 1024 + 1, hash_full=False)
+                    valid &= _proof_sha(sha) and actual == sha and len(raw) == info.st_size <= 1024 * 1024
+                    if path in current_hashes and current_hashes[path] != sha:
+                        valid = False
+                    current_hashes[path] = sha
+            check(task + ':current_source', valid and committed(root, hashes), 'Exact current committed child implementation, including shared owner')
+        check('gate_committed', committed(root, {'evaluations/acceptance.py': gate_sha}), 'Aggregate validator must itself be committed')
+        identity = {'inputs': frozen, 'implementation': {'sha256': current_hashes}, 'child_sha256': bindings}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
+        check('child_evidence_available', False, 'Missing, unsafe, malformed or stale child evidence')
+    passed = bool(checks) and all(row['status'] == 'passed' for row in checks)
+    result = {'schema_version': 1, 'gate': 'impact', 'status': 'passed' if passed else 'blocked',
+        'source_identity': identity, 'case_results': checks, 'qualification_complete': False,
+        'task_accepted': False, 'human_ux_qualified': False,
+        'scope': 'P1 possible reverse import/call reachability only; contracts follow T020. '
+                 'Child source checks are not independent human UX, representative scale or release evidence.'}
+    record_view(root, 'T021', result, 2 * 1024 * 1024)
+    return result
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--gate', choices=['freeze', 'engine', 'acceleration'], default='freeze')
+    parser.add_argument('--gate', choices=['freeze', 'engine', 'acceleration', 'impact'], default='freeze')
     parser.add_argument('--evidence-root', type=Path, help='Existing private archived-worker root; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--source-map', type=Path, help='Private source map for archive isolation; alternatively REPO_GRAPH_EVAL_SOURCE_MAP')
     parser.add_argument('--prepare', action='store_true', help='Check draft inputs only; does not pass the freeze gate')
@@ -2140,7 +2208,8 @@ def main(argv=None):
             parser.error('Source-freeze options apply only to --gate freeze')
         if args.gate != 'engine' and (args.evidence_root or args.source_map):
             parser.error('Private adapter evidence options apply only to --gate engine')
-        report = experiment_gate(args.gate, evidence_root=args.evidence_root, source_map=args.source_map)
+        report = (impact_gate() if args.gate == 'impact' else
+                  experiment_gate(args.gate, evidence_root=args.evidence_root, source_map=args.source_map))
         if args.report:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             with SourceRoot(args.report.parent) as source:
