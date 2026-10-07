@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "tasks": {
+    "T009": {
+      "status": "passed",
+      "source_identity": {
+        "commit": "8493bc8ec277898a35d0e57810848f3b89662823",
+        "sha256": {
+          "evaluations/acceptance.py": "7d17467c7184c53a561fae75e04d4bc106832400d898b5f30276305575d89fa2",
+          "evaluations/analysis.py": "0ea430fc627e2b0eac2f03b8641526f7f2a77adca025195cb255abc011d5ae86",
+          "evaluations/code-understanding/test_queued_collector.py": "8a3edebb4a7aab4a66aad1f34c7ea5def09237af85907cabafbfff43b7ebc0a7",
+          "evaluations/engine_checks.py": "2d2ca2e56ec0442187723f76be158e1677c1ebc779f11487b91a946dcfb240ee",
+          "evaluations/performance.py": "78e07be9a9b480bd018b052a966d0f46c785432219ccc7488464a94ef6d06705",
+          "evaluations/queued_collector.py": "d445e121e074b187387a6d079409057669687240aba8253f12daacba98756045",
+          "evaluations/real_calls.py": "2d1b78f7de361479d1531bec19cb7bcd5a9c61fe3435c29ce7a2423427350df9",
+          "evaluations/tree_sitter_baseline.py": "354b24ee1d57bd06889a8222fb30bb1b2cf96d9333c7d9d9fba7003b252801c7",
+          "repo_graph/source.py": "bf4dc41ed5b70f4beb14a232548b19cc8d6e733aa434d6f0904056f860da2886",
+          "repo_graph/analysis.py": "ba237eccb9531f723b65e637aec8937c341a7689dcf46c0e26cb79900b88a7f2",
+          "repo_graph/analysis_native.py": "2084f09ba8f00e4a4d664dacb7ca4f5304d788c66d0c9ac8246b4989810e5c7a",
+          "repo_graph/analysis_queue.py": "c53befca1b88475644f34e6f3efb93083e3cf9695d8a8a05ba636c3122db377e",
+          "tests/test_analysis.py": "3f0c672c898544d8eab34cd95fa5152215ad515379b90d6c27d39fcd6461a7fc"
+        }
+      },
+      "case_results": [
+        {
+          "id": "test_explicit_output_cannot_exchange_facts_between_equal_source_roots",
+          "status": "passed"
+        },
+        {
+          "id": "test_failed_source_updates_and_cancel_preserve_published_artifact",
+          "status": "passed"
+        },
+        {
+          "id": "test_lazy_single_file_batches_resolve_imports_after_all_collection",
+          "status": "passed"
+        },
+        {
+          "id": "test_persisted_facts_round_trip_physical_utf8_and_lexical_links",
+          "status": "passed"
+        },
+        {
+          "id": "test_reopen_reuses_unchanged_collections_without_reparsing",
+          "status": "passed"
+        },
+        {
+          "id": "test_serial_and_queued_modes_publish_identical_source_facts",
+          "status": "passed"
+        },
+        {
+          "id": "test_unsupported_inventory_remains_visible_without_source_facts",
+          "status": "passed"
+        },
+        {
+          "id": "test_invalid_inventory_queue_and_limit_arguments_are_rejected",
+          "status": "passed"
+        }
+      ],
+      "command": {
+        "argv": [
+          "uv",
+          "run",
+          "python",
+          "-m",
+          "unittest",
+          "tests.test_analysis",
+          "-v"
+        ],
+        "exit_code": 0,
+        "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderr_sha256": "e84b85feafe977e48d250b7c548d1f0c664eb80283eac1f19d9e9a583552bcf9"
+      },
+      "structural_owner": "native-tree-sitter",
+      "component_acceptance": {
+        "event_id": "E000606",
+        "commit": "d8ea5da87b31700e3f0ab4f9caabaf04d190e0a8"
+      },
+      "limits_qualified": false,
+      "scope": "Shared persistent schema, bounded source-only parser batches, one writer, lazy lookup and source-bound round-trip; full construct/update/query/scale qualification remains pending"
+    }
+  }
+}
