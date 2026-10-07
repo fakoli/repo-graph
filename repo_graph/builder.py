@@ -376,9 +376,14 @@ def captured_map(root: Path, output: Path):
     status = offline_index_status(output)
     component = status['structural']
     identities = component.get('identities', {})
+    if status['status'] != 'ok':
+        with SourceRoot(root) as source:
+            if source.secure:
+                raise ValueError('Structural status unavailable; refresh before exporting its map')
+        return None  # Descriptor-less platforms retain the metadata-only map.
     if not identities.get('generation'):
         return None  # Core mapping remains available before structural capture.
-    if status['status'] != 'ok' or not component['artifact_ready']:
+    if not component['artifact_ready']:
         raise ValueError('Structural capture unavailable; refresh before exporting its map')
     started, size = time.monotonic(), 0
     def check():

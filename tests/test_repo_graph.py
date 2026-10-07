@@ -115,6 +115,25 @@ class RepoGraphTests(unittest.TestCase):
             with redirect_stdout(StringIO()): self.assertEqual(repo_graph.main([str(root), '--output', str(empty)]), 0)
             self.assertEqual(json.loads((empty / 'graph.json').read_text())['scan']['basis'], 'legacy_import_map')
 
+    def test_native_map_refuses_indeterminate_status_before_legacy_scans(self):
+        from repo_graph import search
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir(); out.mkdir()
+            (root / 'main.py').write_text('def entry(): pass\n')
+            with patch.object(search.time, 'monotonic', side_effect=[0.0, 0.6, 0.7]):
+                stopped = search.index_status(out)
+            self.assertEqual(stopped['status'], 'bounded_stop')
+            self.assertEqual(stopped['structural']['identities'], {})
+            for status in ('bounded_stop', 'unavailable'):
+                stopped['status'] = status
+                with self.subTest(status=status), patch.object(search, 'index_status', return_value=stopped), \
+                        patch.object(repo_graph, 'repo_files', side_effect=AssertionError('No inventory fallback')), \
+                        patch.object(repo_graph, 'extract_dependencies', side_effect=AssertionError('No import fallback')), \
+                        patch.object(search, 'catalog', side_effect=AssertionError('No catalogue fallback')), \
+                        self.assertRaisesRegex(ValueError, 'Structural status unavailable'):
+                    repo_graph.main([str(root), '--output', str(out)])
+            self.assertEqual(list(out.iterdir()), [])
+
     def test_source_accounting_counts_actual_streams_and_failed_partial_hashes(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
