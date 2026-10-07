@@ -353,12 +353,113 @@ def comparison_identity(root=ROOT):
     _, identity = frozen_inputs(root)
     paths = ('evaluations/analysis.py', 'evaluations/acceptance.py', 'evaluations/real_calls.py',
              'evaluations/engine_checks.py', 'evaluations/tree_sitter_baseline.py', 'repo_graph/source.py',
+             'evaluations/incremental_candidate.py', 'evaluations/queued_collector.py',
+             'evaluations/bounded_queries.py', 'evaluations/supplement_preparation.py',
+             'evaluations/code-understanding/supplement-source.json',
+             'evaluations/code-understanding/supplement-oracle.json',
+             'evaluations/code-understanding/supplement-lock.json',
              'evaluations/code-understanding/source-target-lock.json',
              'evaluations/code-understanding/source-target-locations.json', 'pyproject.toml', 'uv.lock')
     with SourceRoot(root) as source:
         hashes = {path: source.read(path, 1024 * 1024, hash_full=True)[1] for path in paths}
     return {'source_identity': identity, 'commit': subprocess.check_output(
         ['git', 'rev-parse', 'HEAD'], cwd=root, text=True, timeout=20).strip(), 'sha256': hashes}
+
+
+def compact_attempt(attempt):
+    """Keep actual counters/failures, without duplicating every source inventory."""
+    def select(value, names):
+        return {key: value[key] for key in names.split() if key in value}
+    result = select(attempt, 'status generation source_identity semantic_facts_sha256 counts '
+                    'previous_generation error_kind stop_reason mode concurrency cache_or_ready_snapshot_published')
+    inventory = attempt.get('inventory', [])
+    result['inventory_sha256'] = hashlib.sha256(json.dumps(inventory, sort_keys=True,
+        separators=(',', ':')).encode()).hexdigest()
+    result['inventory_status_counts'] = {status: sum(item['status'] == status for item in inventory)
+                                         for status in sorted({item['status'] for item in inventory})}
+    result['source_failures'] = [select(item, 'path language kind status error_kind errno')
+        for item in inventory if item['status'] not in ('parsed', 'configuration')]
+    for key in ('validation_failures', 'collector_failures', 'resolution_errors'):
+        result[key] = [select(item, 'index path kind status error_kind reason errno')
+                       for item in attempt.get(key, [])]
+        for item, original in zip(result[key], attempt.get(key, [])):
+            if 'record' in original:
+                item['record'] = select(original['record'], 'path language kind bytes sha256')
+    result['remaining_inventory'] = attempt.get('remaining_inventory', [])
+    result['cleanup'] = [select(item, 'signals leader_reaped group_absent returncode requests mailboxes_removed')
+                         for item in attempt.get('cleanup', [])]
+    resources = attempt.get('resources', {})
+    result['resources'] = select(resources, 'source_bytes digest_read_bytes digest_read_operations '
+        'changed_files_collected unchanged_source_collections_reused all_admitted_bindings_reresolved elapsed_seconds')
+    result['resources']['resolve'] = select(resources.get('resolve', {}),
+                                            'source_bytes collected_nodes facts_emitted elapsed_seconds')
+    queue = resources.get('queued', {})
+    result['resources']['queued'] = select(queue, 'mode configured_concurrency workers_started files_admitted '
+        'files_collected source_bytes collected_handoff_bytes collected_nodes collected_definitions '
+        'peak_inflight_reserved_bytes elapsed_seconds worker_file_hard_limit_bytes')
+    result['resources']['queued']['limits'] = select(queue.get('limits', {}),
+        'max_request_bytes max_result_bytes max_inflight_bytes max_admitted_bytes memory_bytes cpu_seconds '
+        'worker_wall_seconds total_wall_seconds log_bytes')
+    result['resources']['queued']['worker_summaries'] = [dict(
+        observed_requests=len(worker),
+        observed_request_elapsed_seconds_sum=sum(row['elapsed_seconds'] for row in worker),
+        **{key: max((row[key] for row in worker), default=None) for key in
+           ('process_peak_rss_bytes', 'process_user_seconds', 'process_system_seconds')})
+        for worker in queue.get('worker_resources', [])]
+    result['resources']['queued']['worker_isolation'] = [select(row or {},
+        'python_isolated_mode bytecode_writes_disabled user_site_disabled private_environment own_session_and_group')
+        for row in queue.get('worker_isolation', [])]
+    return result
+
+
+def compact_adapter_result(report, kind):
+    """Full responses stay in a bound private archive; portable occurrence proofs remain."""
+    def select(value, names):
+        return {key: value[key] for key in names.split() if key in value}
+    result = select(report, 'status archive measured_commit measured_commit_before measured_commit_after '
+        'implementation implementation_hashes_before implementation_hashes_after input_binding '
+        'committed_inputs_stable_after source_lock_sha256 preparation_checks elapsed_seconds '
+        'elapsed_seconds_observed parent_lifetime_peak_rss_bytes query_rule_version mode_equivalence '
+        'engine_selected qualification_complete scope ceilings')
+    result['failures'] = [select(row, 'stage id error_kind') for row in report.get('failures', [])]
+    if kind == 'updates':
+        result['results'] = [dict(select(row, 'id language status error_kind archive'),
+            attempts={name: compact_attempt(attempt) for name, attempt in row.get('attempts', {}).items()})
+            for row in report['results']]
+        result['resource_scope'] = 'Parent lifetime RSS and individual worker lifetime RSS; no combined owned-process peak'
+    elif kind == 'queries':
+        result['source'] = select(report.get('source', {}),
+            'path sha256 bytes owner_identity copy_verified_with_SourceRoot')
+        result['modes'] = []
+        for mode in report['modes']:
+            item = select(mode, 'mode configured_concurrency status actual_base_workers_started source_fact_grade queue_parallelism_observation')
+            item['base_refresh'] = compact_attempt(mode['base_refresh']) if 'base_refresh' in mode else None
+            item['failures'] = [select(row, 'id error_kind') for row in mode.get('failures', [])]
+            item['queries'] = []
+            for entry in mode['queries']:
+                query = select(entry, 'id status error_kind rows examined_total pages page_sizes cursor_binding_checks '
+                    'first_response_rows first_response_work resumed_cached_work cancellation_callback_calls '
+                    'old_cursor_rejected_against_new_generation old_physical_seed_refused topology_unchanged '
+                    'generation_changed old_snapshot_coherent old_generation new_generation archive clock_scope')
+                query['responses'] = []
+                for response in entry['responses']:
+                    page = response['response']
+                    compact = select(page, 'generation examined_relationships returned_entities returned_edges '
+                                          'total_count truncated stop_reason')
+                    compact['has_cursor'] = page['cursor'] is not None
+                    compact['rows'] = [dict(site=select(row['site'], 'id path range role source_sha256'),
+                        caller_id=row['caller']['id'] if row['caller'] else None,
+                        target_id=row['target']['id'] if row['target'] else None,
+                        certainty=row['certainty'], targets_exhaustive=row['targets_exhaustive']) for row in page['rows']]
+                    query['responses'].append(dict(select(response,
+                        'serialized_response_bytes real_elapsed_seconds_observed'), response=compact))
+                if 'changed_refresh' in entry:
+                    query['changed_refresh'] = compact_attempt(entry['changed_refresh'])
+                item['queries'].append(query)
+            result['modes'].append(item)
+    else:
+        raise ValueError('Unknown finite adapter result kind')
+    return result
 
 
 def compare_component(source_map, work_root=None):
