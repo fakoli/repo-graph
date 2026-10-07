@@ -11,6 +11,42 @@ import uuid
 DESCRIPTOR_OPENS = os.open in os.supports_dir_fd and hasattr(os, 'O_NOFOLLOW') and hasattr(os, 'O_DIRECTORY')
 _LOADED_SOURCE_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
+SOURCE_ACCOUNTING_FIELDS = ('operations', 'successful_operations', 'failed_operations',
+                            'open_operations', 'stream_bytes', 'hashed_bytes',
+                            'returned_prefix_bytes', 'hash_passes')
+
+
+def empty_source_accounting():
+    """Fixed counters only; no source content, path history or observer."""
+    return dict.fromkeys(SOURCE_ACCOUNTING_FIELDS, 0)
+
+
+def _source_measurements(measurements):
+    if measurements is not None:
+        if type(measurements) is not dict or measurements:
+            raise ValueError('Fresh source measurement dictionary required')
+        measurements.update(empty_source_accounting(), operations=1)
+    return measurements
+
+
+def source_hash(raw, *, measurements=None):
+    """Hash actual immutable bytes; optional counters are outside content identity."""
+    measurements = _source_measurements(measurements)
+    complete = False
+    try:
+        if type(raw) is not bytes:
+            raise ValueError('Immutable source bytes required')
+        digest = hashlib.sha256()
+        digest.update(raw)
+        if measurements is not None:
+            measurements.update(hashed_bytes=len(raw), hash_passes=1)
+        result = digest.hexdigest()
+        complete = True
+        return result
+    finally:
+        if measurements is not None:
+            measurements['successful_operations' if complete else 'failed_operations'] = 1
+
 
 def code_identity():
     observed = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -98,22 +134,38 @@ class SourceRoot:
             raise OSError(errno.EPERM, 'Source must be a regular file')
         return info
 
-    def read(self, path: str, limit: int, *, hash_full: bool = True, cancel=None, max_bytes=None):
-        digest, prefix, consumed = hashlib.sha256(), bytearray(), 0
-        with self.open(path) as stream:
-            before = os.fstat(stream.fileno())
-            while chunk := stream.read(64 * 1024 if hash_full else max(0, limit - len(prefix))):
-                if cancel is not None and cancel():
-                    raise InterruptedError('Source read cancelled')
-                consumed += len(chunk)
-                if max_bytes is not None and consumed > max_bytes:
-                    raise OSError(errno.EFBIG, 'Source read byte budget exceeded')
-                digest.update(chunk)
-                prefix.extend(chunk[:max(0, limit - len(prefix))])
-            after = os.fstat(stream.fileno())
-        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
-            raise OSError(errno.EAGAIN, 'Source changed during read; retry the map')
-        return bytes(prefix), digest.hexdigest(), after
+    def read(self, path: str, limit: int, *, hash_full: bool = True, cancel=None, max_bytes=None,
+             measurements=None):
+        measurements = _source_measurements(measurements)
+        complete = False
+        try:
+            digest, prefix, consumed = hashlib.sha256(), bytearray(), 0
+            with self.open(path) as stream:
+                if measurements is not None: measurements['open_operations'] = 1
+                before = os.fstat(stream.fileno())
+                while chunk := stream.read(64 * 1024 if hash_full else max(0, limit - len(prefix))):
+                    if measurements is not None: measurements['stream_bytes'] += len(chunk)
+                    if cancel is not None and cancel():
+                        raise InterruptedError('Source read cancelled')
+                    consumed += len(chunk)
+                    if max_bytes is not None and consumed > max_bytes:
+                        raise OSError(errno.EFBIG, 'Source read byte budget exceeded')
+                    digest.update(chunk)
+                    if measurements is not None:
+                        measurements['hashed_bytes'] += len(chunk)
+                        measurements['hash_passes'] = 1
+                    prefix.extend(chunk[:max(0, limit - len(prefix))])
+                after = os.fstat(stream.fileno())
+            if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                raise OSError(errno.EAGAIN, 'Source changed during read; retry the map')
+            result = bytes(prefix), digest.hexdigest(), after
+            complete = True
+            if measurements is not None:
+                measurements.update(returned_prefix_bytes=len(result[0]), hash_passes=1)
+            return result
+        finally:
+            if measurements is not None:
+                measurements['successful_operations' if complete else 'failed_operations'] = 1
 
     @contextmanager
     def atomic_writer(self, name: str, *, text: bool = False, before_replace=None):

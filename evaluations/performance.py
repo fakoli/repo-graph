@@ -491,7 +491,7 @@ def _dual_proc_rss(raw):
 
 class _DualProcOwner:
     """Pin one expressly owned PID; read and recheck its start time around RSS."""
-    def __init__(self, identity, *, separate_session=False):
+    def __init__(self, identity, *, separate_session=False, allow_exited=False):
         if (type(identity) is not dict or set(identity) != {'pid', 'starttime_ticks', 'pgid', 'sid'} or
                 any(type(value) is not int or not 0 < value < 2**63 for value in identity.values()) or
                 separate_session and not identity['pid'] == identity['pgid'] == identity['sid']):
@@ -500,7 +500,9 @@ class _DualProcOwner:
         fd = os.open('/proc/' + str(identity['pid']), os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             self.fd = fd
-            self.recheck(require_live=True)
+            try: self.recheck(require_live=not allow_exited)
+            except ProcessLookupError:
+                if not allow_exited: raise
         except BaseException:
             os.close(fd)
             self.fd = None
@@ -1329,6 +1331,1086 @@ def profile_native_dual(root, evidence_directory, runs=3, *, affinity=None):
         return wrapper
 
 
+# The persistent adapter is a separate finite experiment. The old Candidate
+# jobs and their results are unchanged and are never its equivalent reference.
+PERSISTENT_MODES = (('serial', 1), ('queued', 2))
+PERSISTENT_MAX_WINDOWS = 4
+PERSISTENT_MAX_BATCHES = 256
+# Portable projection of the independently approved pre-measurement freeze.
+PERSISTENT_FREEZE_SHA = '20f7a658e74ad37f2e66923930de32a46e7949a7ea109de1532ea3a26f3902dc'
+PERSISTENT_PHASES = ('fresh-output', 'unchanged-repeat', 'U-PY-BODY-changed',
+    'U-PY-BODY-clean-rebuild', 'U-PY-EXPORT-reset-prime', 'U-PY-EXPORT-changed', 'U-PY-EXPORT-clean-rebuild')
+PERSISTENT_QUERY_LIMITS = dict(max_edges=100, max_entities=50, max_examined_relationships=10000,
+    max_excerpt_bytes=0, max_response_bytes=32768, timeout_seconds=.5)
+PERSISTENT_QUERY_SPECS = (
+    dict(id='F-SYMBOL-DIRECT', operation='symbol', name='direct',
+         path='tests/fixtures/code-understanding/python/main.py', span=(187, 220, 11, 12)),
+    dict(id='F-CALLEES-DIRECT', operation='callees', name='direct',
+         path='tests/fixtures/code-understanding/python/main.py', span=(187, 220, 11, 12)),
+    dict(id='F-CALLERS-EXPORT', operation='callers', name='visible',
+         path='tests/fixtures/code-understanding/python/export_control.py', span=(23, 59, 3, 4)),
+    dict(id='F-REFERENCE-LOCAL', operation='reference', name='local',
+         path='tests/fixtures/code-understanding/python/main.py', span=(146, 184, 7, 8)),
+    dict(id='F-UNRESOLVED-DYNAMIC', operation='callees', name='dynamic',
+         path='tests/fixtures/code-understanding/python/main.py', span=(765, 816, 57, 58)),
+    dict(id='F-FANOUT-STOP', operation='callees', name='hub',
+         path='tests/fixtures/code-understanding/python/fanout.py', span=(3533, 5244, 339, 452),
+         overrides=dict(max_edges=4, max_entities=5, max_examined_relationships=16)))
+PERSISTENT_IMPACT_SHA = dict(
+    **{'U-PY-BODY': 'a30d1f2aeaed3f059c9b56aeaabe84d4d97c72ab1601ca062056bcd93c86f937',
+       'U-PY-EXPORT': '20534497229d4fab8c9c6e551e74588d1581dedbfd6fd484549c6ff3e0159572'})
+
+
+class _PersistentLog:
+    """Bounded descriptor-owned JSONL windows; keep only fixed manifests in RAM."""
+    def __init__(self, directory, label):
+        if type(label) is not str or not label.replace('-', '').isalnum():
+            raise ValueError('Fixed portable log label required')
+        self.owner, self.label = SourceRoot(directory), label
+        self.fd, self.size, self.hasher, self.windows = None, 0, hashlib.sha256(), []
+        try: self._open()
+        except BaseException: self.owner.__exit__(); raise
+
+    def _open(self):
+        if len(self.windows) >= PERSISTENT_MAX_WINDOWS:
+            raise ValueError('Persistent log window budget exhausted')
+        self.name = self.label + '-' + str(len(self.windows)).zfill(4) + '.jsonl'
+        self.fd = os.open(self.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                          0o600, dir_fd=self.owner.fd)
+        self.size, self.hasher = 0, hashlib.sha256()
+
+    def _seal(self):
+        if self.fd is None: return
+        try: os.fsync(self.fd)
+        finally:
+            try: os.close(self.fd)
+            finally: self.fd = None
+        self.windows.append(dict(path=self.name, bytes=self.size, sha256=self.hasher.hexdigest()))
+
+    def append(self, value):
+        raw = json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False).encode() + b'\n'
+        if len(raw) > 65536: raise ValueError('Persistent log record budget exhausted')
+        if self.size + len(raw) > DUAL_LOG_BYTES - 32768:
+            self._seal(); self._open()
+        view = memoryview(raw)
+        while view:
+            written = os.write(self.fd, view)
+            if written <= 0: raise OSError('Persistent log write made no progress')
+            view = view[written:]
+        self.hasher.update(raw); self.size += len(raw)
+
+    def close(self):
+        try: self._seal()
+        finally: self.owner.__exit__()
+        return list(self.windows)
+
+
+class _PersistentReadMeter:
+    """Observe controller guarded-stream and digest bytes, including failed reads.
+
+    Stream bytes are bytes actually returned by read(), not stat size, physical
+    disk I/O, page-cache misses, or isolated collector/mailbox reads.
+    """
+    def __init__(self, source_identity, phase, directory=None):
+        import threading
+        self.source_identity, self.phase = source_identity, phase
+        self.local, self.log, self.stack = threading.local(), None, None
+        self.directory = directory
+        from repo_graph.source import empty_source_accounting
+        self.counts = dict(empty_source_accounting(), inclusive_read_ns=0)
+        self.by_pass = {}
+
+    def __enter__(self):
+        from contextlib import ExitStack
+        from unittest.mock import patch
+        from repo_graph import source as source_module
+        self.stack = ExitStack()
+        if self.directory is not None: self.log = _PersistentLog(self.directory, self.phase + '-source-reads')
+        original_read = SourceRoot.read
+        meter = self
+        def read(owner, path, limit, **kwargs):
+            if owner.identity != meter.source_identity: return original_read(owner, path, limit, **kwargs)
+            if getattr(meter.local, 'operation', None) is not None:
+                raise ValueError('Nested measured source read is unsupported')
+            operation = dict(path=path, phase=meter.phase, process_role='controller', hash_full=kwargs.get('hash_full', True),
+                limit=limit, pass_kind='full_hash_zero_prefix' if limit == 0 else 'admission_or_configuration',
+                started_ns=time.monotonic_ns(), status='failed')
+            measurements = kwargs.get('measurements')
+            if measurements is None: measurements = {}; kwargs['measurements'] = measurements
+            elif type(measurements) is not dict or measurements:
+                raise ValueError('Fresh shared source measurements required')
+            meter.local.operation = operation
+            try:
+                result = original_read(owner, path, limit, **kwargs)
+                operation.update(status='complete', sha256=result[1])
+                return result
+            except BaseException as error:
+                operation['error_kind'] = type(error).__name__
+                raise
+            finally:
+                meter.local.operation = None
+                operation['ended_ns'] = time.monotonic_ns()
+                meter.counts['inclusive_read_ns'] += operation['ended_ns'] - operation['started_ns']
+                if (type(measurements) is not dict or set(measurements) != set(source_module.SOURCE_ACCOUNTING_FIELDS) or
+                        any(type(value) is not int or value < 0 for value in measurements.values())):
+                    raise ValueError('Shared actual source accounting unavailable')
+                operation.update(measurements)
+                group = meter.by_pass.setdefault(operation['pass_kind'], source_module.empty_source_accounting())
+                for key, value in measurements.items():
+                    meter.counts[key] += value; group[key] += value
+                if meter.log is not None: meter.log.append(operation)
+        self.stack.enter_context(patch.object(SourceRoot, 'read', read))
+        return self
+
+    def __exit__(self, *args):
+        try:
+            if self.stack is not None: self.stack.__exit__(*args)
+        finally:
+            self.artifacts = self.log.close() if self.log is not None else []
+
+    def summary(self):
+        return dict(self.counts, by_pass=self.by_pass, artifacts=getattr(self, 'artifacts', []),
+            scope='controller guarded-stream bytes returned and digest updates; no stat-size inference',
+            collector_original_source_reads={'value': None, 'knowledge': 'unmeasured'},
+            collector_mailbox_read_bytes={'value': None, 'knowledge': 'unmeasured'},
+            all_owned_source_reads_measured=False,
+            qualification_blocker='isolated_collector_read_accounting_unmeasured')
+
+
+class _PersistentSampler(_DualSampler):
+    """Reuse PID/RSS checks with finite durable rotation and explicit child gaps."""
+    def __init__(self, supervisor=None):
+        self.windows, self.window_hash = [], hashlib.sha256()
+        self.created_children, self.last_sample_ns, self.max_interval_ns = 0, None, 0
+        self.excluded, self.excluded_intervals, self.excluded_ns = None, 0, 0
+        self.queue_high_water = dict(live_workers=0, pending_requests=0, inflight_reserved_bytes=0,
+                                    mailbox_source_bytes=0, mailbox_request_bytes=0, mailbox_result_bytes=0)
+        self.directory, self.directory_identity = None, None
+        super().__init__(supervisor)
+
+    def _write_line(self, raw):
+        attached = self.log_fd is not None
+        super()._write_line(raw)
+        if attached: self.window_hash.update(raw)
+
+    def attach_log(self, directory):
+        super().attach_log(directory)
+        self.directory, self.directory_identity = self.log_owner.root, self.log_owner.identity
+        return self
+
+    def _window_summary(self):
+        complete = [row for row in self.samples if row['complete']]
+        return dict(samples=len(self.samples), complete_samples=len(complete),
+            gap_samples=sum(bool(row['gaps']) for row in self.samples), events=len(self.events),
+            peak_sampled_owned_rss_bytes=max((row['owned_rss_bytes'] for row in complete), default=None),
+            max_read_skew_ns=max((row['read_skew_ns'] for row in self.samples), default=0))
+
+    def _rotate(self):
+        if self.log_owner is None or len(self.windows) >= PERSISTENT_MAX_WINDOWS - 1:
+            raise ValueError('Persistent telemetry window budget exhausted')
+        os.fsync(self.log_fd); os.close(self.log_fd); self.log_fd = None
+        name = 'owned-telemetry-' + str(len(self.windows)).zfill(4) + '.jsonl'
+        try: self.log_owner.info(name)
+        except FileNotFoundError: pass
+        else: raise ValueError('Persistent telemetry archive already exists')
+        os.rename('owned-telemetry.jsonl', name, src_dir_fd=self.log_owner.fd, dst_dir_fd=self.log_owner.fd)
+        self.windows.append(dict(path=name, sha256=self.window_hash.hexdigest(), bytes=self.bytes, **self._window_summary()))
+        active = [dict(row, continuation=True) for row in self.lifecycles if row['identity']['pid'] in self.owners]
+        self.samples.clear(); self.events.clear(); self.lifecycles[:] = active
+        self.bytes, self.window_hash = 0, hashlib.sha256()
+        self.log_fd = os.open('owned-telemetry.jsonl', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                              0o600, dir_fd=self.log_owner.fd)
+        for row in active:
+            raw = self._line(self.lifecycles, row); self._write_line(raw); self.bytes += len(raw)
+
+    def _append(self, collection, value):
+        if self.log_owner is not None and (self.bytes + len(self._line(collection, value)) > DUAL_LOG_BYTES - 65536 or
+                collection is self.lifecycles and len(collection) >= DUAL_MAX_LIFETIMES - 1 or
+                collection is self.events and len(collection) >= 9999): self._rotate()
+        super()._append(collection, value)
+
+    def sample(self):
+        with self.lock:
+            if len(self.samples) >= DUAL_MAX_SAMPLES - 1: self._rotate()
+            if self.excluded is None:
+                super().sample()
+            else:
+                started = time.monotonic_ns()
+                self._append(self.samples, dict(started_ns=started, ended_ns=started, read_skew_ns=0,
+                    phase=self.phase, owners=[], gaps=[dict(kind='excluded_source_fence', scope=self.excluded)],
+                    complete=False, owned_rss_bytes=None))
+            started = self.samples[-1]['started_ns']
+            if self.last_sample_ns is not None: self.max_interval_ns = max(self.max_interval_ns, started - self.last_sample_ns)
+            self.last_sample_ns = started
+
+    def exclude_source_fence(self, label):
+        """Do not attribute uninstrumented Git checks to complete owned samples."""
+        from contextlib import contextmanager
+        @contextmanager
+        def excluded():
+            with self.lock:
+                if self.excluded is not None: raise ValueError('Nested telemetry exclusion')
+                self.excluded, began = label, time.monotonic_ns()
+                self.excluded_intervals += 1
+                self._append(self.events, dict(event='source_fence_excluded_begin', scope=label, monotonic_ns=began))
+                self.sample()  # Retain a gap even if the fence finishes between cadence ticks.
+            try: yield
+            finally:
+                with self.lock:
+                    ended = time.monotonic_ns(); self.excluded_ns += ended - began
+                    self._append(self.events, dict(event='source_fence_excluded_end', scope=label,
+                        monotonic_ns=ended, elapsed_ns=ended - began))
+                    self.excluded = None
+                    self.sample()
+        return excluded()
+
+    def register_process(self, process, role, created_ns):
+        if role not in ('worker', 'git_revision'): raise ValueError('Fixed directly created child role required')
+        with self.lock:
+            if self.error is not None: raise RuntimeError('Owned sampler already failed')
+            if len(self.owners) >= DUAL_MAX_LIVE_OWNERS: raise ValueError('Excess live owned children')
+            if len(self.lifecycles) >= DUAL_MAX_LIFETIMES - 1: self._rotate()
+            fd = os.open('/proc/' + str(process.pid) + '/stat', os.O_RDONLY | os.O_NOFOLLOW)
+            try: raw = os.read(fd, 4097)
+            finally: os.close(fd)
+            value = _dual_proc_stat(raw, include_state=True); state = value.pop('state')
+            fields = raw.rsplit(b') ', 1)[1].split()
+            if int(fields[1]) != os.getpid() or not value['pid'] == value['pgid'] == value['sid'] or value['pid'] in self.owners:
+                raise ValueError('Direct owned child/session identity required')
+            held = _DualProcOwner(value, separate_session=True, allow_exited=True)
+            self.owners[value['pid']] = held
+            self.created_children += 1
+            self._append(self.lifecycles, dict(identity=value, role=role, created_ns=created_ns,
+                registered_ns=time.monotonic_ns(), removed_ns=None, state_at_registration=state,
+                registration_gap_scope='Popen completion to pinned proc observation; no earlier RSS invented'))
+            self.sample()  # A fast exiting child yields an explicit gap, never zero RSS.
+            return value
+
+    def process_finished(self, process):
+        from repo_graph.analysis_queue import _group_exists
+        with self.lock:
+            if process.pid not in self.owners: return
+            row = next(row for row in reversed(self.lifecycles) if row['identity']['pid'] == process.pid)
+            if row['role'] != 'git_revision': raise ValueError('Collectors require canonical queue cleanup')
+            if process.returncode is None or _group_exists(process): raise ValueError('Owned Git child cleanup incomplete')
+            self.owners.pop(process.pid).close()
+            row.update(removed_ns=time.monotonic_ns(), cleanup={'leader_reaped': True, 'group_absent': True})
+            self._append(self.events, dict(event='git_cleanup', identity=row['identity'], phase=self.phase,
+                monotonic_ns=row['removed_ns'], cleanup=row['cleanup']))
+
+    def observe(self, event):
+        with self.lock:
+            try:
+                if self.error is not None: return False
+                if len(self.events) >= 9999 or len(self.lifecycles) >= DUAL_MAX_LIFETIMES - 1: self._rotate()
+                from repo_graph.analysis_queue import _event_valid
+                _event_valid(event)
+                for key in self.queue_high_water: self.queue_high_water[key] = max(self.queue_high_water[key], event[key])
+                if event.get('event') == 'readiness' and event.get('worker') is not None:
+                    identity = event['worker']; owner = self.owners.get(identity['pid'])
+                    if event['controller'] != self.controller or owner is None or owner.identity != identity:
+                        raise ValueError('Readiness differs from directly created collector identity')
+                    owner.recheck(require_live=True)
+                    self._append(self.events, dict(event, phase=self.phase))
+                    return True
+                return super().observe(event)
+            except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
+                self.error = dict(kind=type(error).__name__, reason=str(error)[:256]); return False
+
+    def finish(self):
+        with self.lock:
+            children = [dict(owner.identity) for owner in self.owners.values() if owner.identity['pid'] not in
+                {row['identity']['pid'] for row in self.lifecycles if row['role'] in ('controller', 'supervisor')}]
+        last = super().finish()
+        if last.get('sampler_stopped') is not True: return last
+        with SourceRoot(self.directory) as owner:
+            if owner.identity != self.directory_identity: raise ValueError('Telemetry directory owner changed')
+            info = owner.info('owned-telemetry.jsonl')
+            if info.st_size != self.bytes: raise ValueError('Telemetry stream size changed')
+        self.windows.append(dict(path='owned-telemetry.jsonl', sha256=self.window_hash.hexdigest(), bytes=self.bytes,
+                                 **self._window_summary()))
+        peaks = [window['peak_sampled_owned_rss_bytes'] for window in self.windows if window['peak_sampled_owned_rss_bytes'] is not None]
+        return dict(schema_version=1, label='peak_sampled_owned_rss_bytes',
+            peak_sampled_owned_rss_bytes=max(peaks, default=None), windows=self.windows,
+            sample_count=sum(window['samples'] for window in self.windows),
+            complete_sample_count=sum(window['complete_samples'] for window in self.windows),
+            sample_gap_count=sum(window['gap_samples'] for window in self.windows),
+            created_child_count=self.created_children, largest_start_interval_ns=self.max_interval_ns,
+            max_read_skew_ns=max(window['max_read_skew_ns'] for window in self.windows),
+            requested_interval_seconds=DUAL_INTERVAL_SECONDS, max_windows=PERSISTENT_MAX_WINDOWS,
+            per_window_limits=dict(samples=DUAL_MAX_SAMPLES, lifetimes=DUAL_MAX_LIFETIMES,
+                live_owners=DUAL_MAX_LIVE_OWNERS, bytes=DUAL_LOG_BYTES),
+            remaining_registered_owned_child_owners=children, sampler_stopped=True, error=last['error'],
+            queue_high_water=self.queue_high_water,
+            unsampled_peak_bound=False,
+            all_created_children_registered=self.error is None and self.excluded_intervals == 0,
+            all_measured_phase_children_registered=self.error is None,
+            excluded_source_fence_intervals=self.excluded_intervals, excluded_source_fence_ns=self.excluded_ns,
+            child_registration_scope='producer-created collectors and revision children; source-fence Git intervals excluded',
+            scope='complete sampled current-RSS sums only; source fences excluded with durable gaps, registration intervals explicit; shared pages counted per owner')
+
+
+def _persistent_fact_digest(index, directory, label):
+    """Stream canonical persisted facts; no finite Snapshot or whole-RAM mirror."""
+    from evaluations import engine_checks as checks
+    counts, hasher, size = {}, hashlib.sha256(), 0
+    name = label + '.facts.jsonl'
+    metadata_before = index.metadata()
+    with SourceRoot(directory) as owner, owner.atomic_writer(name) as stream:
+        for kind in ('definitions', 'sites', 'scopes', 'imports', 'relationships'):
+            counts[kind] = 0
+            for fact in index.read_facts(kind):
+                raw = json.dumps(dict(kind=kind, fact=fact), sort_keys=True, separators=(',', ':'), allow_nan=False).encode() + b'\n'
+                size += len(raw)
+                if size > DUAL_LOG_BYTES: raise ValueError('Streamed fact proof byte budget exhausted')
+                stream.write(raw); hasher.update(raw); counts[kind] += 1
+    metadata_after = index.metadata()
+    if metadata_before != metadata_after: raise ValueError('Persisted fact snapshot changed during proof')
+    return dict(semantic_facts_sha256=hasher.hexdigest(), counts=counts, identities=metadata_after,
+        artifact=dict(path=name, sha256=hasher.hexdigest(), bytes=size),
+        scope='Ordered persisted read_facts streams; metadata rechecked across all five streams; proof cost outside refresh wall')
+
+
+def _persistent_impacts(index, expected, directory, label):
+    """Grade only selected persisted physical facts after production."""
+    from evaluations.acceptance import _proof_impact, _proof_physical
+    from evaluations import engine_checks as checks
+    if type(expected) is not list or not 1 <= len(expected) <= 8:
+        raise ValueError('Finite nonempty frozen impact projection required')
+    before = index.metadata(); wanted = set(); anchors = set()
+    for impact in expected:
+        anchors.add((impact['site']['path'], tuple(impact['site']['range'][key] for key in
+            ('start_byte', 'end_byte', 'start_line', 'end_line'))))
+        for declaration in [impact['caller_declaration'], *impact['target_declarations'],
+                *[impact[key] for key in ('surviving_physical_declaration', 'non_target_physical_declaration') if key in impact]]:
+            wanted.add(_proof_physical(declaration))
+    facts = dict(definitions=[], sites=[])
+    for definition in index.read_facts('definitions'):
+        if definition['id'] in wanted: facts['definitions'].append(definition)
+        if len(facts['definitions']) > 32: raise ValueError('Impact declaration projection budget exhausted')
+    for site in index.read_facts('sites'):
+        anchor = (site['path'], tuple(site['range'][key] for key in ('start_byte', 'end_byte', 'start_line', 'end_line')))
+        if anchor in anchors: facts['sites'].append(site)
+        if len(facts['sites']) > 8: raise ValueError('Impact site projection budget exhausted')
+    if index.metadata() != before: raise ValueError('Impact projection generation changed')
+    name = label + '-impact.json'; checks._adapter_dump(directory, name, dict(identities=before, facts=facts))
+    raw, sha = checks._adapter_bytes(directory, name, cap=128 * 1024)
+    for impact in expected: _proof_impact(facts, impact)
+    return dict(passed=True, checked_impacts=len(expected), expected_sha256=digest(expected),
+        identities=before, artifact=dict(path=name, sha256=sha, bytes=len(raw)),
+        selected_declarations=len(facts['definitions']), selected_sites=len(facts['sites']))
+
+
+def _persistent_queries(index, directory, *, specs=PERSISTENT_QUERY_SPECS, fanout=None):
+    """Frozen workloads: cold application session and ten cached warm calls.
+
+    Source selector resolution and correctness grading are outside each measured
+    run(). The OS cache is not flushed. Complete responses are privately kept.
+    """
+    from repo_graph.analysis_queries import Queries, encoded
+    from evaluations import engine_checks as checks
+    if type(specs) not in (tuple, list) or not 1 <= len(specs) <= 6:
+        raise ValueError('Finite frozen query workload required')
+    metadata = index.metadata(); selected = {spec['id']: [] for spec in specs}
+    for definition in index.read_facts('definitions'):
+        for spec in specs:
+            span = tuple(definition['range'][key] for key in ('start_byte', 'end_byte', 'start_line', 'end_line'))
+            if definition['path'] == spec['path'] and definition['name'] == spec['name'] and span == tuple(spec['span']):
+                selected[spec['id']].append(definition['id'])
+                if len(selected[spec['id']]) > 1: raise ValueError('Ambiguous frozen query selector')
+    if index.metadata() != metadata or any(len(values) != 1 for values in selected.values()):
+        raise ValueError('Missing or changed frozen query selector')
+    results = dict(freeze_sha256=PERSISTENT_FREEZE_SHA, generation=metadata['generation'],
+        identities=metadata, scope='unmodified fresh publication only; cold application session, OS cache possibly warm',
+        cold_calls=1, warm_calls=10, limits=dict(PERSISTENT_QUERY_LIMITS), workloads=[], cursor_control=None, passed=False)
+
+    def record(session, payload, name, temperature):
+        began = time.monotonic_ns(); response = session.run(payload)
+        elapsed = (time.monotonic_ns() - began) / 1e9; raw = encoded(response)
+        limits = payload['limits']; seed = payload['seed']; handles = set()
+        for row in response['rows']:
+            if 'site' in row:
+                handles.update(row[key]['id'] for key in ('caller', 'target') if row.get(key) is not None)
+            else: handles.add(row['id'])
+        if (response['generation'] != metadata['generation'] or response['source_identity'] != metadata['source_identity'] or
+                response['repository_identity'] != metadata['repository_identity'] or
+                response['returned_symbol_handles'] != len(handles) or response['returned_entities'] != len(handles - {seed}) or
+                len(handles) > limits['max_entities'] or response['returned_edges'] > limits['max_edges'] or
+                response['examined_relationships'] > limits['max_examined_relationships'] or
+                len(raw) > limits['max_response_bytes'] or response['excerpt_bytes'] != 0 or
+                response['stop_reason'] in ('cancelled', 'deadline_exceeded', 'continuation_capacity_exhausted',
+                    'continuation_state_budget_exceeded', 'snapshot_session_capacity_exhausted')):
+            raise ValueError('Frozen query generation, counter, work or stop control failed')
+        name += '.json'
+        with SourceRoot(directory) as owner:
+            if not owner.secure: raise ValueError('Private query receipt directory required')
+            with owner.atomic_writer(name) as stream: stream.write(raw)
+        retained, sha = checks._adapter_bytes(directory, name, cap=limits['max_response_bytes'])
+        if retained != raw: raise ValueError('Canonical query receipt changed')
+        sample = dict(temperature=temperature, elapsed_seconds=elapsed, wire_bytes=len(raw),
+            **{key: response[key] for key in ('generation', 'source_identity', 'examined_relationships', 'examined_symbols',
+                'returned_entities', 'returned_symbol_handles', 'returned_edges', 'excerpt_bytes', 'storage_progress_callbacks',
+                'storage_setup_seconds', 'snapshot_copy_seconds', 'total_count', 'truncated', 'stop_reason')},
+            artifact=dict(path=name, sha256=sha, bytes=len(retained)))
+        return response, sample
+
+    for spec in specs:
+        payload = dict(seed=selected[spec['id']][0], operation=spec['operation'], depth=2,
+            limits=dict(PERSISTENT_QUERY_LIMITS, **spec.get('overrides', {})))
+        samples = []; semantic = None
+        with Queries(index.output, owner=index.output_owner, repository_identity=index.owner) as session:
+            for number in range(11):
+                response, sample = record(session, payload, spec['id'] + '-' + str(number).zfill(2),
+                                          'cold' if number == 0 else 'warm')
+                current = digest(response['rows'])
+                if semantic is None: semantic = current
+                elif current != semantic: raise ValueError('Same-generation warm query rows changed')
+                if spec['id'] != 'F-REFERENCE-LOCAL' and not response['rows']:
+                    raise ValueError('Frozen query returned vacuous rows')
+                if spec['id'] == 'F-UNRESOLVED-DYNAMIC' and not any(row['certainty'] == 'unresolved' for row in response['rows']):
+                    raise ValueError('Frozen dynamic query lost unresolved evidence')
+                if spec['id'] == 'F-FANOUT-STOP' and (not response['truncated'] or response['cursor'] is None):
+                    raise ValueError('Frozen fanout did not exercise bounded continuation')
+                samples.append(sample)
+        warm = sorted(sample['elapsed_seconds'] for sample in samples[1:])
+        results['workloads'].append(dict(id=spec['id'], operation=spec['operation'], seed=payload['seed'],
+            limits=payload['limits'], samples=samples, warm_p50_seconds=statistics.median(warm),
+            warm_p95_seconds=warm[math.ceil(.95 * len(warm)) - 1], rows_sha256=semantic, passed=True))
+        if spec['id'] == 'F-FANOUT-STOP':
+            if type(fanout) is not dict: raise ValueError('Frozen fanout occurrence oracle required')
+            expected = [(row['site']['path'], tuple(row['site']['range'][key] for key in
+                ('start_byte', 'end_byte', 'start_line', 'end_line')), row['site']['source_sha256'])
+                for row in fanout['invocations'] if row['caller_key'] == 'PY.fanout.hub']
+            if not expected or len(expected) > 256: raise ValueError('Finite nonempty fanout oracle required')
+            seen, pages, cursors = [], [], set()
+            with Queries(index.output, owner=index.output_owner, repository_identity=index.owner) as session:
+                while len(pages) < 64:
+                    response, sample = record(session, payload, 'fanout-page-' + str(len(pages)).zfill(2), 'cursor_control')
+                    for row in response['rows']:
+                        site = row['site']; seen.append((site['path'], tuple(site['range'][key] for key in
+                            ('start_byte', 'end_byte', 'start_line', 'end_line')), site['source_sha256']))
+                    pages.append(sample); cursor = response['cursor']
+                    if cursor is None: break
+                    if cursor in cursors: raise ValueError('Fanout cursor did not advance')
+                    cursors.add(cursor); payload = dict(payload, cursor=cursor)
+                if (response['cursor'] is not None or response['truncated'] or seen != expected or
+                        len(seen) != len(set(seen))):
+                    raise ValueError('Frozen fanout pages incomplete, reordered or duplicate')
+            results['cursor_control'] = dict(passed=True, pages=pages, returned_occurrences=len(seen),
+                expected_occurrences=len(expected), max_pages=64, physical_occurrences_sha256=digest(seen))
+    if index.metadata() != metadata: raise ValueError('Query measurement publication changed')
+    results['passed'] = True; checks._adapter_dump(directory, 'queries.json', results)
+    return results
+
+
+def _persistent_source_accounting():
+    from repo_graph.source import empty_source_accounting
+    return dict(schema_version=1, accounting_complete=True,
+        passes={name: empty_source_accounting() for name in ('controller_original_source',
+            'controller_source_validation', 'mailbox_source', 'worker_source_validation', 'native_source_validation')},
+        worker_requests_with_accounting=0, worker_requests_unknown=0, collector_original_source_stream_bytes=0,
+        scope='admitted source/configuration original reads and content hashes, immutable mailbox reads and explicit source-validation hashes; '
+              'implementation/control/persisted-fact hashes and source-fence Git I/O excluded')
+
+
+def _persistent_sum_source_row(target, row, *, buffer=False):
+    from repo_graph.source import SOURCE_ACCOUNTING_FIELDS
+    if (type(row) is not dict or set(row) != set(SOURCE_ACCOUNTING_FIELDS) or
+            any(type(value) is not int or not 0 <= value <= 2**63 - 1 for value in row.values()) or
+            row['operations'] != row['successful_operations'] + row['failed_operations'] or
+            row['hash_passes'] > row['operations'] or row['open_operations'] > row['operations'] or
+            not row['operations'] and any(row.values()) or row['hashed_bytes'] and not row['hash_passes'] or
+            buffer and any(row[key] for key in ('stream_bytes', 'open_operations', 'returned_prefix_bytes'))):
+        raise ValueError('Invalid fixed actual source counter row')
+    for key in SOURCE_ACCOUNTING_FIELDS: target[key] += row[key]
+
+
+def _persistent_add_source_accounting(total, result, budget):
+    """Reuse canonical receipt validation; never reconstruct child bytes from size."""
+    from repo_graph.analysis_queue import _source_accounting_valid
+    value = result.resources.get('telemetry', {}).get('source_accounting')
+    if (type(value) is not dict or set(value) != {'schema_version', 'controller_source_validation',
+            'worker_requests_with_accounting', 'worker_requests_unknown', 'worker_accounting_complete', 'scope'} or
+            type(value['schema_version']) is not int or value['schema_version'] != 1 or
+            any(type(value[key]) is not int or value[key] < 0 for key in
+                ('worker_requests_with_accounting', 'worker_requests_unknown')) or
+            type(value['worker_accounting_complete']) is not bool or
+            value['worker_accounting_complete'] != (value['worker_requests_unknown'] == 0)):
+        total['accounting_complete'] = False
+        raise ValueError('Canonical source accounting unavailable')
+    _persistent_sum_source_row(total['passes']['controller_source_validation'],
+                               value['controller_source_validation'], buffer=True)
+    total['accounting_complete'] &= value['worker_accounting_complete']
+    seen = 0
+    try:
+        for worker in result.resources.get('worker_resources', []):
+            for file in worker:
+                accounting = file.get('source_accounting')
+                _source_accounting_valid(accounting, budget=budget)
+                seen += 1
+                for name, row in accounting['passes'].items():
+                    _persistent_sum_source_row(total['passes'][name], row, buffer=name != 'mailbox_source')
+                total['collector_original_source_stream_bytes'] += accounting['original_source_stream_bytes']
+    finally:
+        total['worker_requests_with_accounting'] += seen
+        total['worker_requests_unknown'] += value['worker_requests_unknown'] + max(0, value['worker_requests_with_accounting'] - seen)
+    if seen != value['worker_requests_with_accounting']:
+        total['accounting_complete'] = False
+        raise ValueError('Canonical accounting receipt count changed')
+
+
+def _persistent_attempt(index, records, label, mode, concurrency, directory, sampler):
+    """Observe the canonical writer alias and retain bounded full batch receipts."""
+    from contextlib import ExitStack
+    from unittest.mock import patch
+    from repo_graph import analysis as runtime, analysis_queue as queue, search
+    from evaluations import engine_checks as checks
+    if (mode, concurrency) not in PERSISTENT_MODES:
+        raise ValueError('Persistent reference serial1 or candidate queued2 required')
+    stages, batch_count, artifacts = {}, [0], []
+    source_accounting = _persistent_source_accounting()
+    native_timings, queue_timings = Counter(), Counter()
+    collection_totals = dict(actual_workers_started=0, files_collected=0, child_file_user_seconds=0.0,
+                             child_file_system_seconds=0.0)
+    original_collect, original_popen = runtime.collect_files, subprocess.Popen
+    def measured(name, function):
+        def invoke(*args, **kwargs):
+            began = time.monotonic_ns()
+            try: return function(*args, **kwargs)
+            finally:
+                row = stages.setdefault(name, dict(calls=0, inclusive_seconds=0.0))
+                row['calls'] += 1; row['inclusive_seconds'] += (time.monotonic_ns() - began) / 1e9
+        return invoke
+    class GitProcess:
+        def __init__(self, process): self.process = process
+        def __getattr__(self, key): return getattr(self.process, key)
+        def __enter__(self): self.process.__enter__(); return self
+        def __exit__(self, *args):
+            try: return self.process.__exit__(*args)
+            finally: sampler.process_finished(self.process)
+        def wait(self, *args, **kwargs):
+            result = self.process.wait(*args, **kwargs); sampler.process_finished(self.process); return result
+    def created(command, *args, **kwargs):
+        if type(command) not in (tuple, list) or not command or kwargs.get('start_new_session') is not True:
+            raise ValueError('Profiler accepts only directly created isolated children')
+        role = ('git_revision' if Path(command[0]).name == 'git' and 'rev-parse' in command else
+                'worker' if '--worker-fd' in command and any(Path(str(part)).name == 'analysis_queue.py' for part in command) else None)
+        if role is None: raise ValueError('Unexpected child in persistent source-only workload')
+        began = time.monotonic_ns(); process = original_popen(command, *args, **kwargs)
+        try: sampler.register_process(process, role, began)
+        except BaseException as error:
+            sampler.error = dict(kind=type(error).__name__, reason='Direct child registration failed')
+            cleanup = queue._stop_and_reap(process)
+            checks._adapter_dump(directory, label + '-unregistered-child.json', dict(role=role, cleanup=cleanup))
+            raise
+        return GitProcess(process) if role == 'git_revision' else process
+    def collected(*args, **kwargs):
+        if batch_count[0] >= PERSISTENT_MAX_BATCHES: raise ValueError('Persistent collection batch budget exhausted')
+        if kwargs.get('mode') != mode or kwargs.get('concurrency') != concurrency or kwargs.get('observer') is not None:
+            raise ValueError('Canonical collection mode or observer differs from profiler')
+        def observe(event):
+            if event.get('mode') != mode or event.get('configured_concurrency') != concurrency:
+                sampler.error = dict(kind='ValueError', reason='Observed producer mode/concurrency mismatch'); return False
+            return sampler.observe(event)
+        kwargs.update(telemetry=True, observer=observe, observer_max_events=10000)
+        result = measured('collection_controller', original_collect)(*args, **kwargs)
+        batch_count[0] += 1
+        full = dict(status=result.status, stop_reason=result.stop_reason, resources=result.resources,
+                    failures=result.failures, cleanup=result.cleanup)
+        name = label + '-collection-' + str(batch_count[0]).zfill(4) + '.json'
+        checks._adapter_dump(directory, name, full)
+        raw, sha = checks._adapter_bytes(directory, name, cap=DUAL_LOG_BYTES)
+        artifacts.append(dict(path=name, sha256=sha, bytes=len(raw)))
+        try: _persistent_add_source_accounting(source_accounting, result, index.budget)
+        except (ValueError, TypeError, KeyError):
+            source_accounting['accounting_complete'] = False
+            raise
+        collection_totals['actual_workers_started'] += result.resources.get('workers_started', 0)
+        collection_totals['files_collected'] += result.resources.get('files_collected', 0)
+        queue_timings.update(result.resources.get('telemetry', {}).get('controller_timings', {}))
+        for worker in result.resources.get('worker_resources', []):
+            for file in worker:
+                native_timings.update(file.get('timings', {}))
+                for kind in ('user', 'system'):
+                    collection_totals['child_file_' + kind + '_seconds'] += file.get('file_' + kind + '_seconds', 0)
+        return result
+    sampler.set_phase(label)
+    began, refresh_end = time.monotonic_ns(), None
+    attempt = dict(label=label, status='running', mode=mode, concurrency=concurrency)
+    meter = _PersistentReadMeter(index.owner, label, directory)
+    try:
+        with ExitStack() as stack:
+            stack.enter_context(meter)
+            stack.enter_context(patch.object(runtime, 'collect_files', collected))
+            stack.enter_context(patch.object(subprocess, 'Popen', created))
+            for module, name, stage in ((runtime, 'connect', 'storage_open'), (runtime, '_schema', 'sqlite_schema'),
+                    (runtime.native, 'resolver', 'resolver_setup'),
+                    (runtime.native.CollectedFile, 'emit_sites', 'binding_resolution'),
+                    (runtime, 'project_function_evidence', 'function_projection'),
+                    (runtime, '_coverage', 'generation_coverage'), (runtime, '_git_observation', 'git_revision')):
+                stack.enter_context(patch.object(module, name, measured(stage, getattr(module, name))))
+            for name in ('execute', 'executemany', 'executescript'):
+                stack.enter_context(patch.object(search.IndexConnection, name,
+                    measured('sqlite_' + name, getattr(search.IndexConnection, name))))
+            stack.enter_context(patch.object(search.IndexConnection, '__exit__',
+                measured('commit_fsync_publication', search.IndexConnection.__exit__)))
+            stack.enter_context(patch.object(runtime._Files, 'fingerprint',
+                measured('dependency_fingerprint', runtime._Files.fingerprint)))
+            attempt['receipt'] = index.refresh(records, mode=mode, concurrency=concurrency,
+                cancel=lambda: sampler.error is not None, evidence_directory=directory)
+        refresh_end = time.monotonic_ns()
+        attempt['status'] = attempt['receipt']['status']
+        if attempt['status'] == 'ready':
+            sampler.set_phase(label + '-proof-retention'); proof_began = time.monotonic_ns()
+            try: attempt['streamed_facts'] = _persistent_fact_digest(index, directory, label)
+            finally: attempt['proof_retention_seconds'] = (time.monotonic_ns() - proof_began) / 1e9
+        if sampler.error is not None:
+            attempt.update(status='measurement_failed', measurement_error=dict(sampler.error))
+    except (OSError, ValueError, RuntimeError, TypeError, KeyError, MemoryError, RecursionError) as error:
+        attempt.update(status='failed', error=checks._adapter_error(error))
+        if index.last_attempt is not None: attempt['receipt'] = index.last_attempt
+    finally:
+        source_reads = meter.summary()
+        from repo_graph.source import SOURCE_ACCOUNTING_FIELDS
+        _persistent_sum_source_row(source_accounting['passes']['controller_original_source'],
+                                   {key: source_reads[key] for key in SOURCE_ACCOUNTING_FIELDS})
+        source_accounting['total_source_stream_bytes'] = sum(row['stream_bytes'] for row in source_accounting['passes'].values())
+        source_accounting['total_hashed_bytes'] = sum(row['hashed_bytes'] for row in source_accounting['passes'].values())
+        source_accounting['total_hash_passes'] = sum(row['hash_passes'] for row in source_accounting['passes'].values())
+        source_accounting['totals_kind'] = 'exact' if source_accounting['accounting_complete'] else 'lower_bound'
+        if source_accounting['accounting_complete']:
+            source_reads['collector_original_source_reads'] = dict(value=0, knowledge='validated_immutable_mailbox_transport')
+            source_reads['collector_mailbox_read_bytes'] = dict(value=source_accounting['passes']['mailbox_source']['stream_bytes'],
+                                                              knowledge='trusted_terminal_receipt_counters')
+            source_reads['qualification_blocker'] = 'source_fence_owned_io_excluded'
+        attempt.update(wall_seconds=((refresh_end or time.monotonic_ns()) - began) / 1e9,
+            observed_attempt_seconds=(time.monotonic_ns() - began) / 1e9, stages=stages,
+            source_reads=source_reads, source_accounting=source_accounting,
+            collection_batches=batch_count[0], collection_artifacts=artifacts,
+            collection_totals=collection_totals, native_file_timing_sums=dict(native_timings),
+            queue_controller_timing_sums=dict(queue_timings),
+            timing_scope='Inclusive observed StructuralIndex.refresh wall includes instrumentation and batch retention; proof retention separate; stages overlap and are not additive; SQLite timings cover statement initiation, cursor iteration remains in parent wall')
+        sampler.set_phase(label + '-receipt-retention')
+        checks._adapter_dump(directory, label + '.json', attempt)
+    return attempt
+
+
+def _persistent_capture(root):
+    from evaluations import engine_checks as checks
+    from evaluations.acceptance import committed
+    from repo_graph import analysis as runtime
+    bound = _dual_capture(root)
+    for path in ('repo_graph/analysis.py', 'repo_graph/analysis_queries.py', 'repo_graph/analysis_queue.py',
+                 'evaluations/code-understanding/test_performance.py', 'evaluations/code-understanding/test_analysis.py',
+                 'evaluations/code-understanding/test_queued_collector.py', 'tests/test_repo_graph.py'):
+        bound['implementation'][path] = checks._adapter_bytes(root, path, cap=2 * 1024 * 1024)[1]
+    if not committed(root, bound['implementation']): raise ValueError('Committed persistent profiler binding required')
+    bound['persistent_writer_identity'] = runtime.analyzer_identity()
+    bound['persistent_limits'] = _persistent_limits()
+    _persistent_recheck(root, bound)
+    return bound
+
+
+def _persistent_recheck(root, bound):
+    from repo_graph import analysis as runtime
+    observed = _dual_recheck(root, bound)
+    if runtime.analyzer_identity() != bound['persistent_writer_identity']:
+        raise ValueError('Loaded persistent writer identity changed')
+    limits = _persistent_limits()
+    if limits != bound['persistent_limits']: raise ValueError('Persistent measurement configuration changed')
+    return dict(observed, persistent_writer_identity=bound['persistent_writer_identity'], persistent_limits=limits)
+
+
+def _persistent_limits():
+    return dict(max_windows=PERSISTENT_MAX_WINDOWS, max_batches=PERSISTENT_MAX_BATCHES,
+        max_live_owners=DUAL_MAX_LIVE_OWNERS, per_window_samples=DUAL_MAX_SAMPLES,
+        per_window_lifetimes=DUAL_MAX_LIFETIMES, per_window_bytes=DUAL_LOG_BYTES,
+        evaluation_freeze_sha256=PERSISTENT_FREEZE_SHA, query_projection_sha256=digest(PERSISTENT_QUERY_SPECS),
+        query_limits=dict(PERSISTENT_QUERY_LIMITS), cold_calls=1, warm_calls=10, max_cursor_pages=64,
+        phases_sha256=digest(PERSISTENT_PHASES), impacts_sha256=digest(PERSISTENT_IMPACT_SHA))
+
+
+def _persistent_run(root, directory, source, source_owner, bound, mode, concurrency, supervisor):
+    """One finite job over the supervisor's held shared source owner."""
+    import resource
+    from dataclasses import asdict
+    from repo_graph.analysis import StructuralIndex
+    from evaluations import engine_checks as checks
+    blobs, records, edits = _dual_inputs(root, bound)
+    report = dict(schema_version=1, kind='persistent_fixture', status='running', mode=mode,
+        concurrency=concurrency, binding_before=bound, phases=[], equivalence={}, source_impacts={}, model_calls=0,
+        engine_selected=False, qualification_complete=False, representative_corpus_profiled=False,
+        resource_budgets_frozen=False, query_measurements='unmodified_fresh_fixture_only', source_data_accounting_complete=False,
+        all_owned_source_reads_measured=False,
+        qualification_blockers=['source_data_accounting_unsettled', 'representative_costs_unmeasured',
+                                'representative_query_costs_unmeasured', 'resource_budgets_unfrozen',
+                                'source_fence_children_excluded_from_rss'],
+        input_inventory_sha256=digest(records), input_file_count=len(records),
+        limitations=['finite fixture only', 'sampled current RSS is not exact peak or a hard tree bound',
+                     'inclusive stage timings overlap; child timing sums are not wall time',
+                     'production wall includes instrumentation and batch receipt retention'])
+    sampler = None
+    try:
+        _persistent_recheck(root, bound); report['isolation'] = _dual_isolation(directory)
+        oracle = checks._adapter_json(root, 'evaluations/code-understanding/supplement-oracle.json', bound)
+        impacts = {row['id']: row['expected_source_bound_impacts'] for row in oracle['mutations']
+                   if row['id'] in PERSISTENT_IMPACT_SHA}
+        if (set(impacts) != set(PERSISTENT_IMPACT_SHA) or
+                any(digest(impacts[key]) != expected for key, expected in PERSISTENT_IMPACT_SHA.items())):
+            raise ValueError('Frozen source-impact projection changed')
+        report['controller_envelope'] = dict(address_space=list(resource.getrlimit(resource.RLIMIT_AS)),
+            cpu_seconds=list(resource.getrlimit(resource.RLIMIT_CPU)), file_bytes=list(resource.getrlimit(resource.RLIMIT_FSIZE)),
+            core_bytes=list(resource.getrlimit(resource.RLIMIT_CORE)), affinity=sorted(os.sched_getaffinity(0)))
+        sampler = _PersistentSampler(supervisor).attach_log(directory).start()
+        setup = time.monotonic_ns()
+        with SourceRoot(source) as owner:
+            if owner.identity != source_owner: raise ValueError('Supervisor source owner changed')
+        index = StructuralIndex(source, directory / 'index')
+        if index.owner != source_owner: raise ValueError('Writer differs from supervisor source owner')
+        report['source_owner_identity'] = source_owner
+        report['preparation_seconds'] = (time.monotonic_ns() - setup) / 1e9
+        report['index_limits'], report['parser_budget'] = asdict(index.limits), asdict(index.budget)
+        def attempt(index, items, label):
+            with sampler.exclude_source_fence(label): _persistent_recheck(root, bound)
+            observed = _persistent_attempt(index, items, label, mode, concurrency, directory, sampler)
+            report['phases'].append(observed); checks._adapter_dump(directory, 'result.json', report)
+            if observed['status'] != 'ready': raise ValueError('Persistent fixture phase did not publish: ' + label)
+            return observed['streamed_facts']
+        def grade(index, label, ids, phase):
+            report['source_impacts'][label] = {key: _persistent_impacts(index,
+                [row[phase] for row in impacts[key]], directory, label + '-' + key) for key in ids}
+            for key in ids: report['source_impacts'][label][key]['oracle_projection_sha256'] = PERSISTENT_IMPACT_SHA[key]
+        fresh = attempt(index, records, 'fresh-output')
+        grade(index, 'fresh-output', ('U-PY-BODY', 'U-PY-EXPORT'), 'before')
+        sampler.set_phase('frozen-fixture-queries')
+        report['queries'] = _persistent_queries(index, directory, fanout=oracle['query'])
+        repeat = attempt(index, records, 'unchanged-repeat')
+        report['equivalence']['unchanged_generation'] = fresh['identities'] == repeat['identities']
+        report['equivalence']['unchanged_facts'] = fresh['semantic_facts_sha256'] == repeat['semantic_facts_sha256']
+        for edit_id in ('U-PY-BODY', 'U-PY-EXPORT'):
+            changed, changed_records = _dual_mutation(blobs, records, edits[edit_id])
+            preparation = time.monotonic_ns(); sampler.set_phase(edit_id + '-preparation')
+            if edit_id == 'U-PY-EXPORT':
+                checks._adapter_materialize(source, blobs)
+                index = StructuralIndex(source, directory / 'u-py-export-prime')
+                attempt(index, records, 'U-PY-EXPORT-reset-prime')
+                grade(index, 'U-PY-EXPORT-reset-prime', (edit_id,), 'before')
+            report.setdefault('mutation_preparation_seconds', {})[edit_id] = (time.monotonic_ns() - preparation) / 1e9
+            checks._adapter_materialize(source, changed)
+            incremental = attempt(index, changed_records, edit_id + '-changed')
+            grade(index, edit_id + '-changed', (edit_id,), 'after')
+            clean = StructuralIndex(source, directory / (edit_id.lower() + '-clean'))
+            rebuilt = attempt(clean, changed_records, edit_id + '-clean-rebuild')
+            grade(clean, edit_id + '-clean-rebuild', (edit_id,), 'after')
+            report['equivalence'][edit_id] = dict(identities=incremental['identities'] == rebuilt['identities'],
+                semantic_facts=incremental['semantic_facts_sha256'] == rebuilt['semantic_facts_sha256'],
+                counts=incremental['counts'] == rebuilt['counts'],
+                generation_changed=incremental['identities']['generation'] != fresh['identities']['generation'],
+                source_identity_changed=incremental['identities']['source_identity'] != fresh['identities']['source_identity'])
+        with SourceRoot(source) as owner:
+            report['source_owner_identity_after'] = owner.identity
+            if owner.identity != source_owner: raise ValueError('Measured source owner changed')
+        report['source_data_accounting_complete'] = all(phase['source_accounting']['accounting_complete'] for phase in report['phases'])
+        if not report['source_data_accounting_complete']: raise ValueError('Source-data accounting incomplete')
+        report['qualification_blockers'].remove('source_data_accounting_unsettled')
+        report['status'] = 'complete' if all(value if type(value) is bool else all(value.values())
+            for value in report['equivalence'].values()) else 'equivalence_failed'
+        sampler.set_phase('source-cleanup')
+    except (OSError, ValueError, RuntimeError, TypeError, KeyError, MemoryError, RecursionError) as error:
+        report.update(status='failed', failure=checks._adapter_error(error))
+    finally:
+        if sampler is not None:
+            try:
+                report['owned_rss'] = sampler.finish()
+                if report['owned_rss'].get('error') is not None or report['owned_rss'].get('remaining_registered_owned_child_owners'):
+                    report['status'] = 'measurement_failed'
+                checks._adapter_dump(directory, 'owned-rss.json', report['owned_rss'])
+            except (OSError, ValueError, RuntimeError, TypeError) as error:
+                report.update(status='measurement_failed', memory_failure=checks._adapter_error(error))
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        report['controller_lifetime'] = dict(process_peak_rss_bytes=usage.ru_maxrss * 1024,
+            user_seconds=usage.ru_utime, system_seconds=usage.ru_stime,
+            scope='controller lifetime only; never summed with child lifetime peaks')
+        try: report['binding_after'] = _persistent_recheck(root, bound)
+        except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
+            report.update(status='invalid_identity', identity_failure=checks._adapter_error(error))
+        checks._adapter_dump(directory, 'result.json', report)
+    return report
+
+
+def _persistent_validate(report, bound, mode, concurrency):
+    labels = list(PERSISTENT_PHASES)
+    if (type(report) is not dict or report.get('kind') != 'persistent_fixture' or
+            type(report.get('schema_version')) is not int or report['schema_version'] != 1 or
+            report.get('binding_before') != bound or report.get('mode') != mode or
+            type(report.get('concurrency')) is not int or report['concurrency'] != concurrency or
+            report.get('qualification_complete') is not False or report.get('resource_budgets_frozen') is not False or
+            report.get('engine_selected') is not False or report.get('status') not in
+                ('complete', 'failed', 'equivalence_failed', 'measurement_failed', 'invalid_identity') or
+            report.get('all_owned_source_reads_measured') is not False or type(report.get('phases')) is not list or
+            any(type(row) is not dict for row in report['phases']) or
+            [row.get('label') for row in report['phases']] != labels[:len(report['phases'])] or len(report['phases']) > 7):
+        raise ValueError('Persistent fixture report identity/phase mismatch')
+    if report['status'] == 'complete':
+        expected = dict(unchanged_generation=True, unchanged_facts=True,
+            **{edit: dict(identities=True, semantic_facts=True, counts=True, generation_changed=True,
+                source_identity_changed=True) for edit in ('U-PY-BODY', 'U-PY-EXPORT')})
+        equality = lambda value: json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+        rebound = {key: bound[key] for key in ('measured_commit', 'implementation', 'input_binding', 'root_identity',
+            'backend', 'queue_identity', 'runtime', 'persistent_writer_identity', 'persistent_limits')}
+        rss = report.get('owned_rss', {})
+        if (len(report['phases']) != 7 or any(row.get('status') != 'ready' for row in report['phases']) or
+                report.get('source_data_accounting_complete') is not True or
+                report.get('source_owner_identity') != report.get('source_owner_identity_after') or
+                type(report.get('source_owner_identity')) is not str or len(report['source_owner_identity']) != 64 or
+                report.get('binding_after') != rebound or type(rss) is not dict or
+                rss.get('error') is not None or rss.get('sampler_stopped') is not True or
+                rss.get('remaining_registered_owned_child_owners') != [] or
+                type(rss.get('complete_sample_count')) is not int or rss['complete_sample_count'] <= 0 or
+                type(rss.get('peak_sampled_owned_rss_bytes')) is not int or rss['peak_sampled_owned_rss_bytes'] <= 0 or
+                rss.get('all_measured_phase_children_registered') is not True or
+                rss.get('all_created_children_registered') is not False or
+                type(rss.get('excluded_source_fence_intervals')) is not int or rss['excluded_source_fence_intervals'] != 7 or
+                equality(report.get('equivalence')) != equality(expected)):
+            raise ValueError('Missing complete persistent experiment evidence')
+        for phase in report['phases']:
+            accounting = phase.get('source_accounting')
+            if (type(accounting) is not dict or accounting.get('accounting_complete') is not True or
+                    accounting.get('totals_kind') != 'exact' or type(accounting.get('worker_requests_unknown')) is not int or
+                    accounting['worker_requests_unknown'] != 0 or accounting.get('collector_original_source_stream_bytes') != 0):
+                raise ValueError('Missing complete measured source-data accounting')
+        impact_stages = {label: ('U-PY-BODY', 'U-PY-EXPORT') if label == 'fresh-output' else
+            ('U-PY-BODY',) if label.startswith('U-PY-BODY') else ('U-PY-EXPORT',)
+            for label in labels if label != 'unchanged-repeat'}
+        impacts = report.get('source_impacts')
+        if type(impacts) is not dict or set(impacts) != set(impact_stages):
+            raise ValueError('Missing frozen physical impact controls')
+        for label, ids in impact_stages.items():
+            if type(impacts[label]) is not dict or set(impacts[label]) != set(ids):
+                raise ValueError('Missing frozen update impact control')
+            for key in ids:
+                row = impacts[label][key]
+                if (type(row) is not dict or row.get('passed') is not True or type(row.get('checked_impacts')) is not int or
+                        row['checked_impacts'] != 1 or row.get('oracle_projection_sha256') != PERSISTENT_IMPACT_SHA[key] or
+                        type(row.get('artifact')) is not dict):
+                    raise ValueError('Vacuous or unfrozen physical impact control')
+        _persistent_validate_queries(report.get('queries'), report['phases'][0]['streamed_facts']['identities'])
+    return report
+
+
+def _persistent_validate_queries(queries, metadata):
+    if (type(queries) is not dict or queries.get('passed') is not True or queries.get('identities') != metadata or
+            queries.get('freeze_sha256') != PERSISTENT_FREEZE_SHA or queries.get('generation') != metadata['generation'] or
+            type(queries.get('cold_calls')) is not int or queries['cold_calls'] != 1 or
+            type(queries.get('warm_calls')) is not int or queries['warm_calls'] != 10 or
+            queries.get('limits') != PERSISTENT_QUERY_LIMITS or type(queries.get('workloads')) is not list or
+            any(type(row) is not dict for row in queries['workloads']) or
+            [row.get('id') for row in queries['workloads']] != [spec['id'] for spec in PERSISTENT_QUERY_SPECS]):
+        raise ValueError('Missing nonvacuous frozen query workloads')
+    for row, spec in zip(queries['workloads'], PERSISTENT_QUERY_SPECS):
+        limits = dict(PERSISTENT_QUERY_LIMITS, **spec.get('overrides', {}))
+        if (row.get('passed') is not True or row.get('operation') != spec['operation'] or row.get('limits') != limits or
+                type(row.get('seed')) is not str or not row['seed'] or type(row.get('samples')) is not list or len(row['samples']) != 11):
+            raise ValueError('Missing cold/warm frozen query samples')
+        for number, sample in enumerate(row['samples']):
+            if (type(sample) is not dict or sample.get('temperature') != ('cold' if number == 0 else 'warm') or
+                    sample.get('generation') != metadata['generation'] or sample.get('source_identity') != metadata['source_identity'] or
+                    type(sample.get('elapsed_seconds')) not in (int, float) or not math.isfinite(sample['elapsed_seconds']) or
+                    sample['elapsed_seconds'] < 0 or type(sample.get('wire_bytes')) is not int or
+                    not 0 < sample['wire_bytes'] <= limits['max_response_bytes'] or type(sample.get('artifact')) is not dict or
+                    any(type(sample.get(key)) is not int or not 0 <= sample[key] <= ceiling for key, ceiling in
+                        (('returned_symbol_handles', limits['max_entities']), ('returned_edges', limits['max_edges']),
+                         ('examined_relationships', limits['max_examined_relationships']), ('excerpt_bytes', 0)))):
+                raise ValueError('Malformed bounded individual query measurement')
+        warm = sorted(sample['elapsed_seconds'] for sample in row['samples'][1:])
+        if row.get('warm_p50_seconds') != statistics.median(warm) or row.get('warm_p95_seconds') != warm[math.ceil(.95 * len(warm)) - 1]:
+            raise ValueError('Warm query statistics differ from individual samples')
+    pages = queries.get('cursor_control')
+    if (type(pages) is not dict or pages.get('passed') is not True or type(pages.get('pages')) is not list or
+            not 2 <= len(pages['pages']) <= 64 or pages.get('returned_occurrences') != 113 or
+            pages.get('expected_occurrences') != 113 or pages.get('max_pages') != 64):
+        raise ValueError('Missing complete frozen fanout continuation control')
+
+
+def persistent_worker(argv):
+    import faulthandler, resource
+    from evaluations import engine_checks as checks
+    from evaluations.supplement_preparation import decode
+    from repo_graph.analysis_queue import _guard_controller
+    parser = argparse.ArgumentParser(); parser.add_argument('fd', type=int); parser.add_argument('source_fd', type=int)
+    parser.add_argument('creator_pid', type=int)
+    args = parser.parse_args(argv); _guard_controller(args.creator_pid); faulthandler.enable()
+    resource.setrlimit(resource.RLIMIT_AS, (512 * 1024 * 1024, 512 * 1024 * 1024))
+    resource.setrlimit(resource.RLIMIT_CPU, (60, 60)); resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    resource.setrlimit(resource.RLIMIT_FSIZE, (DUAL_LOG_BYTES, DUAL_LOG_BYTES)); signal.signal(signal.SIGXCPU, signal.SIG_DFL)
+    root, directory = Path(__file__).resolve().parents[1], Path('/proc/self/fd') / str(args.fd)
+    with SourceRoot(directory) as owner:
+        raw, _, info = owner.read('control.json', 128 * 1024 + 1, hash_full=False)
+        if len(raw) != info.st_size or len(raw) > 128 * 1024: raise ValueError('Bounded persistent control required')
+        control = decode(raw)
+        if (type(control) is not dict or set(control) != {'schema_version', 'mode', 'concurrency', 'binding', 'directory_owner', 'supervisor', 'source_owner'} or
+                control.get('schema_version') != 1 or type(control.get('schema_version')) is not int or
+                type(control.get('concurrency')) is not int or (control['mode'], control['concurrency']) not in PERSISTENT_MODES or
+                control['directory_owner'] != owner.identity or control['supervisor'].get('pid') != args.creator_pid):
+            raise ValueError('Typed persistent controller ownership required')
+    source = Path('/proc/self/fd') / str(args.source_fd)
+    with SourceRoot(source) as shared:
+        if shared.identity != control['source_owner']: raise ValueError('Supervisor shared source owner changed')
+    bound = _persistent_capture(root)
+    if bound != control['binding']: raise ValueError('Parent/controller committed binding mismatch')
+    report = _persistent_run(root, directory, source, control['source_owner'], bound,
+                             control['mode'], control['concurrency'], control['supervisor'])
+    return 0 if report['status'] == 'complete' else 1
+
+
+def persistent_supervisor(argv):
+    from repo_graph.analysis_queue import _guard_controller
+    parser = argparse.ArgumentParser(); parser.add_argument('evidence_directory', type=Path)
+    parser.add_argument('--cpu-affinity', type=int, nargs='+'); parser.add_argument('--creator-pid', type=int, required=True)
+    args = parser.parse_args(argv); _guard_controller(args.creator_pid)
+    result = profile_persistent_fixture(Path(__file__).resolve().parents[1], args.evidence_directory, affinity=args.cpu_affinity)
+    print(json.dumps(compact_persistent_result(result), sort_keys=True, separators=(',', ':'), allow_nan=False))
+    return 0 if result['status'] == 'complete' else 1
+
+
+def compact_persistent_result(wrapper):
+    """Portable observed measurements only; full raw receipts/PIDs stay private."""
+    report = wrapper.get('full_private_report', wrapper)
+    result = dict(schema_version=1, kind='persistent_fixture_profile', status=report['status'],
+        engine_selected=False, qualification_complete=False, representative_corpus_profiled=False,
+        resource_budgets_frozen=False, all_owned_source_reads_measured=False,
+        source_data_accounting_complete=report.get('source_data_accounting_complete', False),
+        qualification_blockers=report.get('qualification_blockers', []), cases=[])
+    if report.get('binding_before'):
+        bound = report['binding_before']
+        result['source_binding'] = {key: bound[key] for key in ('measured_commit', 'implementation', 'input_binding', 'backend')}
+    for case in report.get('cases', []):
+        row = {key: case.get(key) for key in ('id', 'mode', 'concurrency', 'status', 'returncode')}
+        raw = case.get('report', {}); row['phases'] = []
+        for phase in raw.get('phases', []):
+            item = {key: phase[key] for key in ('label', 'status', 'wall_seconds', 'proof_retention_seconds',
+                'observed_attempt_seconds', 'stages', 'collection_totals', 'native_file_timing_sums',
+                'queue_controller_timing_sums', 'timing_scope') if key in phase}
+            item['source_reads'] = {key: value for key, value in phase.get('source_reads', {}).items() if key != 'artifacts'}
+            item['source_accounting'] = phase.get('source_accounting')
+            if 'streamed_facts' in phase:
+                item['facts'] = {key: phase['streamed_facts'][key] for key in ('semantic_facts_sha256', 'counts')}
+            if 'receipt' in phase:
+                item['coverage'] = phase['receipt'].get('coverage')
+                item['resources'] = phase['receipt'].get('resources')
+            row['phases'].append(item)
+        row['equivalence'] = raw.get('equivalence')
+        row['source_impacts'] = {label: {key: {field: value for field, value in impact.items() if field != 'artifact'}
+            for key, impact in values.items()} for label, values in raw.get('source_impacts', {}).items()}
+        queries = raw.get('queries')
+        if queries is not None:
+            def sample(value): return {key: item for key, item in value.items() if key != 'artifact'}
+            row['queries'] = {key: value for key, value in queries.items() if key not in ('workloads', 'cursor_control')}
+            row['queries']['workloads'] = [dict({key: value for key, value in workload.items() if key != 'samples'},
+                samples=[sample(value) for value in workload['samples']]) for workload in queries['workloads']]
+            control = queries.get('cursor_control')
+            row['queries']['cursor_control'] = (dict({key: value for key, value in control.items() if key != 'pages'},
+                pages=[sample(value) for value in control['pages']]) if control else None)
+        rss = raw.get('owned_rss', {})
+        row['owned_rss'] = {key: rss[key] for key in ('peak_sampled_owned_rss_bytes', 'sample_count', 'complete_sample_count',
+            'sample_gap_count', 'created_child_count', 'largest_start_interval_ns', 'max_read_skew_ns', 'queue_high_water',
+            'requested_interval_seconds', 'per_window_limits', 'max_windows', 'unsampled_peak_bound', 'all_created_children_registered',
+            'all_measured_phase_children_registered', 'excluded_source_fence_intervals', 'excluded_source_fence_ns',
+            'child_registration_scope') if key in rss}
+        row['cleanup'] = ({key: case['cleanup'][key] for key in ('leader_reaped', 'group_absent')}
+                          if case.get('cleanup') else None)
+        result['cases'].append(row)
+    result['phase_semantic_agreement'] = report.get('phase_semantic_agreement')
+    result['same_source_owner_across_modes'] = report.get('same_source_owner_across_modes')
+    result['source_cleanup'] = report.get('source_cleanup')
+    return result
+
+
+def profile_persistent_fixture(root, evidence_directory, runs=1, *, affinity=None):
+    """One owned serial1/queued2 pair; finite proof, never a representative matrix."""
+    from evaluations import engine_checks as checks
+    from evaluations.supplement_preparation import decode
+    if type(runs) is not int or runs != 1: raise ValueError('Exactly one finite paired pilot repetition required')
+    root = checks._adapter_root(root); envelope = _dual_supervisor_limits(affinity)
+    deadline, bound = time.monotonic() + 90, None
+    report = dict(schema_version=1, kind='persistent_fixture_profile', status='running', binding_before=None, cases=[],
+        supervisor_envelope=envelope, engine_selected=False, qualification_complete=False, representative_corpus_profiled=False,
+        resource_budgets_frozen=False, all_owned_source_reads_measured=False,
+        qualification_blockers=['source_data_accounting_unsettled', 'representative_costs_unmeasured',
+                                'representative_query_costs_unmeasured', 'resource_budgets_unfrozen',
+                                'source_fence_children_excluded_from_rss'])
+    with checks._adapter_run(root, evidence_directory, 'persistent-fixture') as (run, name):
+        try:
+            bound = _persistent_capture(root); report['binding_before'] = bound
+            blobs, _, _ = _dual_inputs(root, bound)
+            report['source_cleanup'] = dict(completed=False, scope='supervisor descriptor-owned shared source cleanup')
+            with checks._adapter_source(run) as source, SourceRoot(source) as shared:
+                report['shared_source_owner_identity'] = shared.identity
+                for mode, concurrency in PERSISTENT_MODES:
+                    label = mode + '-' + str(concurrency); row = dict(id=label, mode=mode, concurrency=concurrency, status='running')
+                    report['cases'].append(row); process = None
+                    checks._adapter_materialize(source, blobs)
+                    if shared.identity != report['shared_source_owner_identity']: raise ValueError('Shared source owner changed')
+                    with checks._adapter_child(run, label) as job, SourceRoot(job) as owner:
+                        _persistent_recheck(root, bound)
+                        checks._adapter_dump(job, 'control.json', dict(schema_version=1, mode=mode, concurrency=concurrency,
+                            binding=bound, directory_owner=owner.identity, supervisor=_dual_self_identity(), source_owner=shared.identity))
+                        try:
+                            if time.monotonic() >= deadline: raise TimeoutError('Persistent pilot wall budget exhausted')
+                            with owner.open('stdout.log', create=True) as stdout, owner.open('stderr.log', create=True) as stderr:
+                                bridge = Path('/proc/' + str(os.getpid()) + '/fd/' + str(owner.fd))
+                                process = subprocess.Popen([sys.executable, '-I', '-B', str(root / 'evaluations/performance.py'),
+                                    '--persistent-worker', str(owner.fd), str(shared.fd), str(os.getpid())], cwd=bridge,
+                                    env=checks._environment(bridge), pass_fds=(owner.fd, shared.fd), stdin=subprocess.DEVNULL,
+                                    stdout=stdout, stderr=stderr, start_new_session=True)
+                                row['returncode'] = process.wait(timeout=max(.001, deadline - time.monotonic()))
+                            raw, sha, info = owner.read('result.json', DUAL_LOG_BYTES + 1, hash_full=False)
+                            if len(raw) != info.st_size or len(raw) > DUAL_LOG_BYTES: raise ValueError('Bounded complete pilot report required')
+                            row['report_artifact'] = dict(path=label + '/result.json', sha256=sha, bytes=info.st_size)
+                            produced = decode(raw)
+                            if type(produced) is dict: row['report'] = produced
+                            result = _persistent_validate(produced, bound, mode, concurrency)
+                            if (result.get('source_owner_identity') != shared.identity or
+                                    result.get('source_owner_identity_after') != shared.identity):
+                                raise ValueError('Both modes require the same admitted source owner')
+                            row['status'] = result['status']
+                            if row['returncode'] != 0: raise ChildProcessError('Owned fixture worker exited nonzero')
+                        except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError) as error:
+                            row.update(status='failed', failure=checks._adapter_error(error))
+                        finally:
+                            row['cleanup'] = checks._stop_and_reap(process) if process is not None else None
+                            row['logs'] = []
+                            for log in ('stdout.log', 'stderr.log'):
+                                try:
+                                    raw, sha, info = owner.read(log, DUAL_LOG_BYTES + 1, hash_full=False)
+                                    row['logs'].append(dict(path=label + '/' + log, sha256=sha, bytes=info.st_size,
+                                        complete=len(raw) == info.st_size and len(raw) <= DUAL_LOG_BYTES))
+                                except OSError as error: row['logs'].append(dict(path=label + '/' + log, error_kind=type(error).__name__))
+                            if not row['cleanup'] or not row['cleanup']['leader_reaped'] or not row['cleanup']['group_absent']:
+                                row['status'] = 'cleanup_failed'
+                            _persistent_recheck(root, bound); checks._adapter_dump(run, 'report.json', report)
+                    if row['status'] != 'complete': raise ValueError('Persistent pilot case failed; no further admission')
+                report['same_source_owner_across_modes'] = all(case['report']['source_owner_identity'] == shared.identity for case in report['cases'])
+            report['source_cleanup']['completed'] = True
+            reference = report['cases'][0]['report']['phases']
+            report['phase_semantic_agreement'] = {phase['label']: all(
+                next(other for other in case['report']['phases'] if other['label'] == phase['label'])['streamed_facts']['semantic_facts_sha256'] ==
+                phase['streamed_facts']['semantic_facts_sha256'] for case in report['cases']) for phase in reference}
+            report['source_data_accounting_complete'] = all(case['report'].get('source_data_accounting_complete') is True for case in report['cases'])
+            if report['source_data_accounting_complete']: report['qualification_blockers'].remove('source_data_accounting_unsettled')
+            report['status'] = 'complete' if len(reference) == 7 and report['same_source_owner_across_modes'] and all(report['phase_semantic_agreement'].values()) else 'equivalence_failed'
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError) as error:
+            report.update(status='failed', failure=checks._adapter_error(error))
+        finally:
+            if bound is not None:
+                try: report['binding_after'] = _persistent_recheck(root, bound)
+                except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
+                    report.update(status='invalid_identity', identity_failure=checks._adapter_error(error))
+            if time.monotonic() >= deadline: report['status'] = 'deadline_exceeded'
+            checks._adapter_dump(run, 'report.json', report)
+        return checks._adapter_archive(run, name, report)
+
+
 if __name__ == '__main__':
     if sys.argv[1:2] == ['--structural-worker']:
         raise SystemExit(structural_worker(sys.argv[2:]))
@@ -1336,4 +2418,8 @@ if __name__ == '__main__':
         raise SystemExit(native_dual_worker(sys.argv[2:]))
     if sys.argv[1:2] == ['--native-dual-supervisor']:
         raise SystemExit(native_dual_supervisor(sys.argv[2:]))
+    if sys.argv[1:2] == ['--persistent-worker']:
+        raise SystemExit(persistent_worker(sys.argv[2:]))
+    if sys.argv[1:2] == ['--persistent-supervisor']:
+        raise SystemExit(persistent_supervisor(sys.argv[2:]))
     main()

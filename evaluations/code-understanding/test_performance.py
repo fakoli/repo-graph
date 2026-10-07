@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -18,6 +19,196 @@ from evaluations.acceptance import PINS
 
 
 class ObservedProfile(unittest.TestCase):
+    def test_persistent_attempt_observes_actual_alias_streams_and_failed_observer(self):
+        from repo_graph import analysis as runtime
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        class Sampler:
+            error, refuse = None, False
+            def __init__(self): self.events, self.created, self.phases = [], [], []
+            def set_phase(self, phase): self.phases.append(phase)
+            def register_process(self, process, role, created_ns): self.created.append((process.pid, role))
+            def process_finished(self, process): pass
+            def observe(self, event):
+                self.events.append(event)
+                if self.refuse:
+                    self.error = {'kind': 'RuntimeError', 'reason': 'synthetic observer refusal'}
+                    return False
+                return True
+        with tempfile.TemporaryDirectory(prefix='persistent-alias-test-') as scratch:
+            source = Path(scratch) / 'source'; source.mkdir()
+            raw = b'def target(): return 1\n'
+            (source / 'main.py').write_bytes(raw)
+            original = runtime.collect_files
+            calls, proofs = [], []
+            def collected(*args, **kwargs):
+                calls.append((kwargs['mode'], kwargs['concurrency']))
+                self.assertTrue(kwargs['telemetry'])
+                self.assertTrue(callable(kwargs['observer']))
+                self.assertEqual(kwargs['observer_max_events'], 10000)
+                return original(*args, **kwargs)
+            for mode, concurrency in performance.PERSISTENT_MODES:
+                output, logs = Path(scratch) / mode, Path(scratch) / (mode + '-logs')
+                logs.mkdir()
+                index = runtime.StructuralIndex(source, output)
+                sampler = Sampler()
+                with patch.object(runtime, 'collect_files', side_effect=collected):
+                    attempt = performance._persistent_attempt(index, ['main.py'], 'fresh', mode,
+                        concurrency, logs, sampler)
+                self.assertEqual(attempt['status'], 'ready', attempt)
+                self.assertTrue(sampler.events)
+                self.assertEqual(attempt['collection_batches'], 1)
+                self.assertGreaterEqual(attempt['source_reads']['stream_bytes'], 2 * len(raw))
+                self.assertFalse(attempt['source_reads']['all_owned_source_reads_measured'])
+                proof = attempt['streamed_facts']; proofs.append(proof)
+                artifact = proof['artifact']; data = (logs / artifact['path']).read_bytes()
+                self.assertEqual(hashlib.sha256(data).hexdigest(), artifact['sha256'])
+                self.assertEqual(len(data), artifact['bytes'])
+                self.assertEqual(len(data.splitlines()), sum(proof['counts'].values()))
+                for kind, count in proof['counts'].items():
+                    self.assertEqual(count, sum(1 for _ in index.read_facts(kind)))
+                if mode == 'queued':
+                    self.assertTrue(any(role == 'worker' for _, role in sampler.created))
+                    before = (output / 'search.db').read_bytes()
+                    (source / 'main.py').write_bytes(b'def target(): return 2\n')
+                    sampler.refuse = True
+                    with patch.object(runtime, 'collect_files', side_effect=collected):
+                        failed = performance._persistent_attempt(index, ['main.py'], 'failed', mode,
+                            concurrency, logs, sampler)
+                    self.assertEqual(failed['status'], 'measurement_failed', failed)
+                    self.assertFalse(failed['receipt']['published'])
+                    self.assertEqual((output / 'search.db').read_bytes(), before)
+                    self.assertEqual(index.metadata()['generation'], proof['identities']['generation'])
+                    self.assertTrue((logs / 'failed.json').exists())
+            self.assertEqual(calls[:2], [('serial', 1), ('queued', 2)])
+            self.assertEqual(proofs[0]['semantic_facts_sha256'], proofs[1]['semantic_facts_sha256'])
+            self.assertEqual(proofs[0]['counts'], proofs[1]['counts'])
+
+    def test_persistent_read_meter_counts_returned_streams_and_failed_partial_hashes(self):
+        with tempfile.TemporaryDirectory(prefix='persistent-read-count-') as scratch:
+            root, other, logs = (Path(scratch) / name for name in ('source', 'other', 'logs'))
+            for path in (root, other, logs): path.mkdir()
+            raw = b'PRIVATE_TEST_SOURCE' + b'x' * (65540 - len(b'PRIVATE_TEST_SOURCE'))
+            (root / 'source.py').write_bytes(raw)
+            (other / 'source.py').write_bytes(b'unmeasured other owner')
+            with performance.SourceRoot(root) as source, performance.SourceRoot(other) as foreign:
+                with performance._PersistentReadMeter(source.identity, 'read-test', logs) as meter:
+                    self.assertEqual(source.read('source.py', 0)[0], b'')
+                    self.assertEqual(source.read('source.py', 3, hash_full=False)[0], raw[:3])
+                    self.assertEqual(source.read('source.py', 5)[0], raw[:5])
+                    with self.assertRaises(InterruptedError):
+                        source.read('source.py', 5, cancel=lambda: True)
+                    cancellation_checks = []
+                    def cancel_second_chunk():
+                        cancellation_checks.append(True)
+                        return len(cancellation_checks) == 2
+                    with self.assertRaises(InterruptedError):
+                        source.read('source.py', 3, cancel=cancel_second_chunk)
+                    foreign.read('source.py', 100)
+                measured = meter.summary()
+            self.assertEqual(measured['operations'], 5)
+            self.assertEqual((measured['successful_operations'], measured['failed_operations']), (3, 2))
+            self.assertEqual(measured['open_operations'], 5)
+            self.assertEqual(measured['stream_bytes'], 3 * len(raw) + 3 + 65536)
+            self.assertEqual(measured['hashed_bytes'], 2 * len(raw) + 3 + 65536)
+            self.assertEqual(measured['returned_prefix_bytes'], 8)
+            self.assertEqual(measured['by_pass']['full_hash_zero_prefix']['stream_bytes'], len(raw))
+            self.assertFalse(measured['all_owned_source_reads_measured'])
+            self.assertEqual(measured['collector_mailbox_read_bytes']['knowledge'], 'unmeasured')
+            rows = []
+            for artifact in measured['artifacts']:
+                data = (logs / artifact['path']).read_bytes()
+                self.assertEqual(hashlib.sha256(data).hexdigest(), artifact['sha256'])
+                self.assertEqual(len(data), artifact['bytes'])
+                self.assertNotIn(b'PRIVATE_TEST_SOURCE', data)
+                rows.extend(json.loads(line) for line in data.splitlines())
+            failed = [row for row in rows if row['status'] == 'failed']
+            self.assertEqual([(row['stream_bytes'], row['hashed_bytes'], row['returned_prefix_bytes'])
+                              for row in failed], [(65536, 0, 0), (len(raw), 65536, 0)])
+
+    def test_persistent_log_sync_failure_closes_owned_descriptors(self):
+        with tempfile.TemporaryDirectory(prefix='persistent-log-sync-') as scratch:
+            before = len(list(Path('/proc/self/fd').iterdir()))
+            log = performance._PersistentLog(Path(scratch), 'read-test')
+            log.append({'kind': 'synthetic'})
+            with patch.object(performance.os, 'fsync', side_effect=OSError(errno.ENOSPC, 'synthetic full')):
+                with self.assertRaises(OSError):
+                    log.close()
+            self.assertIsNone(log.fd)
+            self.assertIsNone(log.owner.fd)
+            self.assertEqual(len(list(Path('/proc/self/fd').iterdir())), before)
+
+    def test_persistent_driver_rejects_nonzero_results_and_resets_shared_source(self):
+        """Stubbed worker admission only; no collector, process or measurement run."""
+        from evaluations import engine_checks as checks
+        raw = b'def f(): pass\n'
+        for code in (0, 7, -9):
+            observed, cleaned, source_roots = [], [], []
+            class Child:
+                pid, returncode = 999999999, code
+                def __init__(self, command, **kwargs):
+                    job = Path('/proc/self/fd') / command[-3]
+                    source = Path('/proc/self/fd') / command[-2]
+                    with performance.SourceRoot(source) as owner:
+                        content, sha, _ = owner.read('a.py', 128)
+                        observed.append((owner.identity, sha, content))
+                        source_roots.append(owner.root)
+                        produced = dict(status='complete', stub_only=True,
+                            source_owner_identity=owner.identity, source_owner_identity_after=owner.identity,
+                            phases=[dict(label=label, streamed_facts=dict(
+                                semantic_facts_sha256='a' * 64, stub_only=True))
+                                for label in performance.PERSISTENT_PHASES])
+                        with owner.atomic_writer('a.py') as stream:
+                            stream.write(b'def changed(): pass\n')
+                    checks._adapter_dump(job, 'result.json', produced)
+                    os.write(kwargs['stdout'].fileno(), b'synthetic stdout\n')
+                    os.write(kwargs['stderr'].fileno(), b'synthetic stderr\n')
+                def wait(self, **kwargs): return self.returncode
+            def cleanup(process):
+                cleaned.append(process)
+                return dict(leader_reaped=True, group_absent=True, stub_only=True)
+            with self.subTest(exit_code=code), tempfile.TemporaryDirectory(prefix='persistent-admission-control-') as scratch:
+                destination = Path(scratch)
+                with patch.object(performance, '_dual_supervisor_limits', return_value={}), \
+                        patch.object(performance, '_persistent_capture', return_value={}), \
+                        patch.object(performance, '_persistent_recheck', return_value={}), \
+                        patch.object(performance, '_dual_inputs', return_value=({'a.py': raw}, [], {})), \
+                        patch.object(performance, '_persistent_validate', side_effect=lambda value, *args: value), \
+                        patch.object(performance.subprocess, 'Popen', Child), \
+                        patch.object(checks, '_stop_and_reap', side_effect=cleanup):
+                    result = performance.profile_persistent_fixture(PROFILE_ROOT, destination)
+                report = result['full_private_report']
+                self.assertEqual(len(report['cases']), 2 if code == 0 else 1)
+                self.assertEqual(len(cleaned), len(report['cases']))
+                self.assertTrue(all(content == raw for _, _, content in observed))
+                self.assertTrue(all(not path.exists() for path in source_roots))
+                self.assertFalse(result['qualification_complete'])
+                self.assertFalse(result['engine_selected'])
+                if code == 0:
+                    self.assertEqual(report['status'], 'complete')
+                    self.assertEqual(observed[0], observed[1])
+                    self.assertTrue(report['same_source_owner_across_modes'])
+                    self.assertTrue(report['source_cleanup']['completed'])
+                else:
+                    self.assertEqual(report['status'], 'failed')
+                    self.assertEqual(report['cases'][0]['failure']['error_kind'], 'ChildProcessError')
+                archive = destination / result['archive']['directory']
+                for case in report['cases']:
+                    self.assertEqual(case['returncode'], code)
+                    self.assertEqual(case['status'], 'complete' if code == 0 else 'failed')
+                    self.assertEqual(case['report']['status'], 'complete')
+                    self.assertTrue(case['report']['stub_only'])
+                    self.assertTrue(case['cleanup']['leader_reaped'] and case['cleanup']['group_absent'])
+                    stored = archive / case['report_artifact']['path']
+                    self.assertEqual(json.loads(stored.read_bytes()), case['report'])
+                    self.assertEqual(hashlib.sha256(stored.read_bytes()).hexdigest(), case['report_artifact']['sha256'])
+                    self.assertEqual(len(case['logs']), 2)
+                    for log in case['logs']:
+                        data = (archive / log['path']).read_bytes()
+                        self.assertTrue(log['complete'])
+                        self.assertEqual(len(data), log['bytes'])
+                        self.assertEqual(hashlib.sha256(data).hexdigest(), log['sha256'])
+
     def test_native_scan_output_swap_cannot_overwrite_source(self):
         from evaluations import tree_sitter_baseline as native
         with tempfile.TemporaryDirectory(prefix='repo-graph-profile-swap-') as scratch:
@@ -300,6 +491,60 @@ class OwnedDualProfile(unittest.TestCase):
         with patch.object(performance, '_dual_self_identity', return_value=dict(_FIXTURE_CONTROLLER)), patch.object(performance, '_DualProcOwner', _FakeProcOwner):
             return performance._DualSampler()
 
+    def test_persistent_rotation_preserves_owned_exit_gaps_and_window_limit(self):
+        class ProcOwner(_FakeProcOwner):
+            def __init__(self, identity, *, separate_session=False, allow_exited=False):
+                super().__init__(identity, separate_session=separate_session)
+            def recheck(self, *, require_live=False):
+                super().recheck()
+                if require_live and isinstance(self.current[self.identity['pid']], OSError):
+                    raise ValueError('Synthetic owner is not live')
+        class Child:
+            pid, returncode = 202, None
+        with tempfile.TemporaryDirectory(prefix='persistent-owner-window-') as scratch, \
+                patch.object(performance, '_dual_self_identity', return_value=dict(_FIXTURE_CONTROLLER)), \
+                patch.object(performance, '_DualProcOwner', ProcOwner), \
+                patch.object(performance, 'PERSISTENT_MAX_WINDOWS', 3), \
+                patch.object(performance, 'DUAL_MAX_SAMPLES', 2):
+            sampler = performance._PersistentSampler().attach_log(Path(scratch))
+            child = Child()
+            _FakeProcOwner.current[202] = ProcessLookupError(errno.ESRCH, 'synthetic owned child exited')
+            raw = _fixture_stat(pid=202, start=789, pgid=202, sid=202, state=b'Z')
+            with patch.object(performance.os, 'open', return_value=12345), \
+                    patch.object(performance.os, 'read', return_value=raw), \
+                    patch.object(performance.os, 'close'), patch.object(performance.os, 'getpid', return_value=999):
+                with self.assertRaises(ValueError):
+                    sampler.register_process(child, 'git_revision', 1)
+            self.assertEqual(sampler.created_children, 0)
+            with patch.object(performance.os, 'open', return_value=12345), \
+                    patch.object(performance.os, 'read', return_value=raw), \
+                    patch.object(performance.os, 'close'), patch.object(performance.os, 'getpid', return_value=1):
+                sampler.register_process(child, 'git_revision', 1)
+            sampler.sample()  # Reaching the sample bound rotates with the live child still held.
+            self.assertTrue(any(row.get('continuation') and row['identity'] == _FIXTURE_WORKER
+                                for row in sampler.lifecycles))
+            child.returncode = 0
+            with patch('repo_graph.analysis_queue._group_exists', return_value=False):
+                sampler.process_finished(child)
+            sampler.sample()
+            with sampler.lock, self.assertRaises(ValueError):
+                sampler._rotate()
+            result = sampler.finish()
+            self.assertEqual(result['sample_gap_count'], 2)
+            self.assertEqual(result['complete_sample_count'], 1)
+            self.assertEqual(result['peak_sampled_owned_rss_bytes'], 1024)
+            self.assertEqual(result['created_child_count'], 1)
+            self.assertEqual(result['remaining_registered_owned_child_owners'], [])
+            self.assertIsNone(result['error'])
+            self.assertFalse(result['unsampled_peak_bound'])
+            self.assertEqual(len(result['windows']), 3)
+            for window in result['windows']:
+                self.assertLess(window['samples'], result['per_window_limits']['samples'])
+                data = (Path(scratch) / window['path']).read_bytes()
+                self.assertEqual(len(data), window['bytes'])
+                self.assertEqual(hashlib.sha256(data).hexdigest(), window['sha256'])
+            self.assertTrue(all(owner.closed for owner in _FakeProcOwner.instances))
+
     def observe(self, sampler, value):
         with patch.object(performance, '_DualProcOwner', _FakeProcOwner):
             return sampler.observe(value)
@@ -568,15 +813,26 @@ class OwnedDualProfile(unittest.TestCase):
 
     def test_supervisor_interactive_refusal_precedes_limit_changes(self):
         import resource
-        with patch.object(performance, '_dual_self_identity', return_value=dict(_FIXTURE_CONTROLLER, sid=999)), patch.object(resource, 'setrlimit', side_effect=AssertionError('interactive limits untouched')):
-            with self.assertRaises(ValueError):
-                performance._dual_supervisor_limits()
+        for identity, isolated, user_site, bytecode, reason in (
+                (dict(_FIXTURE_CONTROLLER, sid=999), 1, 1, True, 'Interactive caller refused'),
+                (_FIXTURE_CONTROLLER, 0, 1, True, 'isolated dedicated profiler'),
+                (_FIXTURE_CONTROLLER, 1, 0, True, 'isolated dedicated profiler'),
+                (_FIXTURE_CONTROLLER, 1, 1, False, 'isolated dedicated profiler')):
+            with self.subTest(identity=identity, isolated=isolated, user_site=user_site, bytecode=bytecode), \
+                    patch.object(performance, '_dual_self_identity', return_value=identity), \
+                    patch.object(performance.sys, 'flags', SimpleNamespace(isolated=isolated, no_user_site=user_site)), \
+                    patch.object(performance.sys, 'dont_write_bytecode', bytecode), \
+                    patch.object(resource, 'setrlimit', side_effect=AssertionError('refused caller limits untouched')), \
+                    patch.object(performance.os, 'sched_setaffinity', side_effect=AssertionError('refused caller affinity untouched')), \
+                    patch.object(performance.signal, 'signal', side_effect=AssertionError('refused caller signal untouched')):
+                with self.assertRaisesRegex(ValueError, reason):
+                    performance._dual_supervisor_limits()
 
     def test_supervisor_finite_soft_hard_and_affinity_are_owned_mock_only(self):
         import resource
         calls = []
         affinity = []
-        with patch.object(performance, '_dual_self_identity', return_value=_FIXTURE_CONTROLLER), patch.object(performance.os, 'sched_getaffinity', return_value=set(range(8))), patch.object(performance.os, 'sched_setaffinity', side_effect=lambda pid, cpus: affinity.append((pid, cpus))), patch.object(performance.signal, 'signal'), patch.object(performance.signal, 'getsignal', return_value=performance.signal.SIG_DFL), patch.object(resource, 'getrlimit', return_value=(resource.RLIM_INFINITY, resource.RLIM_INFINITY)), patch.object(resource, 'setrlimit', side_effect=lambda kind, value: calls.append((kind, value))):
+        with patch.object(performance.sys, 'flags', SimpleNamespace(isolated=1, no_user_site=1)), patch.object(performance.sys, 'dont_write_bytecode', True), patch.object(performance, '_dual_self_identity', return_value=_FIXTURE_CONTROLLER), patch.object(performance.os, 'sched_getaffinity', return_value=set(range(8))), patch.object(performance.os, 'sched_setaffinity', side_effect=lambda pid, cpus: affinity.append((pid, cpus))), patch.object(performance.signal, 'signal'), patch.object(performance.signal, 'getsignal', return_value=performance.signal.SIG_DFL), patch.object(resource, 'getrlimit', return_value=(resource.RLIM_INFINITY, resource.RLIM_INFINITY)), patch.object(resource, 'setrlimit', side_effect=lambda kind, value: calls.append((kind, value))):
             result = performance._dual_supervisor_limits()
         self.assertEqual(result['address_space_soft_bytes'], 256 * 1024 * 1024)
         self.assertEqual(result['address_space_hard_bytes'], 512 * 1024 * 1024)
@@ -585,8 +841,8 @@ class OwnedDualProfile(unittest.TestCase):
         self.assertEqual(affinity, [(0, {0, 1, 2, 3})])
         self.assertEqual(result['affinity'], [0, 1, 2, 3])
         self.assertIn((resource.RLIMIT_CORE, (0, 0)), calls)
-        with patch.object(performance, '_dual_self_identity', return_value=_FIXTURE_CONTROLLER), patch.object(performance.os, 'sched_getaffinity', return_value={0}), patch.object(resource, 'setrlimit', side_effect=AssertionError('invalid affinity refused before mutation')):
-            with self.assertRaises(ValueError):
+        with patch.object(performance.sys, 'flags', SimpleNamespace(isolated=1, no_user_site=1)), patch.object(performance.sys, 'dont_write_bytecode', True), patch.object(performance, '_dual_self_identity', return_value=_FIXTURE_CONTROLLER), patch.object(performance.os, 'sched_getaffinity', return_value={0}), patch.object(resource, 'setrlimit', side_effect=AssertionError('invalid affinity refused before mutation')):
+            with self.assertRaisesRegex(ValueError, 'distinct allowed CPUs'):
                 performance._dual_supervisor_limits([0, 0])
 
     def test_known_exiting_owner_is_gap_but_readiness_and_foreign_identity_refuse(self):

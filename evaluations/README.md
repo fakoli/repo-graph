@@ -90,6 +90,21 @@ Import maps and callable facts have different outputs; their timings cannot
 establish an equivalent-workload speedup. A native unchanged repeat is currently
 a full rescan. Custom Rust/PyO3 remains unbuilt and unadopted.
 
+The persistent-index fixture pilot uses the same frozen source in serial and
+queued modes, with body and export edits checked against clean rebuilds. Set
+`REPO_GRAPH_EVAL_WORK_ROOT` to an existing private evidence directory outside
+the checkout, then run:
+
+```bash
+uv run python evaluations/analysis.py --profile-pilot
+```
+
+This command requires committed evaluation code and the optional analysis
+backend. It retains raw receipts privately and writes a separate bounded
+`persistent-pilot.json` report. It never accepts T008 or freezes resource budgets.
+Representative corpus measurements, complete source I/O accounting and
+independent correctness/adversarial review remain required for qualification.
+
 For the pinned local corpus checkouts, supply a private JSON source map with
 `schema_version: 1` and a `corpora` array of `{id, source, revision}` entries.
 `source` is an absolute checkout directory; `revision` is its full Git commit.

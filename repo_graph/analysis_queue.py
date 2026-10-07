@@ -28,7 +28,8 @@ import uuid
 ROOT = Path(__file__).resolve().parents[1]
 _LOADED_CONTROLLER_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 sys.path.insert(0, str(ROOT))
-from repo_graph.source import SourceRoot, DESCRIPTOR_OPENS, code_identity as source_code_identity
+from repo_graph.source import (SourceRoot, DESCRIPTOR_OPENS, code_identity as source_code_identity,
+                               source_hash, empty_source_accounting, SOURCE_ACCOUNTING_FIELDS)
 from repo_graph import LOADED_CODE_SHA256
 
 CONTROL_BYTES = 16 * 1024
@@ -43,6 +44,7 @@ MAILBOXES = ('control.json', 'ready.json', 'request.json', 'source.bin',
              'payload.json', 'result.json')
 IMPLEMENTATIONS = ('repo_graph/analysis_queue.py', 'repo_graph/analysis_native.py',
                    'repo_graph/source.py', 'repo_graph/__init__.py')
+SOURCE_ACCOUNTING_PASSES = ('mailbox_source', 'worker_source_validation', 'native_source_validation')
 
 
 @dataclass(frozen=True)
@@ -178,8 +180,8 @@ def _decode(raw):
                       parse_constant=finite)
 
 
-def _read(guarded, path, cap):
-    raw, digest, info = guarded.read(path, cap + 1, hash_full=False)
+def _read(guarded, path, cap, *, measurements=None):
+    raw, digest, info = guarded.read(path, cap + 1, hash_full=False, measurements=measurements)
     if len(raw) > cap or len(raw) != info.st_size:
         raise ValueError('Queue input byte budget exceeded')
     return raw, digest
@@ -249,7 +251,7 @@ def _check(cancel, deadline):
         raise PoolStopped('deadline_exceeded')
 
 
-def _record(blob, budget):
+def _record(blob, budget, *, source_measurements=None):
     if (type(blob) is not dict or not {'path', 'language', 'content'} <= set(blob) or
             set(blob) - {'path', 'language', 'content', 'kind', 'sha256', 'bytes'} or
             type(blob['content']) is not bytes):
@@ -265,7 +267,7 @@ def _record(blob, budget):
         raise ValueError('Bounded source metadata required')
     raw.decode('utf-8')
     record = {'path': path, 'language': blob['language'], 'kind': 'source',
-              'bytes': len(raw), 'sha256': _sha(raw)}
+              'bytes': len(raw), 'sha256': source_hash(raw, measurements=source_measurements)}
     if ('bytes' in blob and (type(blob['bytes']) is not int or blob['bytes'] != len(raw)) or
             'sha256' in blob and (type(blob['sha256']) is not str or blob['sha256'] != record['sha256'])):
         raise ValueError('Source metadata differs from bytes')
@@ -380,13 +382,67 @@ def _ready(ready, worker, identity, token, limits):
         _verify_worker(worker)
 
 
-def _resources(resources, telemetry=False):
+def _source_accounting_row(value, cap, *, stream):
+    if (type(value) is not dict or set(value) != set(SOURCE_ACCOUNTING_FIELDS) or
+            any(type(number) is not int or not 0 <= number <= 2**63 - 1 for number in value.values()) or
+            value['operations'] != value['successful_operations'] + value['failed_operations'] or
+            value['operations'] > 1 or value['open_operations'] > value['operations'] or
+            value['hash_passes'] > value['operations'] or value['hashed_bytes'] > cap or
+            value['hashed_bytes'] and not value['hash_passes'] or
+            not value['operations'] and any(value.values())):
+        raise ValueError('Invalid fixed source accounting row')
+    if stream:
+        if (value['stream_bytes'] > cap or value['hashed_bytes'] > value['stream_bytes'] or
+                value['returned_prefix_bytes'] > value['stream_bytes'] or
+                value['stream_bytes'] and not value['open_operations'] or
+                value['failed_operations'] and value['returned_prefix_bytes'] or
+                value['successful_operations'] and (value['open_operations'] != 1 or
+                    value['hashed_bytes'] != value['stream_bytes'])):
+            raise ValueError('Invalid guarded-stream source accounting')
+    elif value['open_operations'] or value['stream_bytes'] or value['returned_prefix_bytes']:
+        raise ValueError('Buffer hash cannot report a stream read')
+    if value['successful_operations'] and value['hash_passes'] != 1:
+        raise ValueError('Completed digest must report one hash pass')
+
+
+def _source_accounting_valid(value, record=None, budget=None, *, successful=False):
+    if (type(value) is not dict or set(value) != {'schema_version', 'transport', 'source_sha256',
+            'source_bytes', 'original_source_stream_bytes', 'accounting_complete', 'passes'} or
+            type(value['schema_version']) is not int or value['schema_version'] != 1 or
+            value['transport'] != 'immutable_mailbox_blob_v1' or value['accounting_complete'] is not True or
+            type(value['source_bytes']) is not int or not 0 <= value['source_bytes'] <= 16 * 1024 * 1024 or
+            type(value['source_sha256']) is not str or len(value['source_sha256']) != 64 or
+            any(char not in '0123456789abcdef' for char in value['source_sha256']) or
+            type(value['original_source_stream_bytes']) is not int or value['original_source_stream_bytes'] != 0 or
+            type(value['passes']) is not dict or set(value['passes']) != set(SOURCE_ACCOUNTING_PASSES)):
+        raise ValueError('Invalid bound source accounting receipt')
+    if record is not None and (value['source_sha256'] != record['sha256'] or value['source_bytes'] != record['bytes']):
+        raise ValueError('Source accounting differs from pending source identity')
+    cap = budget.max_file_bytes if budget is not None else 16 * 1024 * 1024
+    for name, row in value['passes'].items():
+        _source_accounting_row(row, cap + 1 if name == 'mailbox_source' else cap,
+                               stream=name == 'mailbox_source')
+        if successful:
+            expected = empty_source_accounting()
+            expected.update(operations=1, successful_operations=1, hash_passes=1,
+                            hashed_bytes=value['source_bytes'])
+            if name == 'mailbox_source':
+                expected.update(open_operations=1, stream_bytes=value['source_bytes'],
+                                returned_prefix_bytes=value['source_bytes'])
+            if row != expected:
+                raise ValueError('Collected source has incomplete source accounting')
+
+
+def _resources(resources, telemetry=False, record=None, budget=None):
     keys = {'elapsed_seconds', 'process_peak_rss_bytes', 'process_user_seconds', 'process_system_seconds'}
     if telemetry:
-        keys |= {'file_user_seconds', 'file_system_seconds', 'timings'}
+        keys |= {'file_user_seconds', 'file_system_seconds', 'timings', 'source_accounting'}
     if type(resources) is not dict or set(resources) != keys:
         raise ValueError('Invalid worker resource receipt')
     for key, value in resources.items():
+        if key == 'source_accounting':
+            _source_accounting_valid(value, record, budget)
+            continue
         if key == 'timings':
             if type(value) is not dict or set(value) != set(NATIVE_TIMINGS):
                 raise ValueError('Invalid native timing fields')
@@ -423,8 +479,10 @@ def _receive(worker, identity, token, budget, limits, cancel, measurements=None)
             type(receipt['index']) is not int or receipt['index'] != pending['index'] or
             _encoded(receipt['record'], CONTROL_BYTES) != _encoded(pending['record'], CONTROL_BYTES)):
         raise ValueError('Stale or foreign owned producer receipt')
-    _resources(receipt['resources'], worker.get('telemetry', False))
+    _resources(receipt['resources'], worker.get('telemetry', False), pending['record'], budget)
     if receipt['status'] == 'collected':
+        if worker.get('telemetry'):
+            _source_accounting_valid(receipt['resources']['source_accounting'], pending['record'], budget, successful=True)
         if receipt['error_kind'] is not None or receipt['reason'] is not None or type(receipt['bytes']) is not int:
             raise ValueError('Invalid successful producer receipt')
         encoded, digest = _timed(measurements, 'mailbox_read_seconds', _read, guarded, 'payload.json', limits.max_result_bytes)
@@ -437,7 +495,7 @@ def _receive(worker, identity, token, budget, limits, cancel, measurements=None)
     elif (receipt['status'] == 'failed' and receipt['sha256'] is None and
           type(receipt['bytes']) is int and receipt['bytes'] == 0 and
           receipt['error_kind'] in ('BackendUnavailable', 'StopScan', 'ValueError',
-                                    'UnicodeError', 'MemoryError', 'RecursionError') and
+                                    'UnicodeError', 'MemoryError', 'RecursionError', 'OSError') and
           receipt['reason'] in ('backend_unavailable', 'collection_failed', 'collection_stopped')):
         result = None
     else:
@@ -549,6 +607,7 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
     nodes = facts = count = 0
     seen, exhausted = set(), False
     controller_timings = {key: 0.0 for key in CONTROLLER_TIMINGS} if telemetry else None
+    controller_source_accounting = empty_source_accounting() if telemetry else None
     controller_identity = None
     observer_count, observer_failure = 0, None
     def emit(event, worker=None, index=None, cleanup=None):
@@ -660,7 +719,14 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
                     exhausted = True
                     break
                 _check(cancel, deadline)
-                record = _timed(controller_timings, 'admission_seconds', _record, blob, budget)
+                source_measurements = {} if telemetry else None
+                try:
+                    record = _timed(controller_timings, 'admission_seconds', _record, blob, budget,
+                                    source_measurements=source_measurements)
+                finally:
+                    if telemetry:
+                        for key, value in source_measurements.items():
+                            controller_source_accounting[key] += value
                 admission_started = time.monotonic() if telemetry else None
                 try:
                     if count >= budget.max_files or source_bytes + record['bytes'] > budget.max_total_bytes:
@@ -774,7 +840,13 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
                 'controller_identity': controller_identity, 'observer_events_delivered': observer_count,
                 'observer_failed': observer_failure is not None, 'observer_failure_reason': observer_failure,
                 'actual_workers_started': sum('process' in worker for worker in workers),
-                'worker_process_identities': [dict(worker['process_identity']) for worker in workers if 'process_identity' in worker]}
+                'worker_process_identities': [dict(worker['process_identity']) for worker in workers if 'process_identity' in worker],
+                'source_accounting': {'schema_version': 1,
+                    'controller_source_validation': controller_source_accounting,
+                    'worker_requests_with_accounting': sum(len(worker.get('resources', [])) for worker in workers),
+                    'worker_requests_unknown': count - sum(len(worker.get('resources', [])) for worker in workers),
+                    'worker_accounting_complete': count == sum(len(worker.get('resources', [])) for worker in workers),
+                    'scope': 'source-only guarded mailbox reads and explicit buffer hashes; missing worker receipts are unknown'}}
         summary = {'status': result.status, 'stop_reason': result.stop_reason,
             'failures': [{key: value for key, value in row.items() if key != 'record'}
                          for row in result.failures],
@@ -846,6 +918,9 @@ def _worker(fd, creator_pid):
         token, identity = control['token'], control['identity']
         if type(token) is not str or len(token) != 32 or identity != _identity():
             return 2
+        def identity_current():
+            try: return _identity() == identity
+            except (OSError, ValueError, RuntimeError): return False
         isolated = {'python_isolated_mode': bool(sys.flags.isolated),
                     'bytecode_writes_disabled': bool(sys.dont_write_bytecode),
                     'user_site_disabled': bool(sys.flags.no_user_site),
@@ -874,17 +949,28 @@ def _worker(fd, creator_pid):
                 return 2
             previous = request['index']
             _remove(job, ('request.json',))
-            raw = _read(job, 'source.bin', budget.max_file_bytes)[0]
             record = request['record']
-            supplied = {**record, 'content': raw}
-            if _record(supplied, budget) != record or _identity() != identity:
+            try:
+                baseline._record_valid(record, budget)
+            except ValueError:
                 return 2
             started = time.monotonic()
             before_cpu = resource.getrusage(resource.RUSAGE_SELF) if telemetry else None
             timings = {} if telemetry else None
+            source_rows = {name: {} for name in SOURCE_ACCOUNTING_PASSES} if telemetry else None
+            raw = supplied = None
             payload, error_kind, reason = None, None, None
             try:
-                collected = baseline.collect_file(supplied, budget=budget, measurements=timings)
+                raw = _read(job, 'source.bin', budget.max_file_bytes,
+                            measurements=source_rows['mailbox_source'] if telemetry else None)[0]
+                supplied = {**record, 'content': raw}
+                if _record(supplied, budget, source_measurements=
+                        source_rows['worker_source_validation'] if telemetry else None) != record:
+                    raise ValueError('Owned source differs from admitted identity')
+                if not identity_current():
+                    return 2
+                collected = baseline.collect_file(supplied, budget=budget, measurements=timings,
+                    source_measurements=source_rows['native_source_validation'] if telemetry else None)
                 if telemetry:
                     timings['handoff_serialize_seconds'] = 0.0
                 before = time.monotonic() if telemetry else None
@@ -901,15 +987,23 @@ def _worker(fd, creator_pid):
             except (ValueError, UnicodeError, MemoryError, RecursionError) as error:
                 error_kind = 'UnicodeError' if isinstance(error, UnicodeError) else type(error).__name__
                 reason = 'collection_failed'
+            except OSError:
+                error_kind, reason = 'OSError', 'collection_failed'
+            if error_kind is not None and not identity_current():
+                return 2  # Source failures cannot rescue a stale loaded implementation.
             usage = resource.getrusage(resource.RUSAGE_SELF)
             resources = {'elapsed_seconds': time.monotonic() - started,
                 'process_peak_rss_bytes': usage.ru_maxrss * (1 if sys.platform == 'darwin' else 1024),
                 'process_user_seconds': usage.ru_utime, 'process_system_seconds': usage.ru_stime}
             if telemetry:
-                timings.setdefault('handoff_serialize_seconds', 0.0)
+                for key in NATIVE_TIMINGS: timings.setdefault(key, 0.0)
                 resources.update(file_user_seconds=usage.ru_utime - before_cpu.ru_utime,
-                    file_system_seconds=usage.ru_stime - before_cpu.ru_stime, timings=timings)
-                _resources(resources, True)
+                    file_system_seconds=usage.ru_stime - before_cpu.ru_stime, timings=timings,
+                    source_accounting={'schema_version': 1, 'transport': 'immutable_mailbox_blob_v1',
+                        'source_sha256': record['sha256'], 'source_bytes': record['bytes'],
+                        'original_source_stream_bytes': 0, 'accounting_complete': True,
+                        'passes': {name: row or empty_source_accounting() for name, row in source_rows.items()}})
+                _resources(resources, True, record, budget)
             if payload is not None:
                 _write(job, 'payload.json', payload, limits.max_result_bytes)
             receipt = {'schema_version': 1, 'token': token, 'index': previous,

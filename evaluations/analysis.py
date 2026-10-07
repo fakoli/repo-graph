@@ -8,6 +8,7 @@ uv run python evaluations/analysis.py --suite incremental
 uv run python evaluations/analysis.py --suite queries
 uv run python evaluations/analysis.py --suite coverage
 uv run python evaluations/analysis.py --suite evidence
+uv run python evaluations/analysis.py --profile-pilot
 
 No provider calls, real-corpus download, daemon, dynamic imports of source code,
 or runtime product installation occurs. Experimental selection requires all component and finite-cost proofs.
@@ -2604,6 +2605,57 @@ def profile_component(source_map, work_root=None, freeze_budgets=False, recorded
             'Rust adoption requires separate approval and ADR0006 measured equivalent-workload thresholds.']}
 
 
+def profile_fixture_pilot(root, evidence_directory):
+    """Launch the finite pilot in its own bounded supervisor, retaining raw logs."""
+    from evaluations import engine_checks as checks
+    from evaluations.supplement_preparation import decode
+    if evidence_directory is None:
+        raise ValueError('Private --work-root or REPO_GRAPH_EVAL_WORK_ROOT required')
+    root = checks._adapter_root(root)
+    with checks._adapter_run(root, evidence_directory, 'persistent-pilot-command') as (run, name), SourceRoot(run) as owner:
+        bridge = Path('/proc') / str(os.getpid()) / 'fd' / str(owner.fd)
+        process, result = None, {'schema_version': 1, 'kind': 'persistent_fixture_profile', 'status': 'failed',
+            'engine_selected': False, 'qualification_complete': False, 'resource_budgets_frozen': False,
+            'representative_corpus_profiled': False, 'all_owned_source_reads_measured': False, 'cases': []}
+        receipt = {'schema_version': 1, 'returncode': None}
+        try:
+            with owner.open('stdout.log', create=True) as stdout, owner.open('stderr.log', create=True) as stderr:
+                process = subprocess.Popen([sys.executable, '-I', '-B', str(root / 'evaluations/performance.py'),
+                    '--persistent-supervisor', str(bridge), '--creator-pid', str(os.getpid())],
+                    cwd=bridge, env=checks._environment(bridge), pass_fds=(owner.fd,),
+                    stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, start_new_session=True)
+                receipt['returncode'] = process.wait(timeout=95)
+            raw, _, info = owner.read('stdout.log', checks.ADAPTER_REPORT_BYTES + 1, hash_full=False)
+            if len(raw) != info.st_size or len(raw) > checks.ADAPTER_REPORT_BYTES:
+                raise ValueError('Bounded complete pilot output required')
+            observed = decode(raw)
+            if (type(observed) is not dict or observed.get('kind') != 'persistent_fixture_profile' or
+                    any(observed.get(key) is not False for key in ('engine_selected', 'qualification_complete',
+                        'resource_budgets_frozen', 'representative_corpus_profiled', 'all_owned_source_reads_measured'))):
+                raise ValueError('Finite pilot output required')
+            result = observed
+            if receipt['returncode'] != 0:
+                result['status'] = 'failed'
+        except (OSError, ValueError, TypeError, subprocess.SubprocessError) as error:
+            receipt['failure'] = checks._adapter_error(error)
+            result['status'] = 'failed'
+        finally:
+            receipt['cleanup'] = checks._stop_and_reap(process) if process is not None else None
+            if not receipt['cleanup'] or not all(receipt['cleanup'].get(key) is True for key in ('leader_reaped', 'group_absent')):
+                result['status'] = 'cleanup_failed'
+            receipt['logs'] = []
+            for log in ('stdout.log', 'stderr.log'):
+                try:
+                    raw, sha, info = owner.read(log, checks.ADAPTER_REPORT_BYTES + 1, hash_full=False)
+                    receipt['logs'].append({'path': log, 'sha256': sha, 'bytes': info.st_size,
+                        'complete': len(raw) == info.st_size and len(raw) <= checks.ADAPTER_REPORT_BYTES})
+                except OSError as error:
+                    receipt['logs'].append({'path': log, 'error_kind': type(error).__name__})
+            checks._adapter_dump(run, 'command.json', receipt)
+            checks._adapter_dump(run, 'result.json', result)
+        return result
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group()
@@ -2611,6 +2663,7 @@ def main(argv=None):
     modes.add_argument('--screen-engines', action='store_true')
     modes.add_argument('--compare', action='store_true')
     modes.add_argument('--profile', action='store_true')
+    modes.add_argument('--profile-pilot', action='store_true', help='one finite fixture serial/queued pair; no task qualification')
     parser.add_argument('--freeze-budgets', action='store_true')
     parser.add_argument('--source-map', type=Path, default=os.environ.get('REPO_GRAPH_EVAL_SOURCE_MAP'),
                         help='private pinned source map; alternatively REPO_GRAPH_EVAL_SOURCE_MAP')
@@ -2627,9 +2680,9 @@ def main(argv=None):
     parser.add_argument('--max-nodes', type=int, default=200_000)
     args = parser.parse_args(argv)
     structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012', 'coverage': 'T013', 'evidence': 'T014'}.get(args.suite)
-    if not (args.engine or args.screen_engines or args.compare or args.profile) and structural_task is None:
+    if not (args.engine or args.screen_engines or args.compare or args.profile or args.profile_pilot) and structural_task is None:
         parser.error('an engine, screening, comparison or profiling mode is required for component')
-    if structural_task and (args.screen_engines or args.compare or args.profile):
+    if structural_task and (args.screen_engines or args.compare or args.profile or args.profile_pilot):
         parser.error(args.suite + ' uses the shared structural owner directly')
     if args.max_result_bytes is None:
         args.max_result_bytes = (2 if args.compare or structural_task else 1) * 1024 * 1024
@@ -2641,13 +2694,31 @@ def main(argv=None):
         parser.error('--profile-report requires --profile')
     default = ('evaluations/results/code-understanding/engine-comparison.json' if args.compare else
                'evaluations/results/code-understanding/capacity-profile.json' if args.profile else
+               'evaluations/results/code-understanding/persistent-pilot.json' if args.profile_pilot else
                'evaluations/results/code-understanding/reusable-screen.json' if args.screen_engines else
                FACTS_OUTPUT if structural_task else DEFAULT_OUTPUT)
     args.output = args.output or default
+    if args.profile_pilot:
+        try:
+            SourceRoot.parts(args.output)
+            args.output = str(PurePosixPath(args.output))
+            if args.output != default:
+                with SourceRoot(ROOT) as owner:
+                    try: owner.info(args.output)
+                    except FileNotFoundError: pass
+                    else: parser.error('--profile-pilot output must not replace an existing file')
+        except OSError:
+            parser.error('--profile-pilot output must be a safe relative file path')
     started = time.perf_counter()
     try:
         if args.max_result_bytes <= 0:
             raise ValueError('Output budget must be positive')
+        if args.profile_pilot:
+            result = profile_fixture_pilot(ROOT, args.work_root)
+            size = write_result(ROOT, args.output, result, args.max_result_bytes)
+            print(json.dumps({'status': result['status'], 'result': args.output, 'result_bytes': size,
+                'qualification_complete': False, 'resource_budgets_frozen': False}, separators=(',', ':')))
+            return 0 if result['status'] == 'complete' else 1
         if structural_task:
             producer = {'constructs': constructs, 'incremental': incremental, 'queries': queries, 'coverage': coverage,
                         'evidence': evidence}[args.suite]
@@ -2725,12 +2796,12 @@ def main(argv=None):
                     write_result(ROOT, args.output, result, args.max_result_bytes)
             except (OSError, ValueError):
                 pass
-        if args.compare or args.profile:
+        if args.compare or args.profile or args.profile_pilot:
             result = {'schema_version': 1, 'status': 'blocked', 'error_kind': type(error).__name__,
                       'source_identity': None, 'case_results': [], 'engine_selected': False, 'qualification_complete': False}
             try:
                 write_result(ROOT, args.output, result, args.max_result_bytes)
-                if args.output == default:
+                if not args.profile_pilot and args.output == default:
                     record_task(ROOT, 'T007' if args.compare else 'T008', result, args.output, args.max_result_bytes)
             except (OSError, ValueError):
                 pass

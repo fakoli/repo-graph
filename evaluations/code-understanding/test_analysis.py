@@ -34,6 +34,57 @@ def site(result, source):
 
 
 class BackendTests(unittest.TestCase):
+    def test_fixture_pilot_cli_preserves_task_evidence_and_does_not_qualify(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            evidence = Path(scratch)
+            result = {'status': 'complete', 'qualification_complete': False}
+            with patch.dict(os.environ, {'REPO_GRAPH_EVAL_WORK_ROOT': str(evidence)}, clear=True), \
+                    patch.object(analysis, 'profile_fixture_pilot', return_value=result) as pilot, \
+                    patch.object(analysis, 'write_result', return_value=123) as written, \
+                    patch.object(analysis, 'record_task') as recorded, redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(analysis.main(['--profile-pilot']), 0)
+            pilot.assert_called_once_with(ROOT, evidence)
+            self.assertEqual(written.call_args.args[1], 'evaluations/results/code-understanding/persistent-pilot.json')
+            self.assertFalse(recorded.called)
+            self.assertFalse(json.loads(output.getvalue())['qualification_complete'])
+            for arguments in (['--freeze-budgets'], ['--suite', 'queries'], ['--output', analysis.FACTS_OUTPUT],
+                    ['--output', './' + analysis.FACTS_OUTPUT], ['--output', 'evaluations/analysis.py'],
+                    ['--output', '../outside.json']):
+                with redirect_stdout(io.StringIO()), patch('sys.stderr', io.StringIO()), self.assertRaises(SystemExit):
+                    analysis.main(['--profile-pilot', *arguments])
+
+    def test_fixture_pilot_launcher_rejects_nonzero_and_malformed_outputs(self):
+        from evaluations import engine_checks as checks
+        with tempfile.TemporaryDirectory() as scratch:
+            source, evidence = Path(scratch) / 'source', Path(scratch) / 'evidence'
+            source.mkdir(); evidence.mkdir()
+            valid = {'kind': 'persistent_fixture_profile', 'status': 'complete', 'cases': [],
+                **{key: False for key in ('engine_selected', 'qualification_complete', 'resource_budgets_frozen',
+                    'representative_corpus_profiled', 'all_owned_source_reads_measured')}}
+            for raw, code in ((json.dumps(valid).encode(), 7), (b'[]', 0), (b'{', 0)):
+                before = set(evidence.iterdir())
+                class Process:
+                    def __init__(self, command, **kwargs):
+                        self.returncode = None
+                        os.write(kwargs['stdout'].fileno(), raw)
+                    def wait(self, timeout):
+                        self.returncode = code
+                        return code
+                with patch.object(checks, '_adapter_root', return_value=source), \
+                        patch.object(analysis.subprocess, 'Popen', side_effect=Process) as created, \
+                        patch.object(checks, '_stop_and_reap', return_value={'leader_reaped': True, 'group_absent': True}):
+                    result = analysis.profile_fixture_pilot(source, evidence)
+                self.assertEqual(result['status'], 'failed')
+                command, options = created.call_args.args[0], created.call_args.kwargs
+                self.assertEqual(command[1:3], ['-I', '-B'])
+                self.assertTrue(options['start_new_session'])
+                self.assertTrue(options['pass_fds'])
+                directory, = set(evidence.iterdir()) - before
+                receipt = json.loads((directory / 'command.json').read_text())
+                self.assertEqual(receipt['returncode'], code)
+                self.assertTrue(receipt['cleanup']['group_absent'])
+                self.assertTrue(all(row['complete'] for row in receipt['logs']))
+
     def test_required_comparison_command_uses_configured_evidence_root(self):
         with tempfile.TemporaryDirectory() as scratch:
             directory = Path(scratch)

@@ -427,24 +427,31 @@ class TelemetryTests(unittest.TestCase):
                             for row in result.cleanup))
 
     def test_native_timings_preserve_facts_and_failed_phases(self):
-        source, timings = blob(), {}
+        source, timings, source_counts = blob(), {}, {}
         plain = baseline.collect_file(source).to_json()
-        self.assertEqual(plain, baseline.collect_file(source, measurements=timings).to_json())
+        self.assertEqual(plain, baseline.collect_file(source, measurements=timings, source_measurements=source_counts).to_json())
+        self.assertEqual((source_counts['stream_bytes'], source_counts['hashed_bytes'], source_counts['hash_passes']),
+                         (0, len(source['content']), 1))
         self.assertEqual(set(timings), set(queue.NATIVE_TIMINGS) - {'handoff_serialize_seconds'})
         self.assertTrue(all(type(value) in (int, float) and math.isfinite(value) and value >= 0
                             for value in timings.values()))
         for invalid in (False, [], {'parse_seconds': 0}):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 baseline.collect_file(source, measurements=invalid)
-        timings = {}
+        timings, source_counts = {}, {}
         with patch.object(baseline, 'backend', side_effect=baseline.BackendUnavailable('synthetic')):
             with self.assertRaises(baseline.BackendUnavailable):
-                baseline.collect_file(source, measurements=timings)
+                baseline.collect_file(source, measurements=timings, source_measurements=source_counts)
         self.assertGreater(timings['collect_elapsed_seconds'], 0)
         self.assertEqual(timings['parse_seconds'], 0)
+        self.assertEqual(source_counts['hashed_bytes'], len(source['content']))
+        source_counts = {}
+        with self.assertRaises(baseline.StopScan):
+            baseline.collect_file(source, cancel=lambda: True, source_measurements=source_counts)
+        self.assertEqual(source_counts, {})  # No digest operation occurred before this stop.
 
     def test_measured_modes_preserve_order_facts_and_owned_events(self):
-        sources = [blob('sentinel_source.py'), blob('second.py')]
+        sources = [blob('sentinel_source.py'), blob('second.py', b'def longer():\n    return 100\nlonger()\n')]
         plain = queue.collect_files(sources)
         self.assertEqual(plain.status, 'complete')
         self.assertNotIn('telemetry', plain.resources)
@@ -474,7 +481,62 @@ class TelemetryTests(unittest.TestCase):
                 for worker in result.resources['worker_resources']:
                     for receipt in worker:
                         queue._resources(receipt, True)
+                        accounting = receipt['source_accounting']
+                        self.assertEqual(accounting['original_source_stream_bytes'], 0)
+                        self.assertEqual(accounting['source_bytes'], next(source['bytes'] for source in sources
+                            if source['sha256'] == accounting['source_sha256']))
+                        queue._source_accounting_valid(accounting, successful=True)
+                accounting = result.resources['telemetry']['source_accounting']
+                self.assertEqual(accounting['controller_source_validation']['hashed_bytes'], sum(source['bytes'] for source in sources))
+                self.assertEqual(accounting['controller_source_validation']['hash_passes'], len(sources))
+                self.assertEqual(accounting['worker_requests_with_accounting'], len(sources))
+                self.assertEqual(accounting['worker_requests_unknown'], 0)
+                self.assertTrue(accounting['worker_accounting_complete'])
                 self.clean(result)
+
+    def test_source_accounting_retains_admission_failures_and_missing_receipts(self):
+        original = queue._write
+        supplied = blob()
+        for mode, concurrency in (('serial', 1), ('queued', 2)):
+            for failure in ('changed_bytes', 'symlink', 'oversized'):
+                def changed(owner, name, raw, cap):
+                    original(owner, name, raw, cap)
+                    if name == 'source.bin':
+                        if failure == 'symlink':
+                            os.unlink(name, dir_fd=owner.fd)
+                            os.symlink('synthetic-nonexistent-target', name, dir_fd=owner.fd)
+                        else:
+                            with owner.atomic_writer(name) as stream:
+                                stream.write((b'X' + raw[1:]) if failure == 'changed_bytes' else b'x' * (cap + 1))
+                with self.subTest(mode=mode, failure=failure), patch.object(queue, '_write', side_effect=changed):
+                    result = queue.collect_files([supplied], mode=mode, concurrency=concurrency, telemetry=True)
+                self.assertEqual(result.status, 'failed', result.failures)
+                self.assertEqual(result.collected, [])
+                self.clean(result)
+                receipt = result.resources['worker_resources'][0][0]
+                rows = receipt['source_accounting']['passes']
+                self.assertEqual(rows['native_source_validation'], queue.empty_source_accounting())
+                if failure == 'symlink':
+                    self.assertEqual(result.failures[0]['kind'], 'OSError')
+                    self.assertEqual((rows['mailbox_source']['failed_operations'], rows['mailbox_source']['stream_bytes']), (1, 0))
+                elif failure == 'oversized':
+                    self.assertEqual(rows['mailbox_source']['stream_bytes'], baseline.Budget().max_file_bytes + 1)
+                    self.assertEqual(rows['worker_source_validation'], queue.empty_source_accounting())
+                else:
+                    self.assertEqual(rows['worker_source_validation']['hashed_bytes'], supplied['bytes'])
+                self.assertTrue(result.resources['telemetry']['source_accounting']['worker_accounting_complete'])
+            cancelled = []
+            def observe(event):
+                if event['event'] == 'submit': cancelled.append(True)
+                return True
+            result = queue.collect_files([supplied], mode=mode, concurrency=concurrency,
+                                         cancel=lambda: bool(cancelled), observer=observe)
+            self.assertEqual(result.stop_reason, 'cancelled')
+            self.clean(result)
+            accounting = result.resources['telemetry']['source_accounting']
+            self.assertFalse(accounting['worker_accounting_complete'])
+            self.assertEqual((accounting['worker_requests_with_accounting'], accounting['worker_requests_unknown']), (0, 1))
+            self.assertEqual(result.resources['worker_resources'], [[]])
 
     def test_observer_failure_keeps_cleanup_and_stops_before_source(self):
         touched = []
@@ -519,6 +581,17 @@ class TelemetryTests(unittest.TestCase):
         bad['timings']['collect_elapsed_seconds'] = bad['elapsed_seconds'] + 1
         with self.assertRaises(ValueError):
             queue._resources(bad, True)
+        for key, value in (('hashed_bytes', True), ('operations', 2), ('hashed_bytes', 2**64), ('hash_passes', 0),
+                           ('hashed_bytes', 0),
+                           ('stream_bytes', -1), ('returned_prefix_bytes', 16 * 1024 * 1024 + 2)):
+            bad = json.loads(json.dumps(receipt))
+            bad['source_accounting']['passes']['mailbox_source'][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                queue._resources(bad, True)
+        bad = json.loads(json.dumps(receipt))
+        bad['source_accounting']['source_sha256'] = '0' * 64
+        with self.assertRaises(ValueError):
+            queue._resources(bad, True, queue._record(blob(), baseline.Budget()), baseline.Budget())
 
 
 if __name__ == '__main__':

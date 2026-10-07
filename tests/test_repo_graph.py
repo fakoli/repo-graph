@@ -4,6 +4,8 @@ from io import BytesIO
 from contextlib import redirect_stdout
 from io import StringIO
 import importlib.util
+import errno
+import hashlib
 import json
 from pathlib import Path
 import tempfile
@@ -23,6 +25,58 @@ SPEC.loader.exec_module(repo_graph)
 
 
 class RepoGraphTests(unittest.TestCase):
+    def test_source_accounting_counts_actual_streams_and_failed_partial_hashes(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            raw = b'SYNTHETIC_SOURCE' + b'x' * (65540 - len(b'SYNTHETIC_SOURCE'))
+            path = root / 'sample.py'; path.write_bytes(raw)
+            with SourceRoot(root) as owner:
+                for limit, full, expected in ((0, True, (len(raw), len(raw), 0)),
+                                               (3, False, (3, 3, 3))):
+                    row = {}
+                    returned, digest, _ = owner.read('sample.py', limit, hash_full=full, measurements=row)
+                    self.assertEqual(returned, raw[:limit])
+                    self.assertEqual(digest, hashlib.sha256(raw if full else raw[:limit]).hexdigest())
+                    self.assertEqual(tuple(row[key] for key in ('stream_bytes', 'hashed_bytes', 'returned_prefix_bytes')), expected)
+                    self.assertEqual((row['operations'], row['successful_operations'], row['failed_operations']), (1, 1, 0))
+                for second, expected in ((False, (65536, 0, 0)), (True, (len(raw), 65536, 0))):
+                    row, checks = {}, []
+                    def cancel():
+                        checks.append(True)
+                        return len(checks) == (2 if second else 1)
+                    with self.assertRaises(InterruptedError):
+                        owner.read('sample.py', 3, cancel=cancel, measurements=row)
+                    self.assertEqual(tuple(row[key] for key in ('stream_bytes', 'hashed_bytes', 'returned_prefix_bytes')), expected)
+                    self.assertEqual((row['successful_operations'], row['failed_operations'], row['open_operations']), (0, 1, 1))
+                row = {}
+                with self.assertRaises(OSError) as stopped:
+                    owner.read('sample.py', 3, max_bytes=3, measurements=row)
+                self.assertEqual(stopped.exception.errno, errno.EFBIG)
+                self.assertEqual((row['stream_bytes'], row['hashed_bytes'], row['returned_prefix_bytes']), (65536, 0, 0))
+                row, checks = {}, []
+                def change():
+                    if not checks:
+                        before = path.stat()
+                        path.write_bytes(b'Y' + raw[1:])
+                        os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns + 1))
+                    checks.append(True)
+                    return False
+                with self.assertRaises(OSError) as changed:
+                    owner.read('sample.py', 3, cancel=change, measurements=row)
+                self.assertEqual(changed.exception.errno, errno.EAGAIN)
+                self.assertEqual((row['stream_bytes'], row['hashed_bytes'], row['returned_prefix_bytes']), (len(raw), len(raw), 0))
+                self.assertEqual(row['failed_operations'], 1)
+                row = {}
+                with self.assertRaises(FileNotFoundError): owner.read('missing.py', 3, measurements=row)
+                self.assertEqual((row['failed_operations'], row['open_operations'], row['stream_bytes']), (1, 0, 0))
+                for invalid in (False, [], {'stream_bytes': 0}):
+                    with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                        owner.read('sample.py', 3, measurements=invalid)
+            row = {}
+            self.assertEqual(source_module.source_hash(raw, measurements=row), hashlib.sha256(raw).hexdigest())
+            self.assertEqual((row['stream_bytes'], row['hashed_bytes'], row['hash_passes']), (0, len(raw), 1))
+            self.assertNotIn('SYNTHETIC_SOURCE', json.dumps(row))
+
     def test_unsupported_safe_reads_keep_metadata_map_and_refuse_source_bytes(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch) / 'repo'; root.mkdir()

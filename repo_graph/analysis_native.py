@@ -15,7 +15,7 @@ import posixpath
 import re
 import time
 
-from repo_graph.source import SourceRoot
+from repo_graph.source import SourceRoot, source_hash
 
 PINS = {
     'tree-sitter': '0.26.0', 'tree-sitter-python': '0.25.0',
@@ -1492,7 +1492,7 @@ def _collect_file(record, raw, parser, work, measurements=None):
             measurements['traversal_lowering_seconds'] += time.perf_counter() - before
 
 
-def collect_file(supplied, budget=None, cancel=None, *, measurements=None):
+def collect_file(supplied, budget=None, cancel=None, *, measurements=None, source_measurements=None):
     """Collect one source-only immutable blob for serial or owned worker use.
 
     Optional sha256/bytes are independent input identity checks, not expected
@@ -1508,6 +1508,8 @@ def collect_file(supplied, budget=None, cancel=None, *, measurements=None):
             raise ValueError('Empty native measurement dictionary required')
         measurements.update({key: 0.0 for key in ('backend_setup_seconds',
             'parse_seconds', 'traversal_lowering_seconds', 'collect_elapsed_seconds')})
+    if source_measurements is not None and (type(source_measurements) is not dict or source_measurements):
+        raise ValueError('Fresh source measurement dictionary required')
     started = time.perf_counter() if measurements is not None else None
     try:
         budget = budget or Budget()
@@ -1522,7 +1524,7 @@ def collect_file(supplied, budget=None, cancel=None, *, measurements=None):
         if len(raw) > min(budget.max_file_bytes, budget.max_total_bytes):
             raise StopScan('source_byte_budget_exceeded')
         record = {'path': supplied['path'], 'language': supplied['language'], 'kind': supplied.get('kind', 'source'),
-                  'sha256': hashlib.sha256(raw).hexdigest(), 'bytes': len(raw)}
+                  'sha256': source_hash(raw, measurements=source_measurements), 'bytes': len(raw)}
         _record_valid(record, budget)
         if ('sha256' in supplied and supplied['sha256'] != record['sha256'] or
                 'bytes' in supplied and (type(supplied['bytes']) is not int or supplied['bytes'] != len(raw))):
