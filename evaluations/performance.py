@@ -1429,6 +1429,22 @@ def _persistent_records(directory, loaded, changed=None):
             raise ValueError('Manifest locked content identity mismatch')
 
 
+def _persistent_repetition(protocol, repetition=1):
+    """One explicit registered identity, never an argv-authorized matrix run."""
+    if type(repetition) is not int or not 1 <= repetition <= 3:
+        raise ValueError('Typed registered repetition identity required')
+    if protocol is None:
+        if repetition != 1: raise ValueError('Representative protocol required for repetition beyond one')
+        return repetition
+    config = protocol.get('config') if type(protocol) is dict else None
+    if (type(config) is not dict or type(config.get('planned_repetitions')) is not int or
+            config['planned_repetitions'] != 3 or type(config.get('repetition')) is not int or
+            not 1 <= config['repetition'] <= config['planned_repetitions'] or
+            repetition != config['repetition']):
+        raise ValueError('Requested repetition differs from explicit preregistered protocol identity')
+    return repetition
+
+
 def _persistent_protocol(directory, original_source=None):
     """Load the single preregistered representative protocol without source reads."""
     from evaluations import engine_checks as checks
@@ -1442,7 +1458,7 @@ def _persistent_protocol(directory, original_source=None):
     if (type(config) is not dict or set(config) != fields or type(config['schema_version']) is not int or
             config['schema_version'] not in (1, 2) or revised and config['retention'] != REPRESENTATIVE_RETENTION or
             config['kind'] != 'persistent_representative' or config['corpus'] != 'Django' or
-            type(config['repetition']) is not int or config['repetition'] != 1 or
+            type(config['repetition']) is not int or not 1 <= config['repetition'] <= 3 or
             type(config['planned_repetitions']) is not int or config['planned_repetitions'] != 3 or
             config['header_sha256'] != REPRESENTATIVE_HEADER_SHA or config['decision_sha256'] != REPRESENTATIVE_DECISION_SHA or
             config['freeze_sha256'] != PERSISTENT_FREEZE_SHA or type(config['ceilings']) is not dict or
@@ -1450,6 +1466,7 @@ def _persistent_protocol(directory, original_source=None):
             any(type(config['ceilings'][key]) is not type(value) or config['ceilings'][key] != value
                 for key, value in REPRESENTATIVE_CEILINGS.items())):
         raise ValueError('Exact preregistered representative protocol required')
+    _persistent_repetition(dict(config=config), config['repetition'])
     header_raw, _ = checks._adapter_bytes(directory, 'header.json', expected=REPRESENTATIVE_HEADER_SHA, cap=16384)
     header = decode(header_raw); manifest = header.get('manifest') if type(header) is dict else None
     if (header.get('corpus') != 'Django' or header.get('revision') != '3b7ae042cef02a09caab70ba54077a6f4cffac80' or
@@ -2623,6 +2640,7 @@ def _persistent_capture(root, protocol=None):
     bound['persistent_limits'] = _persistent_limits()
     if protocol is not None:
         bound['representative_protocol'] = dict(protocol_sha256=protocol['protocol_sha256'],
+            repetition=protocol['config']['repetition'], planned_repetitions=protocol['config']['planned_repetitions'],
             header_sha256=REPRESENTATIVE_HEADER_SHA, manifest_sha256=REPRESENTATIVE_MANIFEST_SHA,
             decision_sha256=REPRESENTATIVE_DECISION_SHA, ceilings=protocol['config']['ceilings'],
             query_projection_sha256=digest(protocol['config']['queries']),
@@ -2653,12 +2671,13 @@ def _persistent_limits():
 
 
 def _persistent_run(root, directory, source, source_owner, bound, mode, concurrency, supervisor,
-                    *, protocol=None, protocol_directory=None, original_source=None, pair=None, invoker=None):
+                    *, protocol=None, protocol_directory=None, original_source=None, pair=None, invoker=None, repetition=1):
     """One finite job over the supervisor's held shared source owner."""
     import resource
     from dataclasses import asdict
     from repo_graph.analysis import StructuralIndex
     from evaluations import engine_checks as checks
+    _persistent_repetition(protocol, repetition)
     if protocol is None:
         blobs, records, edits = _dual_inputs(root, bound)
         edit_ids, impact_sha, specs = ('U-PY-BODY', 'U-PY-EXPORT'), PERSISTENT_IMPACT_SHA, PERSISTENT_QUERY_SPECS
@@ -2677,18 +2696,20 @@ def _persistent_run(root, directory, source, source_owner, bound, mode, concurre
                                 'source_fence_children_excluded_from_rss'],
         input_inventory_sha256=protocol['header']['manifest']['records_sha256'] if protocol else digest(records),
         input_file_count=2978 if protocol else len(records),
-        limitations=['one representative repetition of three; remaining corpora pending' if protocol else 'finite fixture only',
+        limitations=['one registered representative repetition; remaining matrix entries pending' if protocol else 'finite fixture only',
                      'sampled current RSS is not exact peak or a hard tree bound',
                      'inclusive stage timings overlap; child timing sums are not wall time',
                      'production wall includes instrumentation and batch receipt retention'])
     sampler = None
     children = None
+    if protocol:
+        report.update(protocol_sha256=protocol['protocol_sha256'], repetition=repetition,
+            planned_repetitions=protocol['config']['planned_repetitions'],
+            representative_matrix_complete=False, corpus='Django', ceilings=protocol['config']['ceilings'])
     try:
         report['isolation'] = _dual_isolation(directory)
         if protocol:
             oracle = None; impacts = protocol['config']['impacts']
-            report.update(protocol_sha256=protocol['protocol_sha256'], repetition=1, planned_repetitions=3,
-                representative_matrix_complete=False, corpus='Django', ceilings=protocol['config']['ceilings'])
             report['qualification_blockers'] = ['representative_matrix_incomplete', 'resource_budgets_unfrozen',
                 'sampled_rss_has_unbounded_startup_and_short_child_gaps', 'supervisor_materialization_io_not_phase_metered']
             if protocol['config'].get('retention'):
@@ -2823,7 +2844,8 @@ def _persistent_run(root, directory, source, source_owner, bound, mode, concurre
     return report
 
 
-def _persistent_validate(report, bound, mode, concurrency, protocol=None):
+def _persistent_validate(report, bound, mode, concurrency, protocol=None, repetition=1):
+    _persistent_repetition(protocol, repetition)
     edits = tuple(row['id'] for row in protocol['config']['updates']) if protocol else ('U-PY-BODY', 'U-PY-EXPORT')
     labels = (['fresh-output', 'unchanged-repeat', edits[0] + '-changed', edits[0] + '-clean-rebuild',
                edits[1] + '-reset-prime', edits[1] + '-changed', edits[1] + '-clean-rebuild'])
@@ -2839,6 +2861,12 @@ def _persistent_validate(report, bound, mode, concurrency, protocol=None):
             any(type(row) is not dict for row in report['phases']) or
             [row.get('label') for row in report['phases']] != labels[:len(report['phases'])] or len(report['phases']) > 7):
         raise ValueError('Persistent fixture report identity/phase mismatch')
+    if protocol and (report.get('protocol_sha256') != protocol['protocol_sha256'] or
+            type(report.get('repetition')) is not int or report['repetition'] != repetition or
+            type(report.get('planned_repetitions')) is not int or
+            report['planned_repetitions'] != protocol['config']['planned_repetitions'] or
+            report.get('representative_matrix_complete') is not False):
+        raise ValueError('Persistent report repetition/protocol identity mismatch')
     if report['status'] == 'complete':
         for phase in report['phases']:
             _persistent_check_receipt_facts(phase.get('receipt'), phase.get('streamed_facts'))
@@ -2866,8 +2894,7 @@ def _persistent_validate(report, bound, mode, concurrency, protocol=None):
             raise ValueError('Missing complete persistent experiment evidence')
         if protocol and (report.get('protocol_sha256') != protocol['protocol_sha256'] or report.get('input_file_count') != 2978 or
                 report.get('input_inventory_sha256') != protocol['header']['manifest']['records_sha256'] or
-                report.get('ceilings') != protocol['config']['ceilings'] or report.get('repetition') != 1 or
-                report.get('planned_repetitions') != 3 or report.get('representative_matrix_complete') is not False or
+                report.get('ceilings') != protocol['config']['ceilings'] or
                 rss.get('max_windows') != 32 or any(row.get('streamed_facts', {}).get('evidence_mode') != 'pinned_sqlite_backup_v1' or
                 row['streamed_facts'].get('snapshot', {}).get('sealed') is not True for row in report['phases'])):
             raise ValueError('Missing preregistered retained representative evidence')
@@ -2990,12 +3017,14 @@ def persistent_worker(argv):
         control = decode(raw)
         fields = {'schema_version', 'mode', 'concurrency', 'binding', 'directory_owner', 'supervisor', 'source_owner'}
         if loaded: fields |= {'protocol_sha256', 'pair_owner', 'invoker'}
+        if loaded and type(control) is dict and 'repetition' in control: fields.add('repetition')
         if (type(control) is not dict or set(control) != fields or control.get('schema_version') != 1 or
                 type(control.get('schema_version')) is not int or type(control.get('concurrency')) is not int or
                 (control['mode'], control['concurrency']) not in PERSISTENT_MODES or
                 control['directory_owner'] != owner.identity or type(control.get('supervisor')) is not dict or
                 control['supervisor'].get('pid') != args.creator_pid):
             raise ValueError('Typed persistent controller ownership required')
+    repetition = _persistent_repetition(loaded, control.get('repetition', 1))
     if loaded:
         with SourceRoot(pair) as pair_owner:
             if pair_owner.identity != control['pair_owner']: raise ValueError('Supervisor pair owner changed')
@@ -3010,7 +3039,7 @@ def persistent_worker(argv):
     bound = _persistent_capture(root, loaded) if loaded else _persistent_capture(root)
     if bound != control['binding']: raise ValueError('Parent/controller committed binding mismatch')
     kwargs = dict(protocol=loaded, protocol_directory=protocol_directory, original_source=original,
-                  pair=pair, invoker=control['invoker']) if loaded else {}
+                  pair=pair, invoker=control['invoker'], repetition=repetition) if loaded else {}
     report = _persistent_run(root, directory, source, control['source_owner'], bound,
                              control['mode'], control['concurrency'], control['supervisor'], **kwargs)
     return 0 if report['status'] == 'complete' else 1
@@ -3022,6 +3051,7 @@ def persistent_supervisor(argv):
     parser = argparse.ArgumentParser(); parser.add_argument('evidence_directory', type=Path)
     parser.add_argument('--cpu-affinity', type=int, nargs='+'); parser.add_argument('--creator-pid', type=int, required=True)
     parser.add_argument('--protocol-fd', type=int); parser.add_argument('--original-fd', type=int); parser.add_argument('--invoker')
+    parser.add_argument('--repetition', type=int, default=1)
     args = parser.parse_args(argv); _guard_controller(args.creator_pid)
     if (args.protocol_fd is None) != (args.original_fd is None): raise ValueError('Protocol and original descriptors required together')
     options = {}
@@ -3029,7 +3059,8 @@ def persistent_supervisor(argv):
         options = dict(protocol=Path('/proc/self/fd') / str(args.protocol_fd),
                        original_source=Path('/proc/self/fd') / str(args.original_fd), invoker=decode(args.invoker.encode()) if args.invoker else None)
     elif args.invoker is not None: raise ValueError('Invoker observation requires representative protocol')
-    result = profile_persistent_fixture(Path(__file__).resolve().parents[1], args.evidence_directory, affinity=args.cpu_affinity, **options)
+    result = profile_persistent_fixture(Path(__file__).resolve().parents[1], args.evidence_directory,
+        affinity=args.cpu_affinity, repetition=args.repetition, **options)
     print(json.dumps(compact_persistent_result(result), sort_keys=True, separators=(',', ':'), allow_nan=False))
     return 0 if result['status'] == 'complete' else 1
 
@@ -3163,15 +3194,17 @@ def compact_persistent_result(wrapper):
 
 
 def profile_persistent_fixture(root, evidence_directory, runs=1, *, affinity=None,
-                               protocol=None, original_source=None, invoker=None):
+                               protocol=None, original_source=None, invoker=None, repetition=1):
     """One owned serial1/queued2 pair; finite proof, never a representative matrix."""
     from evaluations import engine_checks as checks
     from evaluations.supplement_preparation import decode
     if type(runs) is not int or runs != 1: raise ValueError('Exactly one finite paired pilot repetition required')
     if (protocol is None) != (original_source is None): raise ValueError('Protocol and original source required together')
     if protocol is None and invoker is not None: raise ValueError('Invoker observation requires representative protocol')
+    if protocol is None: _persistent_repetition(None, repetition)
     root = checks._adapter_root(root)
     loaded = _persistent_protocol(protocol, original_source) if protocol is not None else None
+    _persistent_repetition(loaded, repetition)
     if loaded:
         destination = Path(evidence_directory).resolve(strict=True)
         for protected in (Path(protocol).resolve(strict=True), Path(original_source).resolve(strict=True)):
@@ -3190,7 +3223,8 @@ def profile_persistent_fixture(root, evidence_directory, runs=1, *, affinity=Non
                                 'representative_query_costs_unmeasured', 'resource_budgets_unfrozen',
                                 'source_fence_children_excluded_from_rss'])
     if loaded:
-        report.update(corpus='Django', protocol_sha256=loaded['protocol_sha256'], repetition=1, planned_repetitions=3,
+        report.update(corpus='Django', protocol_sha256=loaded['protocol_sha256'], repetition=repetition,
+            planned_repetitions=loaded['config']['planned_repetitions'],
             representative_matrix_complete=False, ceilings=loaded['config']['ceilings'],
             qualification_blockers=['representative_matrix_incomplete', 'resource_budgets_unfrozen',
                 'sampled_rss_has_unbounded_startup_and_short_child_gaps'])
@@ -3224,7 +3258,8 @@ def profile_persistent_fixture(root, evidence_directory, runs=1, *, affinity=Non
                             _persistent_recheck(root, bound)
                             control = dict(schema_version=1, mode=mode, concurrency=concurrency,
                                 binding=bound, directory_owner=owner.identity, supervisor=_dual_self_identity(), source_owner=shared.identity)
-                            if loaded: control.update(protocol_sha256=loaded['protocol_sha256'], pair_owner=pair_hold.identity, invoker=invoker)
+                            if loaded: control.update(protocol_sha256=loaded['protocol_sha256'], pair_owner=pair_hold.identity,
+                                invoker=invoker, repetition=repetition)
                             checks._adapter_dump(job, 'control.json', control)
                             try:
                                 if time.monotonic() >= deadline: raise TimeoutError('Persistent pilot wall budget exhausted')
@@ -3254,7 +3289,7 @@ def profile_persistent_fixture(root, evidence_directory, runs=1, *, affinity=Non
                                 row['report_artifact'] = dict(path=label + '/result.json', sha256=sha, bytes=info.st_size)
                                 produced = decode(raw)
                                 if type(produced) is dict: row['report'] = produced
-                                result = _persistent_validate(produced, bound, mode, concurrency, loaded) if loaded else \
+                                result = _persistent_validate(produced, bound, mode, concurrency, loaded, repetition) if loaded else \
                                          _persistent_validate(produced, bound, mode, concurrency)
                                 after = result.get('source_owner_identity_after')
                                 row['source_owner_observation'] = dict(

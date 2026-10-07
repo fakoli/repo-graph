@@ -19,6 +19,220 @@ from evaluations.acceptance import PINS
 
 
 class ObservedProfile(unittest.TestCase):
+    def test_persistent_launcher_refuses_unregistered_identity_before_process_admission(self):
+        from evaluations import analysis
+        with tempfile.TemporaryDirectory() as scratch:
+            original, protocol, evidence = (Path(scratch) / name for name in ('original', 'protocol', 'evidence'))
+            for directory in (original, protocol, evidence): directory.mkdir()
+            with patch.object(analysis.subprocess, 'Popen') as launched:
+                for invalid in (True, 0, 2, 3, 4, 1.0, '1'):
+                    with self.subTest(fixture_identity=invalid), self.assertRaises(ValueError):
+                        analysis.profile_fixture_pilot(PROFILE_ROOT, evidence, repetition=invalid)
+                with patch.object(performance, '_persistent_protocol', return_value=dict(config=dict(
+                        repetition=1, planned_repetitions=3))):
+                    result = analysis.profile_fixture_pilot(PROFILE_ROOT, evidence, protocol=protocol,
+                        original_source=original, repetition=2)
+                self.assertNotEqual(result['status'], 'complete'); launched.assert_not_called()
+                command = json.loads(next(evidence.glob('persistent-pilot-command-*/command.json')).read_bytes())
+                self.assertEqual(command['failure']['error_kind'], 'ValueError')
+
+    def test_persistent_launcher_binds_portable_identity_even_when_supervisor_failed(self):
+        from evaluations import analysis, engine_checks as checks
+        cases = [(False, 'complete', None, None), (True, 'complete', None, None),
+            (True, 'failed', None, None), (True, 'failed', 'repetition', 1),
+            (True, 'failed', 'repetition', 2.0), (True, 'failed', 'planned_repetitions', 3.0),
+            (True, 'failed', 'protocol_sha256', 'b' * 64)]
+        for representative, status, changed, value in cases:
+            with self.subTest(representative=representative, status=status, changed=changed, value=value), \
+                    tempfile.TemporaryDirectory() as scratch:
+                original, protocol, evidence = (Path(scratch) / name for name in ('original', 'protocol', 'evidence'))
+                for directory in (original, protocol, evidence): directory.mkdir()
+                repetition = 2 if representative else 1
+                observed = dict(kind='persistent_corpus_profile' if representative else 'persistent_fixture_profile',
+                    status=status, engine_selected=False, qualification_complete=False, resource_budgets_frozen=False,
+                    representative_corpus_profiled=False, all_owned_source_reads_measured=False, cases=[])
+                if representative:
+                    observed.update(repetition=2, planned_repetitions=3, protocol_sha256='a' * 64)
+                if status == 'failed': observed['failure'] = dict(error_kind='ValueError', stage='selectors')
+                if changed: observed[changed] = value
+                raw = json.dumps(observed, sort_keys=True).encode() + b'\n'
+                with performance.SourceRoot(original) as source, performance.SourceRoot(protocol) as inputs:
+                    loaded = dict(protocol_sha256='a' * 64, original_owner=source.identity, protocol_owner=inputs.identity,
+                        config=dict(repetition=2, planned_repetitions=3, ceilings=dict(performance.REPRESENTATIVE_CEILINGS)))
+                commands = []
+                class Child:
+                    pid = 999999999
+                    def __init__(self, command, **options):
+                        commands.append(command)
+                        for fd in options['pass_fds']: os.fstat(fd)
+                        os.write(options['stdout'].fileno(), raw)
+                        os.write(options['stderr'].fileno(), b'synthetic supervisor diagnostic\n')
+                    def wait(self, timeout): return 1 if status == 'failed' else 0
+                options = dict(repetition=repetition)
+                if representative: options.update(protocol=protocol, original_source=original)
+                with patch.object(performance, '_persistent_protocol', return_value=loaded), \
+                        patch.object(analysis.subprocess, 'Popen', Child), \
+                        patch.object(checks, '_stop_and_reap', return_value=dict(leader_reaped=True, group_absent=True)):
+                    result = analysis.profile_fixture_pilot(PROFILE_ROOT, evidence, **options)
+                self.assertEqual(commands[0][commands[0].index('--repetition') + 1], str(repetition))
+                run = next(evidence.glob('persistent-pilot-command-*'))
+                receipt = json.loads((run / 'command.json').read_bytes())
+                self.assertEqual(receipt['repetition'], repetition)
+                if representative:
+                    self.assertEqual(receipt['planned_repetitions'], 3)
+                    self.assertEqual(receipt['protocol_sha256'], 'a' * 64)
+                self.assertEqual((run / 'stdout.log').read_bytes(), raw)
+                stdout = next(row for row in receipt['logs'] if row['path'] == 'stdout.log')
+                self.assertEqual(stdout['sha256'], hashlib.sha256(raw).hexdigest())
+                self.assertTrue(stdout['complete']); self.assertTrue(receipt['cleanup']['leader_reaped'])
+                if changed:
+                    self.assertEqual(receipt['failure']['error_kind'], 'ValueError')
+                    self.assertEqual(result['status'], 'failed')
+                    self.assertEqual(result['repetition'], repetition)
+                else:
+                    self.assertEqual(result, observed)
+
+    def test_persistent_cli_repetition_scope_and_both_pilot_paths(self):
+        from contextlib import nullcontext
+        from evaluations import analysis
+        invalid = [('--profile', '--repetition', '1'), ('--suite', 'queries', '--repetition=1'),
+            ('--profile-pilot', '--repetition', '2'), ('--profile-pilot', '--repetition', '0'),
+            ('--profile-pilot', '--repetition', '4'), ('--profile-pilot', '--repetition', '1.0')]
+        with patch.dict(os.environ, {}, clear=True), redirect_stdout(io.StringIO()), \
+                patch('sys.stderr', new_callable=io.StringIO), \
+                patch.object(analysis, 'profile_fixture_pilot') as pilot, patch.object(analysis, 'write_result') as write:
+            for argv in invalid:
+                with self.subTest(argv=argv), self.assertRaises(SystemExit) as rejected:
+                    analysis.main(list(argv))
+                self.assertEqual(rejected.exception.code, 2)
+            pilot.assert_not_called(); write.assert_not_called()
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            mapping = root / 'map.json'; mapping.write_text('{}')
+            for repetition, representative in ((1, False), (1, True), (2, True)):
+                argv = ['--profile-pilot', '--work-root', str(root)]
+                if representative:
+                    argv += ['--repetition', str(repetition), '--protocol', str(root / 'protocol'), '--source-map', str(mapping)]
+                with self.subTest(repetition=repetition, representative=representative), \
+                        patch.dict(os.environ, {}, clear=True), redirect_stdout(io.StringIO()), \
+                        patch.object(analysis, 'ROOT', root), \
+                        patch.object(analysis, 'profile_fixture_pilot', return_value=dict(status='complete')) as pilot, \
+                        patch.object(analysis, 'write_result', return_value=2), \
+                        patch.object(performance, 'mapped_corpora', return_value=dict(django=dict(source=str(root / 'original')))), \
+                        patch.object(analysis, 'worker_directory', side_effect=lambda *args: nullcontext(root)):
+                    self.assertEqual(analysis.main(argv), 0)
+                    self.assertEqual(pilot.call_args.kwargs['repetition'], repetition)
+                    self.assertEqual('protocol' in pilot.call_args.kwargs, representative)
+
+    def test_persistent_repetition_requires_exact_typed_registration(self):
+        """Admission controls only; no private protocol, corpus or worker run."""
+        self.assertEqual(performance._persistent_repetition(None), 1)
+        for invalid in (False, True, 0, -1, 4, 1.0, '1', None):
+            with self.subTest(request=invalid), self.assertRaises(ValueError):
+                performance._persistent_repetition(None, invalid)
+        for repetition in (1, 2, 3):
+            loaded = dict(config=dict(repetition=repetition, planned_repetitions=3))
+            self.assertEqual(performance._persistent_repetition(loaded, repetition), repetition)
+            for requested in (1, 2, 3):
+                if requested != repetition:
+                    with self.subTest(registered=repetition, requested=requested), self.assertRaises(ValueError):
+                        performance._persistent_repetition(loaded, requested)
+            for count in (True, 2, 4, 3.0, '3', None):
+                with self.subTest(count=count), self.assertRaises(ValueError):
+                    performance._persistent_repetition(dict(config=dict(
+                        repetition=repetition, planned_repetitions=count)), repetition)
+        for repetition in (2, 3):
+            with self.assertRaisesRegex(ValueError, 'protocol required'):
+                performance._persistent_repetition(None, repetition)
+        for registered in (True, 0, 4, 1.0, '1', None):
+            with self.subTest(registered=registered), self.assertRaises(ValueError):
+                performance._persistent_repetition(dict(config=dict(
+                    repetition=registered, planned_repetitions=3)))
+        with tempfile.TemporaryDirectory() as scratch:
+            with patch.object(performance, '_persistent_protocol', return_value=dict(config=dict(
+                    repetition=1, planned_repetitions=3))), \
+                    patch.object(performance.subprocess, 'Popen') as launched, \
+                    patch.object(performance, '_dual_supervisor_limits') as envelope:
+                with self.assertRaisesRegex(ValueError, 'preregistered protocol identity'):
+                    performance.profile_persistent_fixture(PROFILE_ROOT, Path(scratch),
+                        protocol=Path(scratch), original_source=Path(scratch), repetition=2)
+                launched.assert_not_called(); envelope.assert_not_called()
+
+    def test_persistent_supervisor_passes_explicit_repetition_with_default_one(self):
+        from repo_graph import analysis_queue
+        for repetition in (1, 2, 3):
+            argv = ['synthetic-evidence', '--creator-pid', str(os.getpid())]
+            if repetition > 1:
+                argv += ['--repetition', str(repetition), '--protocol-fd', '91', '--original-fd', '92']
+            with self.subTest(repetition=repetition), redirect_stdout(io.StringIO()), \
+                    patch.object(analysis_queue, '_guard_controller'), \
+                    patch.object(performance, 'profile_persistent_fixture', return_value=dict(status='complete')) as profile, \
+                    patch.object(performance, 'compact_persistent_result', return_value={}):
+                self.assertEqual(performance.persistent_supervisor(argv), 0)
+                self.assertEqual(profile.call_args.kwargs['repetition'], repetition)
+                self.assertEqual('protocol' in profile.call_args.kwargs, repetition > 1)
+
+    def test_persistent_failed_report_binds_registered_repetition_without_losing_failure(self):
+        failure = dict(error_kind='ValueError', stage='selectors', error='synthetic unchanged failure')
+        for repetition in (1, 2, 3):
+            loaded = dict(protocol_sha256='a' * 64, config=dict(repetition=repetition,
+                planned_repetitions=3, updates=[dict(id='U-PY-BODY'), dict(id='U-PY-EXPORT')], impacts_sha256={}))
+            report = dict(schema_version=1, kind='persistent_corpus', status='failed', mode='serial', concurrency=1,
+                binding_before={}, phases=[], qualification_complete=False, resource_budgets_frozen=False,
+                engine_selected=False, all_owned_source_reads_measured=False, protocol_sha256='a' * 64,
+                repetition=repetition, planned_repetitions=3, representative_matrix_complete=False, failure=failure)
+            original = json.dumps(report, sort_keys=True)
+            self.assertIs(performance._persistent_validate(report, {}, 'serial', 1, loaded, repetition), report)
+            self.assertEqual(json.dumps(report, sort_keys=True), original)
+            for key, invalid in (('repetition', True), ('repetition', float(repetition)),
+                    ('repetition', 4), ('repetition', 1 if repetition != 1 else 2),
+                    ('planned_repetitions', 3.0), ('protocol_sha256', 'b' * 64)):
+                with self.subTest(repetition=repetition, key=key, invalid=invalid), self.assertRaisesRegex(
+                        ValueError, 'repetition/protocol identity'):
+                    performance._persistent_validate(dict(report, **{key: invalid}), {}, 'serial', 1, loaded, repetition)
+            compact = performance.compact_persistent_result(dict(kind='persistent_corpus_profile', status='failed',
+                repetition=repetition, planned_repetitions=3, protocol_sha256='a' * 64, failure=failure))
+            self.assertEqual(compact['repetition'], repetition)
+            self.assertEqual(compact['failure'], dict(error_kind='ValueError', stage='selectors'))
+        report = dict(report, kind='persistent_fixture')
+        for key in ('repetition', 'planned_repetitions', 'protocol_sha256', 'representative_matrix_complete'):
+            report.pop(key)
+        self.assertIs(performance._persistent_validate(report, {}, 'serial', 1), report)
+
+    def test_persistent_worker_threads_registered_repetition_and_accepts_legacy_one(self):
+        """Descriptor/control seam with stubbed run, guards and OS resource setters."""
+        import resource
+        from evaluations import engine_checks as checks
+        from repo_graph import analysis_queue
+        for repetition, explicit in ((1, False), (1, True), (2, True), (3, True), (2, False)):
+            with self.subTest(repetition=repetition, explicit=explicit), tempfile.TemporaryDirectory() as scratch:
+                roots = [Path(scratch) / name for name in ('job', 'source', 'protocol', 'original', 'pair')]
+                for root in roots: root.mkdir()
+                from contextlib import ExitStack
+                with ExitStack() as stack:
+                    job, source, protocol, original, pair = [stack.enter_context(performance.SourceRoot(root)) for root in roots]
+                    loaded = dict(protocol_sha256='a' * 64,
+                        config=dict(repetition=repetition, planned_repetitions=3))
+                    control = dict(schema_version=1, mode='serial', concurrency=1, binding={},
+                        directory_owner=job.identity, supervisor=dict(pid=os.getpid()), source_owner=source.identity,
+                        protocol_sha256='a' * 64, pair_owner=pair.identity, invoker=None)
+                    if explicit: control['repetition'] = repetition
+                    checks._adapter_dump(roots[0], 'control.json', control)
+                    argv = [str(job.fd), str(source.fd), str(os.getpid()), '--protocol-fd', str(protocol.fd),
+                        '--original-fd', str(original.fd), '--pair-fd', str(pair.fd)]
+                    with patch.object(analysis_queue, '_guard_controller'), patch('faulthandler.enable'), \
+                            patch.object(resource, 'setrlimit'), patch.object(performance.signal, 'signal'), \
+                            patch.object(performance, '_persistent_protocol', return_value=loaded), \
+                            patch.object(performance, '_persistent_capture', return_value={}), \
+                            patch.object(performance, '_persistent_run', return_value=dict(status='complete')) as run:
+                        if repetition > 1 and not explicit:
+                            with self.assertRaisesRegex(ValueError, 'preregistered protocol identity'):
+                                performance.persistent_worker(argv)
+                            run.assert_not_called()
+                        else:
+                            self.assertEqual(performance.persistent_worker(argv), 0)
+                            self.assertEqual(run.call_args.kwargs['repetition'], repetition)
+
     def test_live_storage_scan_retains_unlink_and_atomic_publication_gaps(self):
         """Synthetic list/stat races; no collector, parser, corpus or profile run."""
         for operation in ('unlink_request', 'atomic_publish'):
@@ -77,7 +291,8 @@ class ObservedProfile(unittest.TestCase):
                 original, protocol, evidence = (Path(scratch) / name for name in ('original', 'protocol', 'evidence'))
                 for directory in (original, protocol, evidence): directory.mkdir()
                 with performance.SourceRoot(original) as source, performance.SourceRoot(protocol) as inputs:
-                    loaded = dict(config=dict(ceilings=dict(performance.REPRESENTATIVE_CEILINGS)),
+                    loaded = dict(config=dict(ceilings=dict(performance.REPRESENTATIVE_CEILINGS),
+                        repetition=1, planned_repetitions=3),
                         original_owner=source.identity, protocol_owner=inputs.identity, protocol_sha256='a' * 64)
                 clock, waits, cleaned = [0], [], []
                 class Child:
@@ -977,12 +1192,16 @@ class ObservedProfile(unittest.TestCase):
                         produced = dict(status='failed' if code == 1 else 'complete', stub_only=True,
                             source_owner_identity=owner.identity, source_owner_identity_after=owner.identity,
                             phases=[dict(label=label, streamed_facts=dict(
-                                semantic_facts_sha256='a' * 64, stub_only=True))
+                                semantic_facts_sha256='a' * 64, counts={}, stub_only=True))
                                 for label in performance.PERSISTENT_PHASES])
                         if code == 1:
                             produced.pop('source_owner_identity_after')
                             produced.update(failure=selector_failure, queries=dict(passed=False, workloads=[],
                                 cursor_control=None, failure=selector_failure))
+                            control = json.loads((job / 'control.json').read_bytes())
+                            if control['repetition'] != 2: raise AssertionError('Registered repetition lost at control boundary')
+                            produced.update(repetition=control['repetition'], planned_repetitions=3,
+                                protocol_sha256=control['protocol_sha256'])
                         with owner.atomic_writer('a.py') as stream:
                             stream.write(b'def changed(): pass\n')
                     checks._adapter_dump(job, 'result.json', produced)
@@ -999,9 +1218,10 @@ class ObservedProfile(unittest.TestCase):
                     original, protocol, destination = (destination / name for name in ('original', 'protocol', 'evidence'))
                     for path in (original, protocol, destination): path.mkdir()
                     with performance.SourceRoot(original) as original_owner, performance.SourceRoot(protocol) as inputs:
-                        loaded = dict(config=dict(ceilings=dict(performance.REPRESENTATIVE_CEILINGS)),
+                        loaded = dict(config=dict(ceilings=dict(performance.REPRESENTATIVE_CEILINGS),
+                            repetition=2, planned_repetitions=3),
                             original_owner=original_owner.identity, protocol_owner=inputs.identity, protocol_sha256='a' * 64)
-                    options = dict(protocol=protocol, original_source=original)
+                    options = dict(protocol=protocol, original_source=original, repetition=2)
                 with patch.object(performance, '_dual_supervisor_limits', return_value={}), \
                         patch.object(performance, '_persistent_protocol', return_value=loaded), \
                         patch.object(performance, '_persistent_materialize', side_effect=lambda source, *args:
@@ -1028,6 +1248,8 @@ class ObservedProfile(unittest.TestCase):
                     self.assertTrue(report['source_cleanup']['completed'])
                 elif code == 1:
                     self.assertEqual(report['status'], 'failed')
+                    self.assertEqual(report['repetition'], 2)
+                    self.assertEqual(performance.compact_persistent_result(result)['repetition'], 2)
                     self.assertEqual(report['cases'][0]['failure'], selector_failure)
                     self.assertEqual(report['failure'], selector_failure)
                     self.assertEqual(report['cases'][0]['source_owner_observation'], dict(
