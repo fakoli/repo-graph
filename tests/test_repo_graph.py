@@ -105,6 +105,8 @@ class RepoGraphTests(unittest.TestCase):
             receipt=dict(coverage=dict(files_total=3, files_supported=2, files_unsupported=1,
                 parser_error_count=1, parser_error_samples=[dict(path='PRIVATE_SAMPLE')],
                 by_language=dict(python=dict(files_total=2, file_status=dict(parsed=2), source='PRIVATE_BODY')),
+                language_overflow=dict(languages=1, files_total=1, file_status=dict(parsed=1),
+                                       raw_diagnostics='PRIVATE_DIAGNOSTIC_CANARY'),
                 extra='PRIVATE_EXTRA'), versions=dict(schema='structural-v2', rules='test', extra='PRIVATE_VERSION'),
                 revision_dirty=dict(revision=None, dirty=None, knowledge='unknown', reason='PRIVATE_REASON')))
         captured['facts'] = 'PRIVATE_FACTS'
@@ -120,6 +122,8 @@ class RepoGraphTests(unittest.TestCase):
         self.assertTrue(status['structural']['artifact_ready'])
         self.assertEqual(status['structural']['freshness'], 'stale')
         self.assertEqual(status['structural']['receipt']['coverage']['files_total'], 3)
+        self.assertEqual(status['structural']['receipt']['coverage']['language_overflow'],
+                         dict(languages=1, files_total=1, file_status=dict(parsed=1)))
         self.assertEqual(status['semantic_index']['catalog_receipt'], dict(documents=3, truncated=1, failed=1))
         self.assertEqual(status['structural']['last_attempt'], dict(status='failed', error_kind='ValueError'))
         structural['receipt']['coverage']['inventory_scope'] = 'x' * 65536

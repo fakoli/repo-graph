@@ -347,6 +347,10 @@ def offline_index_status(output: Path) -> dict:
                 row['receipt']['coverage']['by_language'] = {language:
                     {field: data[field] for field in ('files_total', 'file_status') if field in data}
                     for language, data in row['receipt']['coverage']['by_language'].items()}
+            if 'language_overflow' in row['receipt']['coverage']:
+                overflow = row['receipt']['coverage']['language_overflow']
+                row['receipt']['coverage']['language_overflow'] = {field: overflow[field]
+                    for field in ('languages', 'files_total', 'file_status') if field in overflow}
         attempt = component.get('last_attempt')
         row['last_attempt'] = ({key: attempt[key] for key in ('status', 'error_kind') if key in attempt}
                                if attempt else None)
