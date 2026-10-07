@@ -49,6 +49,16 @@ class QueryChecks(unittest.TestCase):
         result = snapshot.query('hub', limits=Limits(max_entities=1))
         resumed = snapshot.query('hub', cursor=result['cursor'])
         self.assertEqual(resumed['rows'][0]['site']['id'], 's001')
+        cursor, rows, work = None, [], 0
+        for _ in range(32):
+            page = snapshot.query('hub', cursor=cursor, limits=Limits(max_response_bytes=4096))
+            self.assertLessEqual(len(encoded(page)), 4096)
+            rows.extend(page['rows']); work += page['examined_relationships']; cursor = page['cursor']
+            if cursor is None:
+                break
+        self.assertIsNone(cursor)
+        self.assertEqual([r['site']['id'] for r in rows], ['s%03d' % i for i in range(113)])
+        self.assertEqual(work, 113)
 
     def test_cancel_deadline_and_snapshot_staleness(self):
         snapshot = Snapshot(facts(), 'a' * 64, 'b' * 64)

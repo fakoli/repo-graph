@@ -12,6 +12,8 @@ import math
 import secrets
 import time
 
+QUERY_RULE_VERSION = 'physical-occurrence-v2'
+
 
 def encoded(value):
     return json.dumps(value, ensure_ascii=True, sort_keys=True, separators=(',', ':'), allow_nan=False).encode()
@@ -158,7 +160,7 @@ class Snapshot:
             raise ValueError('Invalid bounded query')
         signature = hashlib.sha256(encoded({'generation': self.generation, 'analyzer': self.analyzer_identity,
             'operation': operation, 'seed': seed, 'depth': depth, 'prefix': prefix, 'scope': scope,
-            'role': role, 'order': 'physical-occurrence-v1'})).hexdigest()
+            'role': role, 'order': QUERY_RULE_VERSION})).hexdigest()
         started = self._clock()
         if cursor is not None:
             if type(cursor) is not str or len(cursor) != 64 or cursor not in self._continuations:
@@ -196,27 +198,35 @@ class Snapshot:
             relations = adjacency.get(node, ())
             if offset >= len(relations) or recursive and level >= depth:
                 frontier.popleft(); continue
-            if examined >= limits.max_examined_relationships:
+            if not state.get('pending') and examined >= limits.max_examined_relationships:
                 reason = 'work_budget_exceeded'; break
             if len(rows) >= limits.max_edges:
                 reason = 'edge_budget_exceeded'; break
-            key = relations[offset]
-            examined += 1  # Before scope/name/role rejection, never a post-traversal trim.
-            site = self._sites[key[0]]
-            target = site['caller'] if operation in ('callers', 'impact') else key[1]
-            if (role != 'all' and site['role'] != role or not site['path'].startswith(scope) or
-                    prefix and (target is None or not self._definitions[target]['name'].startswith(prefix))):
-                frontier[0][2] += 1; continue
+            pending = state.pop('pending', None)
+            if pending is None:
+                key = relations[offset]
+                examined += 1  # Before scope/name/role rejection, never a post-traversal trim.
+                site = self._sites[key[0]]
+                target = site['caller'] if operation in ('callers', 'impact') else key[1]
+                if (role != 'all' and site['role'] != role or not site['path'].startswith(scope) or
+                        prefix and (target is None or not self._definitions[target]['name'].startswith(prefix))):
+                    frontier[0][2] += 1; continue
+                pending = {'row': self._row(key), 'target': target}
+            else:
+                target = pending['target']
             candidate_entities = entities | ({target} if target is not None and target != seed else set())
             if len(candidate_entities) > limits.max_entities:
+                state['pending'] = pending
                 reason = 'entity_budget_exceeded'; break
-            row = self._row(key)
+            row = pending['row']
             previous_entities = entities
             entities = candidate_entities
             state['matched'] += 1
             rows.append(row)
             if len(encoded(response('0' * 64, 'response_byte_budget_exceeded'))) > limits.max_response_bytes:
                 rows.pop(); entities = previous_entities; state['matched'] -= 1
+                # Retain already examined compact output; resuming does not reread the relation.
+                state['pending'] = pending
                 reason = 'response_byte_budget_exceeded'; break
             frontier[0][2] += 1
             if recursive and target is not None and target not in visited and level + 1 < depth:
