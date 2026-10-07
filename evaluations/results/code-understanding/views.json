@@ -1,1 +1,396 @@
-{"schema_version":1,"tasks":{"T015":{"browser_observations":{"browserErrors":[],"files":75,"loadMs":97,"searchToGraphMs":70,"systemMetrics":{"allCardsVisible":true,"canvasBottom":1000,"canvasWidth":1172,"cardBottom":922.7687377929688,"cardTop":223.1687469482422,"cards":5,"headingBottom":191.9375,"minimumLabelContrast":6.02241734520646,"minimumTitlePx":19.800000429153442}},"case_results":[{"id":"inventory count","scope":"synthetic browser","status":"passed"},{"id":"captured API readiness and explicit live freshness knowledge","scope":"synthetic browser","status":"passed"},{"id":"visible lifecycle/stale states; safe errors; unavailable service keeps captured status","scope":"synthetic browser","status":"passed"},{"id":"offline bounded ready overview; source inspection; keyboard coverage; 360px layout; no HTTP requests or symbol graph","scope":"synthetic browser","status":"passed"},{"id":"JSON and Mermaid downloads","scope":"synthetic browser","status":"passed"},{"id":"view system","scope":"synthetic browser","status":"passed"},{"id":"view atlas","scope":"synthetic browser","status":"passed"},{"id":"view tree","scope":"synthetic browser","status":"passed"},{"id":"view radial","scope":"synthetic browser","status":"passed"},{"id":"view treemap","scope":"synthetic browser","status":"passed"},{"id":"view table","scope":"synthetic browser","status":"passed"},{"id":"view matrix","scope":"synthetic browser","status":"passed"},{"id":"readable System titles; all cards fit; empty inspector collapsed","scope":"synthetic browser","status":"passed"},{"id":"arrow navigation and roving tab focus","scope":"synthetic browser","status":"passed"},{"id":"keyboard pan, zoom and fit","scope":"synthetic browser","status":"passed"},{"id":"search to focused, visible file in diagram","scope":"synthetic browser","status":"passed"},{"id":"source breadcrumb and root navigation","scope":"synthetic browser","status":"passed"},{"id":"query preserved","scope":"synthetic browser","status":"passed"},{"id":"search method and reranker preserved: none","scope":"synthetic browser","status":"passed"},{"id":"visible path scope restricts results","scope":"synthetic browser","status":"passed"},{"id":"narrow viewport search","scope":"synthetic browser","status":"passed"},{"id":"360px search layout; labelled 44px controls; no horizontal page overflow","scope":"synthetic browser","status":"passed"},{"id":"narrow details focus and Escape return","scope":"synthetic browser","status":"passed"},{"id":"no browser errors; load under 5 seconds","scope":"synthetic browser","status":"passed"},{"id":"offline metadata privacy and 65536-byte cap","scope":"core unittest + independent canary control","status":"passed"},{"id":"bounded System 12areas/40relations and aggregate imports","scope":"actual Node controls","status":"passed"},{"id":"independent correctness/adversarial corrective disposition","scope":"implementation stage; formal bundle acceptance pending","status":"passed"}],"commands":[{"argv":[".venv/bin/python","-m","unittest","discover","-s","tests","-p","test_repo_graph.py","-v"],"elapsed_seconds":0.16934792004758492,"exit_code":0,"receipt_sha256":"f2f0add230f40399f44dc18853821e895bebfde4b72e88dd433068850674b6d1"},{"argv":["npm","test"],"elapsed_seconds":0.16000927798449993,"exit_code":0,"receipt_sha256":"cff110845e7e9b5e338bd041389fad3c29f463e6c9bb2a717d582a2b8ff5d19c"},{"argv":["npm","run","test:ux"],"elapsed_seconds":3.413046796049457,"exit_code":0,"receipt_sha256":"9ecd536a27350912405a536829f59d0974a8f83665deb2189a437ed15c07a232"}],"final_bundle_review":false,"limits":["75-file synthetic workflow; not a human user study, corpus scale or agent comparison.","All later mandatory tasks and final three-angle bundle/CI/distribution/publication gates remain pending."],"qualification_complete":false,"review":{"adversarial":"approve","correctness":"approve","kind":"independent AI implementation review","model":"gpt-6-astra","original_blocker_preserved":true,"reasoning_effort":"xhigh","receipt_sha256":"651fe4a4175641c9a5876940a9d0112166b70723a85773eeb958c1f2cb77269d","source_stable":true},"scope":"Coverage/freshness and readable bounded System/offline implementation stage","source_identity":{"commit":"dd9523c48b0caf4e38a24b17c11a36edb3c9522f","sha256":{"README.md":"25478ff90c1a7b51a17c22552680622e2febfb32dfa474a45dc84380be6b6e7b","repo_graph/analysis.py":"2bfd00229beacf2e608028ae474e7b8f224eacbd59b0ae4659e9fd9e4fd2f2f2","repo_graph/analysis_queries.py":"e873f481743c8f695efe5037ebb30436e64b2bdd3d9735d235d50170fbb57f6a","repo_graph/assets/diagram.html":"2e3ca383837d6376543432b3cb6cfff5e1241e0cf48ba372407ad9a493df5142","repo_graph/assets/views.js":"ef49236a4ebf5bc3a4347412e305591c3e9d8a0f6eceeb17c956f8ff38797476","repo_graph/builder.py":"6cc56538fc964a77561eb41ea5cf39527b342483ce069787175a7d67e3bdb208","repo_graph/search.py":"dd337712cd554031e35568e1fdec5efca05d1f39fc5504ea11592b82e18ed6e4","repo_graph/server.py":"402de2e262d5d3bb680184e4b051125217fb846c72924d7bcbedce59664086f0","repo_graph/source.py":"b4459e73a611d5fd807d84789f2f4d438e2bf78a756093626a0f227e465a4dbc","tests/test_repo_graph.py":"56c5019d7caca70b8c5a71267acadd267bc39d421af50b2a266732d18d549b98","tests/test_repo_graph_views.cjs":"8a145c1e34e080e2ba5af2eb96f67d065b7307739883938faf288702ce9caeaf","tests/ux.mjs":"891a9d4b074bb901579f144dc5b44a531e43480084e5932408a4365b30cbdbdb"}},"status":"passed","task_accepted":false}}}
+{
+  "schema_version": 1,
+  "tasks": {
+    "T015": {
+      "browser_observations": {
+        "browserErrors": [],
+        "files": 75,
+        "loadMs": 97,
+        "searchToGraphMs": 70,
+        "systemMetrics": {
+          "allCardsVisible": true,
+          "canvasBottom": 1000,
+          "canvasWidth": 1172,
+          "cardBottom": 922.7687377929688,
+          "cardTop": 223.1687469482422,
+          "cards": 5,
+          "headingBottom": 191.9375,
+          "minimumLabelContrast": 6.02241734520646,
+          "minimumTitlePx": 19.800000429153442
+        }
+      },
+      "case_results": [
+        {
+          "id": "inventory count",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "captured API readiness and explicit live freshness knowledge",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "visible lifecycle/stale states; safe errors; unavailable service keeps captured status",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "offline bounded ready overview; source inspection; keyboard coverage; 360px layout; no HTTP requests or symbol graph",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "JSON and Mermaid downloads",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "view system",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "view atlas",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "view tree",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "view radial",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "view treemap",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "view table",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "view matrix",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "readable System titles; all cards fit; empty inspector collapsed",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "arrow navigation and roving tab focus",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "keyboard pan, zoom and fit",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "search to focused, visible file in diagram",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "source breadcrumb and root navigation",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "query preserved",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "search method and reranker preserved: none",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "visible path scope restricts results",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "narrow viewport search",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "360px search layout; labelled 44px controls; no horizontal page overflow",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "narrow details focus and Escape return",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "no browser errors; load under 5 seconds",
+          "scope": "synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "offline metadata privacy and 65536-byte cap",
+          "scope": "core unittest + independent canary control",
+          "status": "passed"
+        },
+        {
+          "id": "bounded System 12areas/40relations and aggregate imports",
+          "scope": "actual Node controls",
+          "status": "passed"
+        },
+        {
+          "id": "independent correctness/adversarial corrective disposition",
+          "scope": "implementation stage; formal bundle acceptance pending",
+          "status": "passed"
+        }
+      ],
+      "commands": [
+        {
+          "argv": [
+            ".venv/bin/python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_repo_graph.py",
+            "-v"
+          ],
+          "elapsed_seconds": 0.16934792004758492,
+          "exit_code": 0,
+          "receipt_sha256": "f2f0add230f40399f44dc18853821e895bebfde4b72e88dd433068850674b6d1"
+        },
+        {
+          "argv": [
+            "npm",
+            "test"
+          ],
+          "elapsed_seconds": 0.16000927798449993,
+          "exit_code": 0,
+          "receipt_sha256": "cff110845e7e9b5e338bd041389fad3c29f463e6c9bb2a717d582a2b8ff5d19c"
+        },
+        {
+          "argv": [
+            "npm",
+            "run",
+            "test:ux"
+          ],
+          "elapsed_seconds": 3.413046796049457,
+          "exit_code": 0,
+          "receipt_sha256": "9ecd536a27350912405a536829f59d0974a8f83665deb2189a437ed15c07a232"
+        }
+      ],
+      "final_bundle_review": false,
+      "limits": [
+        "75-file synthetic workflow; not a human user study, corpus scale or agent comparison.",
+        "All later mandatory tasks and final three-angle bundle/CI/distribution/publication gates remain pending."
+      ],
+      "qualification_complete": false,
+      "review": {
+        "adversarial": "approve",
+        "correctness": "approve",
+        "kind": "independent AI implementation review",
+        "model": "gpt-6-astra",
+        "original_blocker_preserved": true,
+        "reasoning_effort": "xhigh",
+        "receipt_sha256": "651fe4a4175641c9a5876940a9d0112166b70723a85773eeb958c1f2cb77269d",
+        "source_stable": true
+      },
+      "scope": "Coverage/freshness and readable bounded System/offline implementation stage",
+      "source_identity": {
+        "commit": "dd9523c48b0caf4e38a24b17c11a36edb3c9522f",
+        "sha256": {
+          "README.md": "25478ff90c1a7b51a17c22552680622e2febfb32dfa474a45dc84380be6b6e7b",
+          "repo_graph/analysis.py": "2bfd00229beacf2e608028ae474e7b8f224eacbd59b0ae4659e9fd9e4fd2f2f2",
+          "repo_graph/analysis_queries.py": "e873f481743c8f695efe5037ebb30436e64b2bdd3d9735d235d50170fbb57f6a",
+          "repo_graph/assets/diagram.html": "2e3ca383837d6376543432b3cb6cfff5e1241e0cf48ba372407ad9a493df5142",
+          "repo_graph/assets/views.js": "ef49236a4ebf5bc3a4347412e305591c3e9d8a0f6eceeb17c956f8ff38797476",
+          "repo_graph/builder.py": "6cc56538fc964a77561eb41ea5cf39527b342483ce069787175a7d67e3bdb208",
+          "repo_graph/search.py": "dd337712cd554031e35568e1fdec5efca05d1f39fc5504ea11592b82e18ed6e4",
+          "repo_graph/server.py": "402de2e262d5d3bb680184e4b051125217fb846c72924d7bcbedce59664086f0",
+          "repo_graph/source.py": "b4459e73a611d5fd807d84789f2f4d438e2bf78a756093626a0f227e465a4dbc",
+          "tests/test_repo_graph.py": "56c5019d7caca70b8c5a71267acadd267bc39d421af50b2a266732d18d549b98",
+          "tests/test_repo_graph_views.cjs": "8a145c1e34e080e2ba5af2eb96f67d065b7307739883938faf288702ce9caeaf",
+          "tests/ux.mjs": "891a9d4b074bb901579f144dc5b44a531e43480084e5932408a4365b30cbdbdb"
+        }
+      },
+      "status": "passed",
+      "task_accepted": false
+    },
+    "T016": {
+      "backend_observations": {
+        "full_compatibility_qualified": false,
+        "independent_tests_passed": 4,
+        "independent_tests_skipped": 0,
+        "new_feature_tests": 3,
+        "query_output_owner_tests": 2
+      },
+      "browser_observations": {
+        "browserErrors": [],
+        "files": 75,
+        "loadMs": 79,
+        "searchToGraphMs": 57
+      },
+      "case_results": [
+        {
+          "id": "actual outgoing direct and unresolved calls with nonexhaustive reasons",
+          "scope": "actual synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "progressive actual call-chain expansion retains prior DOM positions and focus",
+          "scope": "actual synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "actual declaration/callsite source ranges, digests and Escape focus return",
+          "scope": "actual synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "tampered source digest and stale source refusal display no forged evidence or raw errors",
+          "scope": "actual synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "actual incoming callsites use same captured Queries payload",
+          "scope": "actual synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "unsupported callback remains unresolved; no invented candidates",
+          "scope": "actual synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "actual fixed-snapshot fanout pages retain all30 physical sites within24 elements",
+          "scope": "actual synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "changed captured generation is rejected before scene publication",
+          "scope": "actual synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "cancelled browser request discards late actual backend response",
+          "scope": "actual synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "360px Calls controls and keyboard source inspection",
+          "scope": "actual synthetic browser",
+          "status": "passed"
+        },
+        {
+          "id": "exact captured source affinity, UTF-8, redaction and byte caps",
+          "scope": "bounded unittest and independent controls",
+          "status": "passed"
+        },
+        {
+          "id": "forged/stale source refusal and captured digest drift",
+          "scope": "bounded unittest and independent controls",
+          "status": "passed"
+        },
+        {
+          "id": "HTTP request/origin/output-owner/source cancellation boundaries",
+          "scope": "bounded unittest and independent controls",
+          "status": "passed"
+        },
+        {
+          "id": "shared CLI/stdio/server structural query and output substitution guards",
+          "scope": "bounded unittest and independent controls",
+          "status": "passed"
+        },
+        {
+          "id": "independent correctness and adversarial stage disposition",
+          "scope": "bounded unittest and independent controls",
+          "status": "passed"
+        }
+      ],
+      "commands": [
+        {
+          "argv": [
+            "npm",
+            "test"
+          ],
+          "elapsed_seconds": 0.16537690162658691,
+          "exit_code": 0,
+          "receipt_sha256": "454fb04d75f3a81fc44e5d99a187c032734391a183267927a65e5fde550b91a0"
+        },
+        {
+          "argv": [
+            "npm",
+            "run",
+            "test:ux"
+          ],
+          "elapsed_seconds": 4.672875642776489,
+          "exit_code": 0,
+          "receipt_sha256": "aa7d4d2e504069b864f109f4345aa5c44bd884c631d6832252c347bf895a73bd"
+        }
+      ],
+      "final_bundle_review": false,
+      "limits": [
+        "Candidate and multiple-target rendering is Node-only synthetic evidence; covered native examples retain resolved-one or unresolved-no-target facts.",
+        "Browser cancellation discards late responses; bounded server work may finish.",
+        "75-file synthetic browser checks are not a human UX study, scale qualification or actual agent comparison.",
+        "Required full compatibility, final three-angle bundle, installation, CI and publication gates remain pending."
+      ],
+      "qualification_complete": false,
+      "retained_failures": [
+        {
+          "kind": "test_assertion",
+          "reason": "Multiline assertion corrected; original response and screenshot retained.",
+          "receipt_sha256": "0fd2dab24882b43b72775f15dfcb6a3029edeb210ada6b9904fa085312fdb7df",
+          "scope": "first browser run"
+        },
+        {
+          "cause": "unresolved",
+          "kind": "test_timeout",
+          "later_bounded_diagnoses": "passed; failure remains retained",
+          "receipt_sha256": "1919b9faf913a14cf7db2523a4a80b993916ae742970c97fd94916c1809b6ee2",
+          "scope": "earlier combined function API/cancellation compatibility command",
+          "seconds": 60
+        }
+      ],
+      "review": {
+        "adversarial": "APPROVE_INTERNAL_STAGE_WITH_RETAINED_COMPATIBILITY_RISK",
+        "correctness": "APPROVE_INTERNAL_STAGE_WITH_RETAINED_COMPATIBILITY_RISK",
+        "kind": "independent AI implementation review",
+        "model": "gpt-6-astra",
+        "reasoning_effort": "xhigh",
+        "receipt_sha256": "515a7f5e48c21150f0912f36efcf6812c2f84baa990e9d9c8eb4e01ec11932c6",
+        "source_stable": true
+      },
+      "scope": "Calls and captured source implementation stage, pending full compatibility and formal bundle acceptance",
+      "source_identity": {
+        "commit": "c1f3fb9ef634b5e07ffa16514cac79ed6201a66b",
+        "sha256": {
+          "README.md": "cab4de142508b5d1e2091685709c9d3287c99727b5db77757691d016c17d900f",
+          "repo_graph/assets/diagram.html": "96530981be2540499a7b648c22cfaefd251988ea4deaf438d903e8acdefd823d",
+          "repo_graph/assets/views.js": "8bfd2bf9b5886ec1b46471ec01824f714d036d94a8d691e9f07ccaa213b69d60",
+          "repo_graph/search.py": "93816f112e81a22b91cb7b4615c975af05373477f16bf05a521ea73a0d3f4697",
+          "repo_graph/server.py": "e5aae0211c42e1f75d2dd72c66084ff40a52b3cde5df3b675eca76d2e240c1d9",
+          "tests/test_repo_graph_views.cjs": "add5a12eec714072f7543fb951a79fc9c88feb66924c113eebca9b60c0ca6f54",
+          "tests/test_search.py": "4476fa96967e90b69a8e01529f06c5172da8c26b2faff250a2ffdb1ed4ebe762",
+          "tests/ux.mjs": "d6a0bd1f18f6cbb915520cf488f9c391ab1db022e578bf5ad703afdf88baa956"
+        }
+      },
+      "status": "passed",
+      "task_accepted": false
+    }
+  }
+}
