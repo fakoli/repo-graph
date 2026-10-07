@@ -12,6 +12,9 @@ const repo = resolve(scratch,'source'), output = process.env.REPO_GRAPH_UX_OUTPU
 const python = process.env.REPO_GRAPH_PYTHON || 'python3';
 if (!process.env.REPO_GRAPH_UX_OUTPUT) {
   for (let i=0;i<75;i++) { const dir=resolve(repo,'src','component'+String(i).padStart(2,'0')); mkdirSync(dir,{recursive:true}); writeFileSync(resolve(dir,'main.py'),'def process():\n    """Apply access control permissions to a request."""\n'); }
+  writeFileSync(resolve(repo,'src','component00','main.py'),'def process():\n    """Apply access control permissions to a request."""\n'+
+    'def view_leaf():\n    return 1\ndef view_middle():\n    return view_leaf()\ndef view_entry():\n    view_middle()\n    unknown_handler()\n'+
+    'def view_callback(fn):\n    return fn()\ndef view_fanout():\n'+Array(30).fill('    view_leaf()\n').join(''));
   const scan=spawnSync(python,['scripts/repo_graph.py','map',repo,'--output',output],{encoding:'utf8'});
   assert.equal(scan.status,0,scan.stderr);
   const analysis=spawnSync(python,['scripts/repo_graph.py','analyze',repo,'--output',output,'--mode','serial'],{encoding:'utf8'});
@@ -27,7 +30,7 @@ const url=await new Promise((accept,reject)=>{ const timer=setTimeout(()=>reject
 const browser=await chromium.launch({executablePath:process.env.REPO_GRAPH_CHROME === 'chromium' ? undefined : process.env.REPO_GRAPH_CHROME || '/usr/bin/google-chrome',headless:true});
 const page=await browser.newPage({viewport:{width:1440,height:1000}}), errors=[];
 page.on('pageerror',error=>errors.push(error.message));
-const checks=[];
+const checks=[],callsResponses=[],callsChecks=[];
 try {
   const start=Date.now(); await page.goto(url); await page.locator('.node').first().waitFor();
   const loadMs=Date.now()-start;
@@ -85,6 +88,8 @@ try {
     await offline.locator('.node').first().focus(); await offline.keyboard.press('Enter');
     await offline.locator('#inspector-content .detail-section .component-item').first().click();
     assert.equal(await offline.locator('#tab-explore').getAttribute('aria-selected'),'true');
+    await offline.click('#tab-calls');
+    assert.match(await offline.locator('#data-panel').innerText(),/Calls require the local structural index/);
     await offline.setViewportSize({width:360,height:900});
     assert.ok(await offline.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     await offline.locator('.index-status summary').focus(); await offline.keyboard.press('Enter');
@@ -180,11 +185,89 @@ try {
   assert.ok(await page.getByRole('button',{name:'Close details'}).evaluate(button=>button===document.activeElement));
   await page.keyboard.press('Escape'); assert.equal(await page.locator('#inspector').isVisible(),false);
   assert.ok(await page.locator('#map').evaluate(map=>map===document.activeElement)); checks.push('narrow details focus and Escape return');
+  if(!process.env.REPO_GRAPH_UX_OUTPUT) {
+    page.on('response',async response=>{if(/\/api\/(query|source)$/.test(response.url()) && response.status()===200){try{callsResponses.push({endpoint:new URL(response.url()).pathname,request:response.request().postDataJSON(),response:await response.json()});}catch{}}});
+    await page.setViewportSize({width:1440,height:1000});await page.click('#tab-calls');
+    const find=async name=>{
+      await page.getByLabel('Symbol name prefix').fill(name);await page.getByLabel('Symbol path scope').fill('src/component00');
+      await page.getByRole('button',{name:'Find symbols',exact:true}).click();
+      await page.locator('.calls-matches button').filter({hasText:name+' ·'}).first().waitFor();
+      await page.locator('.calls-matches button').filter({hasText:name+' ·'}).first().click();
+      await page.waitForFunction(()=>!document.querySelector('.calls-panel button')?.disabled && document.querySelector('.calls-status[role="status"]').textContent.includes('rows in this page'));
+    };
+    await find('view_entry');await page.locator('.call-site').nth(1).waitFor();
+    assert.match(await page.locator('.call-site').allInnerTexts().then(text=>text.join(' ')),/unresolved.*Unresolved target.*not exhaustive/s);
+    assert.match(await page.locator('.call-site').allInnerTexts().then(text=>text.join(' ')),/view_middle/);
+    assert.ok(await page.locator('.call-element').count()<=24);callsChecks.push('actual outgoing direct and unresolved calls with nonexhaustive reasons');
+    const firstPosition=await page.locator('.call-symbol').first().evaluate(card=>{window.__callFirst=card;return {top:card.offsetTop,left:card.offsetLeft};});
+    const middle=page.locator('.call-symbol').filter({hasText:'view_middle'});
+    await middle.getByRole('button',{name:'Expand outgoing',exact:true}).click();await page.locator('.call-symbol').filter({hasText:'view_leaf'}).waitFor();
+    assert.deepEqual(await page.locator('.call-symbol').first().evaluate(card=>({top:card.offsetTop,left:card.offsetLeft})),firstPosition);
+    assert.ok(await page.locator('.call-symbol').first().evaluate(card=>card===window.__callFirst));
+    assert.equal(await middle.getByRole('button',{name:'Expand outgoing',exact:true}).evaluate(button=>button===document.activeElement),true);
+    callsChecks.push('progressive actual call-chain expansion retains prior DOM positions and focus');
+    await middle.getByRole('button',{name:'Inspect declaration',exact:true}).click();await page.locator('.call-evidence pre').waitFor();
+    assert.match(await page.locator('.call-evidence pre').innerText(),/def view_middle/);
+    assert.match(await page.locator('.call-evidence').innerText(),/excerpt digest verified/);
+    await page.keyboard.press('Escape');assert.equal(await middle.getByRole('button',{name:'Inspect declaration',exact:true}).evaluate(button=>button===document.activeElement),true);
+    const unknown=page.locator('.call-site').filter({hasText:'unresolved callsite'});
+    await unknown.getByRole('button',{name:'Inspect callsite',exact:true}).click();await page.locator('.call-evidence pre').waitFor();
+    assert.match(await page.locator('.call-evidence pre').innerText(),/unknown_handler\(\)/);await page.keyboard.press('Escape');
+    callsChecks.push('actual declaration/callsite source ranges, digests and Escape focus return');
+    await unknown.getByRole('button',{name:'Inspect callsite',exact:true}).click();await page.locator('.call-evidence pre').waitFor();
+    await page.route('**/api/source',async route=>{const response=await route.fetch();const body=await response.json();body.raw_digest='0'.repeat(64);await route.fulfill({response,body:JSON.stringify(body)});});
+    await middle.getByRole('button',{name:'Inspect declaration',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('digest mismatch'));
+    assert.equal(await page.locator('.call-evidence').isVisible(),false);await page.unroute('**/api/source');
+    await page.route('**/api/source',route=>route.fulfill({status:409,contentType:'application/json',body:'{"error":"RAW_PRIVATE_DIAGNOSTIC"}'}));
+    await middle.getByRole('button',{name:'Inspect declaration',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('Stale source'));
+    assert.doesNotMatch(await page.locator('.calls-panel').innerText(),/RAW_PRIVATE_DIAGNOSTIC/);await page.unroute('**/api/source');
+    callsChecks.push('tampered source digest and stale source refusal display no forged evidence or raw errors');
+    await find('view_middle');await page.getByLabel('Call direction').selectOption('callers');
+    await page.waitForFunction(()=>document.querySelector('.call-site')?.textContent.includes('view_entry'));
+    callsChecks.push('actual incoming callsites use same captured Queries payload');
+    await page.getByLabel('Call direction').selectOption('callees');await find('view_callback');
+    await page.waitForFunction(()=>document.querySelector('.call-site')?.textContent.includes('unresolved'));
+    assert.match(await page.locator('.call-site').innerText(),/not exhaustive/);callsChecks.push('unsupported callback remains unresolved; no invented candidates');
+    await find('view_fanout');
+    const seen=new Set();let pages=0;
+    while(true) {
+      await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('rows in this page'));
+      assert.ok(await page.locator('.call-element').count()<=24);
+      for(const id of await page.locator('.call-site').evaluateAll(cards=>cards.map(card=>card.dataset.id)))seen.add(id);
+      const more=page.getByRole('button',{name:/^(More callsites|Next page \(replace scene\))$/});
+      if(await more.isDisabled())break;
+      assert.ok(++pages<12,'finite fanout page count');await more.click();
+      await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent!=='Reading bounded captured evidence…');
+    }
+    assert.equal(seen.size,30);callsChecks.push('actual fixed-snapshot fanout pages retain all30 physical sites within24 elements');
+    await page.route('**/api/query',async route=>{const response=await route.fetch();const body=await response.json();body.generation='0'.repeat(64);await route.fulfill({response,body:JSON.stringify(body)});});
+    await page.getByRole('button',{name:'New view at selected symbol',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('Index changed'));
+    await page.unroute('**/api/query');callsChecks.push('changed captured generation is rejected before scene publication');
+    let release,started;const waiting=new Promise(resolve=>{started=resolve;});const barrier=new Promise(resolve=>{release=resolve;});
+    await page.route('**/api/query',async route=>{const response=await route.fetch();started();await barrier;try{await route.fulfill({response});}catch{}});
+    await page.getByRole('button',{name:'Find symbols',exact:true}).click();await waiting;await page.getByRole('button',{name:'Cancel request',exact:true}).click();release();
+    await page.waitForTimeout(100);assert.match(await page.locator('.calls-status[role="status"]').innerText(),/Stopped waiting/);
+    assert.equal(await page.locator('.calls-matches button').count(),0);await page.unroute('**/api/query');callsChecks.push('cancelled browser request discards late actual backend response');
+    await find('view_entry');await page.setViewportSize({width:360,height:900});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.locator('.call-symbol').first().getByRole('button',{name:'Inspect declaration',exact:true}).focus();await page.keyboard.press('Enter');await page.locator('.call-evidence pre').waitFor();
+    await page.keyboard.press('Escape');assert.equal(await page.locator('.call-symbol').first().getByRole('button',{name:'Inspect declaration',exact:true}).evaluate(button=>button===document.activeElement),true);
+    callsChecks.push('360px Calls controls and keyboard source inspection');
+    if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-calls-narrow.png',fullPage:true});
+    await page.setViewportSize({width:1440,height:1000});if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-calls.png'});
+  }
   assert.deepEqual(errors,[]); assert.ok(loadMs<5000); checks.push('no browser errors; load under 5 seconds');
   if(process.env.REPO_GRAPH_UX_REPORT) {
-    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',reranker:method,loadMs,searchToGraphMs,systemMetrics,checks,browserErrors:errors},null,2)+'\n');
+    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',reranker:method,loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,callsResponses,browserErrors:errors},null,2)+'\n');
   }
-  console.log(JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,searchToGraphMs,systemMetrics,checks,browserErrors:errors}));
+  console.log(JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,browserErrors:errors}));
+} catch(error) {
+  if(process.env.REPO_GRAPH_UX_REPORT) {
+    writeFileSync(process.env.REPO_GRAPH_UX_REPORT+'-failure.json',JSON.stringify({checks,callsChecks,callsResponses,browserErrors:errors,failure:{name:error.name,message:error.message,stack:error.stack}},null,2)+'\n');
+    await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-failure.png',fullPage:true}).catch(()=>{});
+  }
+  throw error;
 } finally {
   await browser.close(); server.kill('SIGTERM'); await closed; rmSync(scratch,{recursive:true,force:true});
 }

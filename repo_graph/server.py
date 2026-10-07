@@ -5,6 +5,7 @@ import sqlite3
 from urllib.parse import urlsplit
 from threading import BoundedSemaphore
 from .source import SourceRoot
+from .search import CapturedSourceConflict
 
 
 class Server(ThreadingHTTPServer):
@@ -69,13 +70,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if not self.trusted(): self.respond(403, {'error':'Untrusted origin'}); return
-        if self.path not in ('/api/search', '/api/query'): self.respond(404, {'error':'Not found'}); return
+        if self.path not in ('/api/search', '/api/query', '/api/source'): self.respond(404, {'error':'Not found'}); return
         if self.headers.get('Content-Type') != 'application/json':
             self.respond(415, {'error':'Use application/json'}); return
         try:
             length = int(self.headers.get('Content-Length', '0'))
             if not 0 < length <= 8192: raise ValueError('Request must be 1–8192 bytes')
-            payload = json.loads(self.rfile.read(length))
+            body = self.rfile.read(length)
+            if self.path == '/api/source':
+                def unique(pairs):
+                    value = {}
+                    for key, item in pairs:
+                        if key in value: raise ValueError('Duplicate source request field')
+                        value[key] = item
+                    return value
+                payload = json.loads(body, object_pairs_hook=unique)
+                if self.headers.get('X-Repo-Graph-Output', self.server.engine.owner) != self.server.engine.owner:
+                    self.respond(409, {'error': 'Source server belongs to another output directory'}); return
+                from .search import captured_source, _evidence_encoded
+                result = captured_source(self.server.engine, payload)
+                self.respond(200, _evidence_encoded(result)); return
+            payload = json.loads(body)
             if self.path == '/api/query':
                 if self.headers.get('X-Repo-Graph-Output', self.server.engine.owner) != self.server.engine.owner:
                     self.respond(409, {'error': 'Query server belongs to another output directory'}); return
@@ -116,10 +131,14 @@ class Handler(BaseHTTPRequestHandler):
                 self.respond(200, encoded(result))
             else:
                 self.respond(200, result)
+        except CapturedSourceConflict:
+            self.respond(409, {'error': 'Captured source generation or output changed'})
+        except InterruptedError:
+            self.respond(503 if self.path == '/api/source' else 409, {'error': 'Captured request stopped; retry'})
         except OSError:
             self.respond(409, {'error': 'Index owner unavailable; reopen the original output'})
         except (ValueError, KeyError, TypeError, RuntimeError, sqlite3.Error) as error:
-            self.respond(400, {'error':str(error)})
+            self.respond(400, {'error': 'Invalid captured source request or evidence' if self.path == '/api/source' else str(error)})
 
 
 def create_server(engine, port=0, *, local_reranker=None, allow_jev=False):

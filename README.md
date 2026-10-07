@@ -221,6 +221,16 @@ centered, focused and named in the inspector; Escape closes details. Focus the
 canvas to pan with arrows, zoom with +/− or fit with F. Tabs also work with arrow
 keys. Narrow layouts stack controls and retain full component navigation.
 
+Calls uses the same captured structural queries as `repo-graph query`. Find a
+symbol by name prefix and source path, then inspect incoming or outgoing calls,
+expand a declaration, or open its captured source. Each scene contains at most
+24 declarations and physical callsites. Unknown callback and receiver targets
+remain unresolved; possible calls describe static analysis, without proving
+runtime execution. Source inspection checks snapshot, range and digest identity
+and returns bounded, redacted excerpts. Cancel stops the browser waiting and
+discards late responses; bounded server work may finish. Calls requires
+`repo-graph serve OUTPUT`; offline exports retain System and coverage.
+
 ### Optional reranking
 
 Jev can judge a shortlist in one batched request. It is disabled by default:

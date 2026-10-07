@@ -175,6 +175,78 @@ const RepoViews = (() => {
     }
     return {summary,details,errors,ready};
   }
-  return {metrics,ordered,layout,csv,systemOverview,indexStatus};
+  function sourceHandle(value) {
+    const span=value?.range;
+    if (typeof value?.id !== 'string' || !value.id || value.id.length>8192 ||
+        typeof value.path !== 'string' || !value.path || value.path.length>4096 ||
+        !/^[0-9a-f]{64}$/.test(value.source_sha256 || '') || !span ||
+        ['start_byte','end_byte','start_line','end_line'].some(key=>!Number.isSafeInteger(span[key])) ||
+        span.start_byte<0 || span.end_byte<span.start_byte || span.start_line<1 || span.end_line<span.start_line)
+      throw new Error('Invalid captured source handle');
+    return {id:value.id,path:value.path,range:{start_byte:span.start_byte,end_byte:span.end_byte,start_line:span.start_line,end_line:span.end_line},source_sha256:value.source_sha256};
+  }
+  function sameHandle(a,b) { return JSON.stringify(sourceHandle(a))===JSON.stringify(sourceHandle(b)); }
+  function queryPage(value,operation,seed=null,captured=null) {
+    for(const key of ['generation','repository_identity','source_identity','analyzer_identity']) {
+      if (!/^[0-9a-f]{64}$/.test(value?.[key] || '')) throw new Error('Query capture unavailable');
+      if (captured && value[key]!==captured[key]) throw new Error('Index changed; select a symbol again');
+    }
+    if (!Array.isArray(value.rows) || value.rows.length>8 || typeof value.truncated!=='boolean' ||
+        value.cursor!==null && !/^[0-9a-f]{64}$/.test(value.cursor || '') ||
+        !['exact','lower_bound','unknown'].includes(value.total_count?.kind) ||
+        !(Number.isSafeInteger(value.total_count.value) && value.total_count.value>=0 || value.total_count.kind==='unknown' && value.total_count.value===null) ||
+        value.stop_reason!=null && (typeof value.stop_reason!=='string' || !/^[a-z_]{1,128}$/.test(value.stop_reason))) throw new Error('Invalid bounded query page');
+    for(const row of value.rows) {
+      if(operation==='symbol') {
+        sourceHandle(row);
+        if(typeof row.name!=='string' || row.name.length>256) throw new Error('Invalid declaration');
+      } else {
+        sourceHandle(row.site);
+        if(row.site.role!=='call' || !['resolved','candidate','unresolved'].includes(row.certainty) ||
+            typeof row.targets_exhaustive!=='boolean' || typeof row.reason!=='string' || row.reason.length>256)
+          throw new Error('Invalid call occurrence');
+        for(const handle of [row.caller,row.target]) if(handle) sourceHandle(handle);
+        if((operation==='callers' ? row.target?.id : row.caller?.id)!==seed) throw new Error('Call seed mismatch');
+      }
+    }
+    return value;
+  }
+  function callScene(prior,page,seed) {
+    const handles=new Map((prior?.handles || [seed]).map(handle=>[handle.id,handle]));
+    const sites=new Map((prior?.sites || []).map(row=>[row.site.id,{...row,targets:[...row.targets]}]));
+    for(const row of page.rows) {
+      for(const handle of [row.caller,row.target]) if(handle) {
+        if(handles.has(handle.id) && !sameHandle(handles.get(handle.id),handle)) throw new Error('Changed source handle');
+        handles.set(handle.id,handle);
+      }
+      let site=sites.get(row.site.id);
+      if(site) {
+        if(!sameHandle(site.site,row.site) || site.certainty!==row.certainty || site.targets_exhaustive!==row.targets_exhaustive ||
+            site.reason!==row.reason || site.caller?.id!==row.caller?.id) throw new Error('Changed occurrence evidence');
+      } else {
+        site={site:row.site,caller:row.caller,targets:[],certainty:row.certainty,targets_exhaustive:row.targets_exhaustive,reason:row.reason,reason_truncated:row.reason_truncated};
+        sites.set(row.site.id,site);
+      }
+      if(row.target && !site.targets.some(target=>target.id===row.target.id)) site.targets.push(row.target);
+    }
+    if(handles.size+sites.size>24) throw new Error('24 element scene limit reached');
+    return {handles:[...handles.values()],sites:[...sites.values()]};
+  }
+  function sourceEvidence(value,handle,captured) {
+    if(value?.schema!=='captured-source-v1' || value.status!=='ok' || value.generation!==captured.generation ||
+        value.evidence_kind!=='static_syntax' || !sameHandle(value.handle,handle) ||
+        value.identities?.structural_generation!==captured.generation ||
+        ['repository_identity','source_identity','analyzer_identity'].some(key=>value.identities?.[key]!==captured[key]) ||
+        value.provenance?.source_sha256!==handle.source_sha256 || !/^[0-9a-f]{64}$/.test(value.raw_digest || '') ||
+        typeof value.text!=='string' || typeof value.redacted!=='boolean' || typeof value.truncated!=='boolean')
+      throw new Error('Source evidence identity mismatch');
+    const span=value.range;
+    if(!span || ['start_byte','end_byte','start_line','end_line'].some(key=>!Number.isSafeInteger(span[key])) ||
+        span.start_byte<handle.range.start_byte || span.end_byte>handle.range.end_byte || span.end_byte<span.start_byte ||
+        span.start_line<handle.range.start_line || span.end_line>handle.range.end_line || span.end_line<span.start_line)
+      throw new Error('Source excerpt range mismatch');
+    return value;
+  }
+  return {metrics,ordered,layout,csv,systemOverview,indexStatus,sourceHandle,queryPage,callScene,sourceEvidence};
 })();
 if (typeof module !== 'undefined') module.exports = RepoViews;

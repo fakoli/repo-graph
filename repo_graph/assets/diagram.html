@@ -65,6 +65,20 @@
   .search-result h2 { font:600 14px monospace; overflow-wrap:anywhere; margin:0 0 8px; }
   .search-result pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.6 monospace; color:#53607a; max-height:160px; overflow:auto; }
   .search-result button { border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:var(--accent-pale); }
+  .calls-panel { padding:20px; }
+  .calls-panel form,.calls-tools { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
+  .calls-panel label { display:grid; gap:5px; color:var(--muted); font-size:12px; min-width:0; flex:1; }
+  .calls-panel input,.calls-panel select,.calls-panel button { min-height:44px; min-width:0; max-width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  .calls-status { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+  .calls-matches { display:grid; gap:8px; margin:12px 0; }
+  .calls-matches button { text-align:left; overflow-wrap:anywhere; }
+  .calls-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+  .call-element { border:1px solid var(--line); border-radius:9px; background:#fff; padding:12px; margin:10px 0; height:220px; overflow:auto; overflow-wrap:anywhere; }
+  .call-element h3 { margin:0 0 7px; font-size:14px; }
+  .call-element p { margin:6px 0; font-size:12px; }
+  .call-element button { margin:4px 4px 0 0; color:#354bab; }
+  .call-evidence pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.5 monospace; max-height:320px; overflow:auto; }
+  @media (max-width:720px) { .calls-columns { grid-template-columns:1fr; } .calls-panel { padding:12px; } .calls-panel label { flex:1 1 100%; } }
   .data-panel[hidden] { display:none; }
   .data-panel table { border-collapse:collapse; width:100%; font-size:12px; }
   .data-panel th,.data-panel td { padding:12px; text-align:left; border-bottom:1px solid #e8ecf3; white-space:nowrap; }
@@ -191,9 +205,9 @@
       <h2 class="side-title">Explore the repository.</h2>
       <p class="side-copy">A grounded map of files and relationships. Select a component to follow its connections.</p>
       <section class="index-status" aria-labelledby="index-heading"><h3 id="index-heading">Index coverage</h3><div id="index-summary" role="status" aria-live="polite"></div><p id="index-errors" class="index-errors"></p><details><summary>Coverage and snapshot details</summary><ul id="index-details"></ul></details></section>
-      <div class="view-tabs" role="tablist" aria-label="Repository views"><button type="button" role="tab" id="tab-system" aria-selected="false">System</button><button type="button" role="tab" id="tab-explore" aria-selected="true">Explore</button><button type="button" role="tab" id="tab-data" aria-selected="false">Data</button><button type="button" role="tab" id="tab-search" aria-selected="false">Search</button></div>
+      <div class="view-tabs" role="tablist" aria-label="Repository views"><button type="button" role="tab" id="tab-system" aria-selected="false">System</button><button type="button" role="tab" id="tab-explore" aria-selected="true">Explore</button><button type="button" role="tab" id="tab-data" aria-selected="false">Data</button><button type="button" role="tab" id="tab-search" aria-selected="false">Search</button><button type="button" role="tab" id="tab-calls" aria-selected="false">Calls</button></div>
       <div class="view-options">
-        <label>View<select id="view-mode"><option value="system">System overview</option><option value="atlas" selected>Card diagram</option><option value="tree">Top-down tree</option><option value="radial">Radial map</option><option value="treemap">File-count treemap</option><option value="table">Data table</option><option value="matrix">Dependency matrix</option><option value="search">Repository search</option></select></label>
+        <label>View<select id="view-mode"><option value="system">System overview</option><option value="atlas" selected>Card diagram</option><option value="tree">Top-down tree</option><option value="radial">Radial map</option><option value="treemap">File-count treemap</option><option value="table">Data table</option><option value="matrix">Dependency matrix</option><option value="search">Repository search</option><option value="calls">Calls</option></select></label>
         <label>Sort<select id="sort-mode"><option value="name">Name</option><option value="files">Most files</option><option value="imports">Most imports</option></select></label>
         <label>Show<select id="kind-filter"><option value="all">Directories and files</option><option value="directory">Directories</option><option value="file">Files</option></select></label>
       </div>
@@ -262,8 +276,8 @@ __VIEW_HELPERS__
   }) : Promise.resolve(null);
 
   function renderScope() {
-    document.getElementById('workspace').classList.toggle('search-view',viewMode === 'search');
-    for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) {
+    document.getElementById('workspace').classList.toggle('search-view',['search','calls'].includes(viewMode));
+    for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-calls',viewMode === 'calls'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) {
       const tab = document.getElementById(id); tab.setAttribute('aria-selected',String(active)); tab.setAttribute('tabindex',active ? '0' : '-1'); tab.setAttribute('aria-controls','view-panel');
       if (active) document.getElementById('view-panel').setAttribute('aria-labelledby',id);
     }
@@ -271,10 +285,12 @@ __VIEW_HELPERS__
     document.getElementById('selection-location').hidden = true;
     document.getElementById('inspector').classList.remove('open');
     document.getElementById('inspector-toggle').setAttribute('aria-expanded','false');
-    document.getElementById('sort-mode').disabled = ['system','search'].includes(viewMode);
-    document.getElementById('kind-filter').disabled = ['system','search'].includes(viewMode);
-    document.getElementById('search').hidden = viewMode === 'search';
+    document.getElementById('sort-mode').disabled = ['system','search','calls'].includes(viewMode);
+    document.getElementById('kind-filter').disabled = ['system','search','calls'].includes(viewMode);
+    document.getElementById('search').hidden = ['search','calls'].includes(viewMode);
+    document.getElementById('data-panel').className='data-panel';
     if (viewMode === 'search') { renderSearch(); return; }
+    if (viewMode === 'calls') { renderCalls(); return; }
     if (viewMode === 'system') { renderSystem(); return; }
     document.getElementById('export-csv').disabled = false;
     const branch = data.tree[scopePath];
@@ -441,6 +457,159 @@ __VIEW_HELPERS__
 
   function layout() {
     positions = RepoViews.layout(parts,viewMode,links).boxes;
+  }
+
+  let callsState={lookup:null,matches:[],selected:null,captured:null,scene:null,branch:null,page:null,prefix:'',scope:'',size:8};
+  let callsUI=null,callsController=null,callsEpoch=0;
+  const callElement=(tag,text='',className='')=>{const el=document.createElement(tag);el.textContent=text;el.className=className;return el;};
+  const callButton=(text,action)=>{const button=callElement('button',text);button.type='button';button.addEventListener('click',action);return button;};
+  function stopCalls(announce=true) {
+    callsEpoch++; callsController?.abort(); callsController=null;
+    if(callsUI) {callsUI.cancel.disabled=true;if(announce)callsUI.status.textContent='Stopped waiting. Bounded server work may finish; late responses will not be shown.';}
+  }
+  async function callsJSON(response) {
+    const reader=response.body.getReader();let size=0,bytes=[];
+    try { while(true) {const next=await reader.read();if(next.done)break;size+=next.value.byteLength;
+      if(size>32768)throw new Error('Response exceeds the bounded page');bytes.push(next.value);} }
+    catch(error){await reader.cancel();throw error;}
+    if(!response.ok)throw new Error(response.status===409 ? 'Stale source or index; select a symbol again' : 'Captured query or source unavailable');
+    const result=new Uint8Array(size);let offset=0;for(const chunk of bytes){result.set(chunk,offset);offset+=chunk.length;}
+    try {return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(result));}
+    catch {throw new Error('Invalid bounded response');}
+  }
+  async function callsRequest(endpoint,payload,publish) {
+    stopCalls(false);const epoch=callsEpoch,controller=new AbortController();callsController=controller;
+    callsUI.cancel.disabled=false;callsUI.status.textContent='Reading bounded captured evidence…';
+    try {
+      const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal});
+      const result=await callsJSON(response);
+      if(epoch!==callsEpoch || viewMode!=='calls')return;
+      await publish(result,()=>epoch===callsEpoch && viewMode==='calls');
+    } catch(error) {
+      if(epoch===callsEpoch && viewMode==='calls')callsUI.status.textContent=error.name==='AbortError' ? 'Stopped waiting; late responses will not be shown.' : error.message;
+    } finally {if(epoch===callsEpoch){callsController=null;callsUI.cancel.disabled=true;}}
+  }
+  function callStatus(page) {
+    const count=page.total_count;
+    return `${page.rows.length} rows in this page · observed matches ${count.kind==='lower_bound' ? 'at least ' : ''}${count.value ?? 'unknown'} (${count.kind.replaceAll('_',' ')}) · ${page.truncated ? 'bounded continuation' : 'query complete'}${page.stop_reason ? ' · '+page.stop_reason.replaceAll('_',' ') : ''}`;
+  }
+  function callLimits(reset=false) {
+    const remaining=reset ? 23 : 24-(callsState.scene?.handles.length || 1)-(callsState.scene?.sites.length || 0);
+    const edges=Math.min(callsState.size,Math.max(1,remaining));
+    return {max_entities:Math.min(8,Math.max(1,remaining-edges+1)),max_edges:edges,max_response_bytes:32768,max_excerpt_bytes:0};
+  }
+  function showCallSource(handle,button) {
+    const captured=callsState.captured;
+    callsUI.evidence.hidden=true;callsUI.evidence.replaceChildren();
+    callsRequest('/api/source',{generation:captured.generation,handle:RepoViews.sourceHandle(handle),max_excerpt_bytes:4096},async(result,current)=>{
+      RepoViews.sourceEvidence(result,handle,captured);
+      if(new TextEncoder().encode(result.text).length>4096)throw new Error('Source excerpt exceeds requested budget');
+      if(!result.redacted) {
+        const raw=new TextEncoder().encode(result.text);
+        const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',raw))].map(x=>x.toString(16).padStart(2,'0')).join('');
+        if(digest!==result.raw_digest || raw.length!==result.range.end_byte-result.range.start_byte)throw new Error('Source excerpt digest mismatch');
+      }
+      if(!current())return;
+      const evidence=callsUI.evidence;evidence.replaceChildren();evidence.hidden=false;
+      const close=callButton('Close source',()=>{evidence.hidden=true;button.focus();});
+      evidence.append(close,callElement('h2',handle.path),callElement('p',`Static syntax · lines ${result.range.start_line}–${result.range.end_line} · ${result.redacted ? 'redacted; raw digest validated by captured index' : 'excerpt digest verified'}${result.truncated ? ' · excerpt truncated' : ''}`),
+        callElement('p',`Source SHA256: ${handle.source_sha256}`),callElement('p',`Excerpt SHA256: ${result.raw_digest}`),callElement('pre',result.text));
+      evidence.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();evidence.hidden=true;button.focus();}};
+      close.focus();close.scrollIntoView({block:'nearest'});callsUI.status.textContent='Captured source inspected; source handle and snapshot identities verified.';
+    });
+  }
+  function showCallScene(reset=false) {
+    const scene=callsState.scene;if(!scene)return;
+    if(reset){callsUI.symbols.replaceChildren();callsUI.sites.replaceChildren();}
+    for(const handle of scene.handles) {
+      if([...callsUI.symbols.children].some(card=>card.dataset.id===handle.id))continue;
+      const card=callElement('article','','call-element call-symbol');card.dataset.id=handle.id;
+      card.append(callElement('h3',handle.name || handle.id),callElement('p',`${handle.path}:${handle.range.start_line}–${handle.range.end_line}`));
+      const inspect=callButton('Inspect declaration',()=>showCallSource(handle,inspect));
+      const expand=callButton('Expand outgoing',()=>loadCalls(handle,'callees',null,false));
+      const incoming=callButton('Expand incoming',()=>loadCalls(handle,'callers',null,false));
+      const start=callButton('New view here',()=>chooseCallSymbol(handle,callsState.captured));
+      card.append(inspect,expand,incoming,start);callsUI.symbols.appendChild(card);
+    }
+    for(const row of scene.sites) {
+      let card=[...callsUI.sites.children].find(card=>card.dataset.id===row.site.id);
+      if(!card){card=callElement('article','','call-element call-site');card.dataset.id=row.site.id;callsUI.sites.appendChild(card);}
+      // Fixed-height keyed cards keep earlier positions stable as alternative targets arrive.
+      const focused=document.activeElement?.dataset?.site===row.site.id;
+      card.replaceChildren(callElement('h3',`${row.certainty} callsite · ${row.site.path}:${row.site.range.start_line}`),
+        callElement('p',`${row.caller?.name || 'Unknown caller'} → ${row.targets.map(handle=>handle.name || handle.id).join(' / ') || 'Unresolved target'}`),
+        callElement('p',`Targets ${row.targets_exhaustive ? 'reported exhaustive' : 'not exhaustive'} in static analysis. ${row.reason || 'No resolution explanation supplied.'}${row.reason_truncated ? ' (reason truncated)' : ''}`));
+      const inspect=callButton('Inspect callsite',()=>showCallSource(row.site,inspect));inspect.dataset.site=row.site.id;
+      card.append(inspect);if(focused)inspect.focus({preventScroll:true});
+    }
+    const size=scene.handles.length+scene.sites.length;
+    callsUI.capture.textContent=`${size} / 24 elements · static syntax · snapshot ${callsState.captured.generation} · analyzer ${callsState.captured.analyzer_identity}`;
+    callsUI.more.disabled=!callsState.page?.cursor;
+    callsUI.more.textContent=size>=23 || callsState.page?.rows.length===0 ? 'Next page (replace scene)' : 'More callsites';
+  }
+  function loadCalls(seed,operation,cursor=null,reset=false) {
+    const size=(callsState.scene?.handles.length || 1)+(callsState.scene?.sites.length || 0);
+    if(!reset && size>=24){callsUI.status.textContent='24 element limit reached. Start a new view to expand this symbol.';return;}
+    const captured=callsState.captured;
+    callsUI.evidence.hidden=true;callsUI.evidence.replaceChildren();
+    const payload={operation,seed:seed.id,depth:1,prefix:'',scope:'',role:'call',limits:callLimits(reset)};
+    if(cursor)payload.cursor=cursor;
+    callsRequest('/api/query',payload,page=>{
+      RepoViews.queryPage(page,operation,seed.id,captured);
+      const scene=RepoViews.callScene(reset ? null : callsState.scene,page,seed);
+      callsState.scene=scene;callsState.branch={seed,operation};callsState.page=page;
+      showCallScene(reset);callsUI.status.textContent=callStatus(page);callsUI.matches.replaceChildren();callsUI.moreMatches.disabled=true;
+    });
+  }
+  function chooseCallSymbol(handle,captured) {
+    callsUI.evidence.hidden=true;callsUI.evidence.replaceChildren();
+    callsState.selected=handle;callsState.captured=captured;callsState.scene={handles:[handle],sites:[]};callsState.page=null;
+    callsUI.matches.replaceChildren();showCallScene(true);loadCalls(handle,callsUI.direction.value);
+  }
+  function findCallSymbols(cursor=null) {
+    callsUI.evidence.hidden=true;callsUI.evidence.replaceChildren();
+    const query={operation:'symbol',seed:null,depth:1,prefix:callsState.prefix,scope:callsState.scope,role:'call',limits:{max_entities:8,max_edges:8,max_response_bytes:32768,max_excerpt_bytes:0}};
+    if(cursor)query.cursor=cursor;
+    callsRequest('/api/query',query,page=>{
+      RepoViews.queryPage(page,'symbol',null,cursor ? callsState.lookup : null);
+      callsState.lookup=page;callsState.matches=page.rows;callsUI.matches.replaceChildren();
+      for(const handle of page.rows)callsUI.matches.appendChild(callButton(`${handle.name} · ${handle.path}:${handle.range.start_line}`,()=>chooseCallSymbol(handle,page)));
+      callsUI.moreMatches.disabled=!page.cursor;callsUI.status.textContent=callStatus(page);
+      // Symbol selection and a call scene are separate bounded pages.
+      callsState.scene=null;callsState.selected=null;callsState.captured=null;callsState.branch=null;callsState.page=null;
+      callsUI.symbols.replaceChildren();callsUI.sites.replaceChildren();callsUI.more.disabled=true;callsUI.capture.textContent='Select one declaration to inspect its calls.';
+    });
+  }
+  function renderCalls() {
+    selected=null;parts=[];links=[];scopeEntries=[];renderInspector();
+    document.getElementById('map-title').textContent='Calls from captured source';
+    document.getElementById('map-subtitle').textContent='Static possible calls with source evidence. Unknown targets remain explicit; these are not runtime executions.';
+    renderBreadcrumb(true);svg.style.display='none';document.querySelector('.controls').style.display='none';document.querySelector('.legend').style.display='none';document.querySelector('.stage-hint').style.display='none';
+    for(const id of ['up','previous','next','export-svg','export-csv'])document.getElementById(id).disabled=true;
+    document.getElementById('component-list').replaceChildren();
+    const panel=document.getElementById('data-panel');panel.replaceChildren();panel.hidden=false;panel.className='data-panel calls-panel';
+    if(!online){panel.appendChild(callElement('p','Calls require the local structural index through repo-graph serve. Offline exports retain the captured coverage and System overview.','calls-status'));return;}
+    const form=callElement('form'),prefix=callElement('input'),scope=callElement('input');prefix.value=callsState.prefix;scope.value=callsState.scope;prefix.maxLength=256;scope.maxLength=4096;
+    prefix.setAttribute('aria-label','Symbol name prefix');scope.setAttribute('aria-label','Symbol path scope');
+    for(const [label,input] of [['Symbol name prefix',prefix],['Symbol path scope',scope]]){const field=callElement('label',label);field.appendChild(input);form.appendChild(field);}
+    const submit=callElement('button','Find symbols');submit.type='submit';form.appendChild(submit);
+    const cancel=callButton('Cancel request',()=>stopCalls());cancel.disabled=true;form.appendChild(cancel);
+    const status=callElement('p','Find declarations by exact name prefix and optional source path.','calls-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+    const matches=callElement('div','','calls-matches'),moreMatches=callButton('More symbols',()=>findCallSymbols(callsState.lookup?.cursor));moreMatches.disabled=true;
+    const tools=callElement('div','','calls-tools'),direction=callElement('select');direction.setAttribute('aria-label','Call direction');
+    for(const [value,label] of [['callees','Outgoing calls'],['callers','Incoming calls']]){const option=callElement('option',label);option.value=value;direction.appendChild(option);}direction.value=callsState.branch?.operation || 'callees';
+    const size=callElement('select');size.setAttribute('aria-label','Callsite rows per page');for(const n of [1,4,8]){const option=callElement('option',String(n));option.value=String(n);size.appendChild(option);}size.value=String(callsState.size);
+    for(const [label,control] of [['Direction',direction],['Rows per page',size]]){const field=callElement('label',label);field.appendChild(control);tools.appendChild(field);}
+    const more=callButton('More callsites',()=>{const branch=callsState.branch;if(branch && callsState.page?.cursor)loadCalls(branch.seed,branch.operation,callsState.page.cursor,((callsState.scene?.handles.length || 0)+(callsState.scene?.sites.length || 0))>=23 || callsState.page.rows.length===0);});more.disabled=true;
+    const start=callButton('New view at selected symbol',()=>{if(callsState.selected)chooseCallSymbol(callsState.selected,callsState.captured);});tools.append(more,start);
+    const capture=callElement('p','','calls-status'),columns=callElement('div','','calls-columns'),symbolColumn=callElement('div'),siteColumn=callElement('div'),symbols=callElement('div'),sites=callElement('div');
+    symbolColumn.append(callElement('h2','Declarations'),symbols);siteColumn.append(callElement('h2','Physical callsites'),sites);columns.append(symbolColumn,siteColumn);
+    const evidence=callElement('section','','call-evidence');evidence.hidden=true;panel.append(form,status,matches,moreMatches,tools,capture,evidence,columns);
+    callsUI={panel,status,matches,moreMatches,direction,cancel,more,capture,symbols,sites,evidence};
+    form.addEventListener('submit',event=>{event.preventDefault();callsState.prefix=prefix.value.trim();callsState.scope=scope.value.trim();findCallSymbols();});
+    direction.addEventListener('change',()=>{if(callsState.selected){callsState.scene={handles:[callsState.selected],sites:[]};loadCalls(callsState.selected,direction.value,null,true);}});
+    size.addEventListener('change',()=>{callsState.size=Number(size.value);if(callsState.selected)chooseCallSymbol(callsState.selected,callsState.captured);});
+    if(callsState.scene)showCallScene(true);
   }
 
   function renderSystem() {
@@ -685,6 +854,7 @@ __VIEW_HELPERS__
   document.getElementById('zoom-out').addEventListener('click',() => zoom(1/1.2));
   document.getElementById('fit').addEventListener('click',fit);
   function changeView(mode) {
+    if(viewMode==='calls' && mode!=='calls') stopCalls(false);
     if (viewMode === 'search' && mode !== 'search') searchRequest++;
     if (mode === 'system' || viewMode === 'system') { query = ''; page = 0; document.getElementById('search').value = ''; }
     viewMode = mode; document.getElementById('view-mode').value = mode; renderScope();
@@ -692,7 +862,7 @@ __VIEW_HELPERS__
   document.getElementById('view-mode').addEventListener('change',event => changeView(event.target.value));
   document.getElementById('sort-mode').addEventListener('change',event => { sortMode = event.target.value; page = 0; renderScope(); });
   document.getElementById('kind-filter').addEventListener('change',event => { kindFilter = event.target.value; page = 0; renderScope(); });
-  for (const [id,mode] of [['tab-system','system'],['tab-explore','atlas'],['tab-data','table'],['tab-search','search']]) document.getElementById(id).addEventListener('click',() => changeView(mode));
+  for (const [id,mode] of [['tab-system','system'],['tab-explore','atlas'],['tab-data','table'],['tab-search','search'],['tab-calls','calls']]) document.getElementById(id).addEventListener('click',() => changeView(mode));
   document.querySelector('.view-tabs').addEventListener('keydown',event => {
     if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
     event.preventDefault(); const tabs = [...document.querySelectorAll('.view-tabs button')], index = tabs.indexOf(document.activeElement);
@@ -711,7 +881,7 @@ __VIEW_HELPERS__
   function closeInspector() { document.getElementById('inspector').classList.remove('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded','false'); if (inspectorReturnFocus?.isConnected) inspectorReturnFocus.focus({preventScroll:true}); }
   document.getElementById('inspector-toggle').addEventListener('click',() => { const open = document.getElementById('inspector').classList.toggle('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded',String(open)); if (open) { inspectorReturnFocus = document.activeElement; document.getElementById('close-inspector').focus(); } else closeInspector(); });
   document.getElementById('close-inspector').addEventListener('click',closeInspector);
-  document.addEventListener('keydown',event => { if (event.key === 'Escape' && window.innerWidth <= 1100) closeInspector(); });
+  document.addEventListener('keydown',event => { if (event.key === 'Escape' && !event.defaultPrevented && window.innerWidth <= 1100) closeInspector(); });
   document.getElementById('previous').addEventListener('click',() => { page--; renderScope(); });
   document.getElementById('next').addEventListener('click',() => { page++; renderScope(); });
   document.getElementById('export-svg').addEventListener('click',() => { const clone = svg.cloneNode(true); clone.setAttribute('xmlns',svgNS); clone.setAttribute('width',String(svg.clientWidth)); clone.setAttribute('height',String(svg.clientHeight)); const styles = document.createElementNS(svgNS,'style'); styles.textContent = [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules].map(rule => rule.cssText); } catch { return []; } }).join('\n'); clone.insertBefore(styles,clone.firstChild); const blob = new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${data.name}-${graphMode ? 'dependencies' : 'architecture'}.svg`; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000); });

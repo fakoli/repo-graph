@@ -20,6 +20,163 @@ from repo_graph import source as source_module
 
 
 class SearchTests(unittest.TestCase):
+    def test_captured_source_exact_handles_utf8_redaction_and_byte_caps(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        import hashlib
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph import analysis_native
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir()
+            secret = 'sk-' + 'SyntheticOnlyToken0123456789'
+            text = f'def café():\n    return unknown("{secret}", "é")\n'
+            text += 'def long():\n    return "' + 'é' * 5000 + '"\n'
+            text += 'def private():\n    return "-----BEGIN PRIVATE KEY-----"\n'
+            (root / 'main.py').write_text(text)
+            index = StructuralIndex(root, out); receipt = index.refresh(['main.py'])
+            self.assertEqual(receipt['status'], 'ready', receipt)
+            definitions, sites = index.read_facts('definitions'), index.read_facts('sites')
+            def handle(row):
+                return {key: row[key] for key in ('id', 'path', 'range')} | {'source_sha256': row['provenance']['source_sha256']}
+            declaration = next(row for row in definitions if row['name'] == 'café')
+            site = next(row for row in sites if row['role'] == 'call')
+            large = next(row for row in definitions if row['name'] == 'long')
+            private = next(row for row in definitions if row['name'] == 'private')
+            engine = search.Search(out)
+            self.addCleanup(engine.close)
+            before = (out / 'search.db').read_bytes()
+            (root / 'main.py').unlink()  # Inspection remains captured, even without live source.
+            forbidden = AssertionError('Source inspection must not scan, parse, use Git, or initialize a model')
+            with patch.object(SourceRoot, 'read', side_effect=forbidden), \
+                    patch.object(StructuralIndex, 'refresh', side_effect=forbidden), \
+                    patch.object(analysis_native, 'backend', side_effect=forbidden), \
+                    patch.object(search.Embeddings, '__init__', side_effect=forbidden), \
+                    patch.object(subprocess, 'run', side_effect=forbidden):
+                for row in (declaration, site):
+                    response = search.captured_source(engine, {'generation': receipt['generation'], 'handle': handle(row)})
+                    self.assertEqual(response['handle'], handle(row))
+                    self.assertEqual(response['identities']['structural_generation'], receipt['generation'])
+                    self.assertEqual(response['source_sha256'], hashlib.sha256(text.encode()).hexdigest())
+                    self.assertEqual(response['file_bytes'], len(text.encode()))
+                    self.assertEqual(response['range'], row['range'])
+                    self.assertEqual(response['raw_digest'], hashlib.sha256(row['text'].encode()).hexdigest())
+                    self.assertEqual(response['evidence_kind'], 'static_syntax')
+                    self.assertTrue(response['redacted']); self.assertFalse(response['truncated'])
+                    self.assertIn('[redacted]', response['text'])
+                    self.assertNotIn(secret, search._evidence_encoded(response).decode())
+                    self.assertLessEqual(len(search._evidence_encoded(response)), 32768)
+                self.assertEqual(response['kind'], 'callsite')
+                self.assertEqual(response['certainty'], 'unresolved')
+                self.assertFalse(response['targets_exhaustive'])
+                self.assertEqual(response['reason'], site['reason'])
+                default = search.captured_source(engine, {'generation': receipt['generation'], 'handle': handle(large)})
+                self.assertTrue(default['truncated']); self.assertEqual(default['budgets']['max_excerpt_bytes'], 4096)
+                for maximum in (0, 1, 24, 4096, 8192):
+                    response = search.captured_source(engine, {'generation': receipt['generation'],
+                        'handle': handle(large), 'max_excerpt_bytes': maximum})
+                    raw = text.encode()[response['range']['start_byte']:response['range']['end_byte']]
+                    self.assertEqual(response['text'], raw.decode('utf-8'))
+                    self.assertEqual(response['raw_digest'], hashlib.sha256(raw).hexdigest())
+                    self.assertLessEqual(len(response['text'].encode()), maximum)
+                    self.assertFalse(response['redacted']); self.assertTrue(response['truncated'])
+                with self.assertRaisesRegex(ValueError, 'Private key'):
+                    search.captured_source(engine, {'generation': receipt['generation'], 'handle': handle(private)})
+            self.assertEqual((out / 'search.db').read_bytes(), before)
+
+    def test_captured_source_refuses_forgery_stale_capture_and_stored_digest_drift(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        from repo_graph.analysis import StructuralIndex
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir()
+            (root / 'main.py').write_text('def start():\n    missing()\n')
+            index = StructuralIndex(root, out); receipt = index.refresh(['main.py'])
+            self.assertEqual(receipt['status'], 'ready', receipt)
+            row = next(index.read_facts('sites'))
+            handle = {key: row[key] for key in ('id', 'path', 'range')} | {'source_sha256': row['provenance']['source_sha256']}
+            request = {'generation': receipt['generation'], 'handle': handle}
+            engine = search.Search(out); self.addCleanup(engine.close)
+            invalid = [[], dict(request, extra=True), dict(request, max_excerpt_bytes=True),
+                dict(request, max_excerpt_bytes=-1), dict(request, max_excerpt_bytes=8193),
+                dict(request, handle=dict(handle, extra=True)),
+                dict(request, handle=dict(handle, id='unknown.py:0:1:call')),
+                dict(request, handle=dict(handle, path='other.py')),
+                dict(request, handle=dict(handle, path='../main.py')),
+                dict(request, handle=dict(handle, source_sha256='0' * 64)),
+                dict(request, handle=dict(handle, range=dict(handle['range'], start_line=999))),
+                dict(request, handle=dict(handle, range=dict(handle['range'], start_byte=True)))]
+            for values in invalid:
+                with self.subTest(values=values), self.assertRaises(ValueError): search.captured_source(engine, values)
+            with self.assertRaises(search.CapturedSourceConflict):
+                search.captured_source(engine, dict(request, generation='0' * 64))
+            with self.assertRaises(InterruptedError): search.captured_source(engine, request, cancel=lambda: True)
+            clock = [0.0]; original_connect = engine.connect
+            def slow_open(**kwargs):
+                db = original_connect(**kwargs); clock[0] = .6; return db
+            with patch.object(search.time, 'monotonic', side_effect=lambda: clock[0]), \
+                    patch.object(engine, 'connect', side_effect=slow_open), self.assertRaises(InterruptedError):
+                search.captured_source(engine, request)
+            # The handle must still agree with both the stored member and file digest.
+            with closing(search.connect(out)) as db, db:
+                stored = json.loads(db.execute('SELECT data FROM structural_sites WHERE id=?', (row['id'],)).fetchone()[0])
+                stored['provenance']['source_sha256'] = '0' * 64
+                db.execute('UPDATE structural_sites SET data=? WHERE id=?', (json.dumps(stored), row['id']))
+            with self.assertRaisesRegex(ValueError, 'source handle'):
+                search.captured_source(engine, request)
+            with closing(search.connect(out)) as db, db:
+                db.execute('UPDATE structural_sites SET data=? WHERE id=?', (json.dumps(row), row['id']))
+                record = json.loads(db.execute('SELECT record FROM structural_files WHERE path=?', ('main.py',)).fetchone()[0])
+                record['sha256'] = '1' * 64
+                db.execute('UPDATE structural_files SET record=? WHERE path=?', (json.dumps(record), 'main.py'))
+            with self.assertRaisesRegex(ValueError, 'source handle'):
+                search.captured_source(engine, request)
+
+    def test_captured_source_http_acceptance_and_refusal_guards(self):
+        from tests.test_analysis import AVAILABLE
+        if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')
+        from repo_graph.analysis import StructuralIndex
+        with tempfile.TemporaryDirectory() as scratch:
+            root, out = Path(scratch) / 'source', Path(scratch) / 'out'; root.mkdir()
+            (root / 'main.py').write_text('def start():\n    missing()\n')
+            index = StructuralIndex(root, out); receipt = index.refresh(['main.py'])
+            self.assertEqual(receipt['status'], 'ready', receipt)
+            row = next(index.read_facts('definitions'))
+            handle = {key: row[key] for key in ('id', 'path', 'range')} | {'source_sha256': row['provenance']['source_sha256']}
+            payload = dict(generation=receipt['generation'], handle=handle)
+            with create_server(search.Search(out)) as server:
+                thread = threading.Thread(target=server.serve_forever, kwargs={'poll_interval': .01}); thread.start()
+                url = f'http://127.0.0.1:{server.server_port}/api/source'
+                def post(values, headers=None):
+                    return urlopen(Request(url, values if isinstance(values, bytes) else search._evidence_encoded(values),
+                        headers={'Content-Type': 'application/json', **(headers or {})}))
+                try:
+                    with post(payload) as response:
+                        raw = response.read(); observed = json.loads(raw)
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(response.headers['Cache-Control'], 'no-store')
+                    self.assertEqual(observed['handle'], handle)
+                    self.assertEqual(observed['text'], row['text'])
+                    self.assertLessEqual(len(raw), 32768)
+                    failures = [
+                        (dict(payload, generation='0' * 64), {}, 409),
+                        (dict(payload, handle=dict(handle, source_sha256='f' * 64)), {}, 400),
+                        (dict(payload, max_excerpt_bytes=8193), {}, 400),
+                        (dict(payload, unknown=True), {}, 400),
+                        (payload, {'X-Repo-Graph-Output': '0' * 64}, 409),
+                        (payload, {'Origin': 'https://untrusted.invalid'}, 403),
+                        (payload, {'Host': 'untrusted.invalid'}, 403),
+                        (payload, {'Content-Type': 'text/plain'}, 415),
+                        (b' ' * 8193, {}, 400),
+                        (b'{"generation":"x","generation":"y","handle":{}}', {}, 400)]
+                    for values, headers, code in failures:
+                        with self.subTest(code=code, headers=headers), self.assertRaises(HTTPError) as caught:
+                            post(values, headers)
+                        self.assertEqual(caught.exception.code, code); caught.exception.close()
+                    with patch.object(search, 'captured_source', side_effect=InterruptedError('synthetic stop')):
+                        with self.assertRaises(HTTPError) as caught: post(payload)
+                        self.assertEqual(caught.exception.code, 503); caught.exception.close()
+                finally: server.shutdown(); thread.join()
+
     def test_function_evidence_preserves_multilanguage_ranges_and_nested_members(self):
         from tests.test_analysis import AVAILABLE
         if not AVAILABLE: self.skipTest('Optional analysis extra is not installed')

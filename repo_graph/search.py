@@ -1401,6 +1401,150 @@ def _function_excerpt(raw, spans, maximum):
     return clipped(low)
 
 
+class CapturedSourceConflict(ValueError):
+    """The caller's captured generation or output owner no longer matches."""
+
+
+def captured_source(engine, request, *, cancel=None):
+    """Inspect one admitted captured member, without opening its source file.
+
+    Storage setup, targeted SQL and cooperative validation share a .5s deadline.
+    The captured JSON has the same finite validation ceiling as function evidence;
+    blocking filesystem/SQLite calls cannot be interrupted by this deadline.
+    """
+    started = time.monotonic()
+    from .analysis_queries import SQLSnapshot
+    if (type(request) is not dict or set(request) - {'generation', 'handle', 'max_excerpt_bytes'} or
+            not {'generation', 'handle'} <= set(request)):
+        raise ValueError('Exact captured source request required')
+    _hash(request['generation'])
+    handle = request['handle']
+    if type(handle) is not dict or set(handle) != {'id', 'path', 'range', 'source_sha256'}:
+        raise ValueError('Exact captured source handle required')
+    _string(handle['id'], 8192); _string(handle['path'], 4096)
+    try: SourceRoot.parts(handle['path'])
+    except OSError as error: raise ValueError('Invalid captured source path') from error
+    _hash(handle['source_sha256']); _function_range(handle['range'])
+    if set(handle['range']) != {'start_byte', 'end_byte', 'start_line', 'end_line'}:
+        raise ValueError('Exact captured source range required')
+    maximum = request.get('max_excerpt_bytes', 4096)
+    limits = EvidenceLimits(max_entities=1, max_excerpt_bytes=maximum)
+    if cancel is not None and not callable(cancel): raise ValueError('Callable source cancellation required')
+    stopped = None
+
+    def check():
+        nonlocal stopped
+        if stopped is None and cancel is not None and cancel(): stopped = 'Captured source cancelled'
+        if stopped is None and time.monotonic() - started >= limits.timeout_seconds:
+            stopped = 'Captured source deadline exceeded'
+        if stopped is not None: raise InterruptedError(stopped)
+
+    def progress():
+        try: check(); return 0
+        except InterruptedError: return 1
+
+    check()
+    try: db = engine.connect(check=check)
+    except RuntimeError as error:
+        raise CapturedSourceConflict('Captured output owner changed') from error
+    with closing(db):
+        db.set_progress_handler(progress, 64); db.execute('BEGIN')
+        def read(sql, parameters=()):
+            check()
+            try: rows = db.execute(sql, parameters).fetchall()
+            except sqlite3.Error:
+                check(); raise
+            check(); return rows
+        keys = (*FUNCTION_META.values(), 'structural_schema', 'structural_receipt', 'repository')
+        meta = dict(read('SELECT key,substr(value,1,?) FROM meta WHERE key IN (' +
+            ','.join('?' for _ in keys) + ')', (ATTEMPT_BYTES + 1, *keys)))
+        check()
+        if any(type(value) is not str or len(value.encode()) > ATTEMPT_BYTES for value in meta.values()):
+            raise ValueError('Captured source metadata exceeds its bound')
+        _function_foundation(meta)
+        identities = _function_identities({key: meta.get(value) for key, value in FUNCTION_META.items()})
+        if meta.get('repository') not in (None, identities['repository_identity']):
+            raise ValueError('Foreign captured repository')
+        if identities['structural_generation'] != request['generation']:
+            raise CapturedSourceConflict('Captured source generation changed')
+        # Two primary-key probes in one statement; never enumerate a graph or file.
+        rows = read('''SELECT 'declaration' AS member_kind,s.id,s.path,NULL AS role,
+            substr(CAST(s.data AS BLOB),1,8388609) AS data,
+            substr(CAST(f.record AS BLOB),1,32769) AS file_record,f.status
+            FROM structural_symbols s JOIN structural_files f ON f.path=s.path WHERE s.id=?
+            UNION ALL SELECT 'callsite',s.id,s.path,s.role,
+            substr(CAST(s.data AS BLOB),1,8388609),substr(CAST(f.record AS BLOB),1,32769),f.status
+            FROM structural_sites s JOIN structural_files f ON f.path=s.path WHERE s.id=? LIMIT 2''',
+            (handle['id'], handle['id']))
+        check()
+        if len(rows) != 1: raise ValueError('Unknown or ambiguous captured source handle')
+        row = rows[0]
+        if len(row['data']) > 8388608 or len(row['file_record']) > 32768:
+            raise ValueError('Captured source exceeds its validation bound')
+        item, record = json.loads(row['data']), json.loads(row['file_record']); check()
+        _required(item, 'id path language text range provenance')
+        _required(record, 'path sha256 bytes language kind'); _count(record['bytes'])
+        provenance = item['provenance']
+        if type(provenance) is not dict or type(item['text']) is not str:
+            raise ValueError('Typed captured source required')
+        captured = SQLSnapshot._source_handle(dict(id=row['id'], path=row['path'],
+            span=json.dumps(item['range']), span_type='object' if type(item['range']) is dict else None,
+            digest=provenance.get('source_sha256'), file_digest=record['sha256']))
+        if (captured != handle or item['id'] != row['id'] or item['path'] != row['path'] or
+                record['path'] != row['path'] or record['kind'] != 'source' or
+                row['status'] not in ('parsed', 'partial_parse') or item['language'] != record['language'] or
+                provenance.get('evidence_kind') != 'static_syntax' or
+                provenance.get('rule_version') != _json_record(meta['structural_receipt'])['versions']['rules']):
+            raise ValueError('Captured member/source affinity differs')
+        if item['language'] not in ('python', 'go', 'javascript', 'typescript'):
+            raise ValueError('Unsupported captured source language')
+        _string(provenance.get('syntax_kind'))
+        certainty, exhaustive, reason = None, None, ''
+        expected_id = f"{row['path']}:{handle['range']['start_byte']}:{handle['range']['end_byte']}"
+        if row['member_kind'] == 'callsite':
+            certainty, exhaustive, reason = item.get('certainty'), item.get('targets_exhaustive'), item.get('reason')
+            if (row['role'] not in ('call', 'reference') or item.get('role') != row['role'] or
+                    certainty not in ('resolved', 'candidate', 'unresolved') or type(exhaustive) is not bool):
+                raise ValueError('Invalid captured source occurrence')
+            if type(reason) is not str or len(reason.encode()) > 4096:
+                raise ValueError('Bounded captured reason required')
+            expected_id += ':' + row['role']
+        else:
+            _string(item.get('kind'))
+        if row['id'] != expected_id: raise ValueError('Captured source ID differs from its range')
+        raw = item['text'].encode('utf-8'); span = handle['range']; check()
+        if (len(raw) != span['end_byte'] - span['start_byte'] or span['end_byte'] > record['bytes'] or
+                span['end_line'] != _function_end_line(span['start_line'], raw)):
+            raise ValueError('Captured source text/range differs')
+        if 'PRIVATE KEY-----' in item['text']: raise ValueError('Private key source is excluded')
+        redactions = _redaction_spans(item['text']); check()
+        end, text = _function_excerpt(raw, redactions, maximum); check()
+        # Return only bounded syntax provenance, never arbitrary stored strings.
+        public_provenance = {key: provenance[key] for key in ('source_sha256', 'rule_version', 'syntax_kind', 'evidence_kind')}
+        for key in ('binding_scope', 'active_build_qualified', 'runtime_qualified', 'mvs_qualified'):
+            if key in provenance:
+                value = provenance[key]
+                if key == 'binding_scope': _string(value, 128)
+                elif type(value) is not bool: raise ValueError('Typed captured qualification required')
+                public_provenance[key] = value
+        safe_reason = SECRET.sub('[redacted]', reason)
+        safe_provenance = {key: SECRET.sub('[redacted]', value) if type(value) is str and key != 'source_sha256' else value
+                           for key, value in public_provenance.items()}
+        result = dict(schema='captured-source-v1', status='ok', generation=request['generation'],
+            handle=captured, identities=identities, evidence_kind='static_syntax', kind=row['member_kind'],
+            language=item['language'], extraction_state=row['status'], role=row['role'],
+            certainty=certainty, targets_exhaustive=exhaustive, reason=safe_reason,
+            provenance=safe_provenance, source_sha256=record['sha256'], file_bytes=record['bytes'], text=text,
+            range=dict(start_byte=span['start_byte'], end_byte=span['start_byte'] + end,
+                       start_line=span['start_line'], end_line=_function_end_line(span['start_line'], raw[:end])),
+            raw_digest=hashlib.sha256(raw[:end]).hexdigest(), redacted=bool(redactions), truncated=end < len(raw),
+            budgets=dict(max_excerpt_bytes=maximum, max_response_bytes=32768, timeout_seconds=.5),
+            storage=dict(elapsed_seconds=round(time.monotonic() - started, 6)))
+        if len(_evidence_encoded(result)) > limits.max_response_bytes:
+            raise ValueError('Captured source response exceeds its byte bound')
+        check(); return result
+
+
 def _function_results(rows, scores, check):
     groups = []
     for row in sorted(rows, key=lambda row: (row['path'], row['file_sha256'], row['start_byte'], -row['end_byte'], row['symbol_id'])):

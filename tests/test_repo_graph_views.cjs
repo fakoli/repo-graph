@@ -86,6 +86,40 @@ assert.match(views.indexStatus({status:'bounded_stop'}).errors.join(' '),/storag
 assert.match(flatten(views.indexStatus(null)),/coverage unavailable/);
 console.log('Captured status, unknown freshness, failure privacy and bounded truthful System counts passed');
 
+const capture={generation:'a'.repeat(64),repository_identity:'b'.repeat(64),source_identity:'c'.repeat(64),analyzer_identity:'d'.repeat(64)};
+const handle=id=>({id,name:id,path:'calls.py',range:{start_byte:0,end_byte:10,start_line:1,end_line:1},source_sha256:'e'.repeat(64)});
+const entry=handle('entry'),leaf=handle('leaf'),other=handle('other');
+const call=(id,target=leaf,certainty='resolved')=>({site:{...handle(id),role:'call'},caller:entry,target,certainty,targets_exhaustive:certainty==='resolved',reason:certainty==='unresolved' ? 'callback targets not enumerated' : 'source binding'});
+const page=rows=>({...capture,rows,truncated:false,cursor:null,total_count:{kind:'exact',value:rows.length}});
+views.queryPage(page([entry]),'symbol');
+views.queryPage(page([call('one')]),'callees',entry.id,capture);
+const initial=views.callScene(null,page([call('one')]),entry);
+const expanded=views.callScene(initial,page([call('two',null,'unresolved')]),entry);
+assert.deepEqual(expanded.handles.map(row=>row.id),['entry','leaf']);
+assert.deepEqual(expanded.sites.map(row=>row.site.id),['one','two']);
+assert.equal(expanded.sites[1].targets.length,0);
+assert.equal(initial.sites.length,1); // Expansion is immutable and keeps preceding positions.
+const candidates=views.callScene(null,page([call('possible',leaf,'candidate'),call('possible',other,'candidate')]),entry);
+assert.equal(candidates.sites.length,1);
+assert.equal(candidates.sites[0].targets.length,2);
+assert.equal(candidates.sites[0].targets_exhaustive,false);
+let bounded=initial;
+for(let i=2;i<=21;i++)bounded=views.callScene(bounded,page([call('site'+i)]),entry);
+assert.equal(bounded.handles.length+bounded.sites.length,23);
+assert.throws(()=>views.callScene(bounded,page([call('site22'),call('site23')]),entry),/24 element/);
+assert.throws(()=>views.queryPage({...page([]),generation:'f'.repeat(64)},'callees',entry.id,capture),/Index changed/);
+assert.throws(()=>views.queryPage(page([call('wrong')]),'callers','wrong'),/seed mismatch/);
+assert.throws(()=>views.queryPage(page(Array(9).fill(entry)),'symbol'),/bounded/);
+assert.throws(()=>views.queryPage({...page([]),total_count:{kind:'exact',value:true}},'symbol'),/bounded/);
+assert.throws(()=>views.queryPage({...page([]),stop_reason:'private/path'},'symbol'),/bounded/);
+const evidence={schema:'captured-source-v1',status:'ok',generation:capture.generation,handle:views.sourceHandle(entry),
+  identities:{...capture,structural_generation:capture.generation},evidence_kind:'static_syntax',provenance:{source_sha256:entry.source_sha256},text:'0123456789',range:entry.range,raw_digest:'f'.repeat(64),redacted:false,truncated:false};
+views.sourceEvidence(evidence,entry,capture);
+assert.throws(()=>views.sourceEvidence({...evidence,generation:'f'.repeat(64)},entry,capture),/identity/);
+assert.throws(()=>views.sourceEvidence({...evidence,handle:{...evidence.handle,source_sha256:'0'.repeat(64)}},entry,capture),/identity/);
+assert.throws(()=>views.sourceEvidence({...evidence,range:{...entry.range,end_byte:11}},entry,capture),/range/);
+console.log('Bounded Calls expansion, target alternatives, unknowns, captured generations and source correlation passed');
+
 // Exercise the actual event wiring without a browser or a network dependency.
 const fs = require('node:fs'), vm = require('node:vm');
 class Element {
@@ -116,7 +150,7 @@ get('graph-data').textContent=JSON.stringify(fixture);
 const document={
   getElementById:get,createElement:tag=>new Element(tag),createElementNS:(_,tag)=>new Element(tag),
   querySelector:selector=>{if(!extra.has(selector))extra.set(selector,new Element());return extra.get(selector);},
-  querySelectorAll:selector=>selector==='.view-tabs button' ? ['tab-system','tab-explore','tab-data'].map(get) : [...elements.values()].flatMap(el=>el.querySelectorAll(selector)),
+  querySelectorAll:selector=>selector==='.view-tabs button' ? ['tab-system','tab-explore','tab-data','tab-search','tab-calls'].map(get) : [...elements.values()].flatMap(el=>el.querySelectorAll(selector)),
   addEventListener(){},styleSheets:[],
 };
 vm.runInNewContext(template.replace('__VIEW_HELPERS__',helpers).match(/<script>\n([\s\S]*?)<\/script>/)[1],{
@@ -155,6 +189,11 @@ assert.match(renderedText(get('inspector-content')).replace(/\s+/g,' '),/1 IMPOR
 const sourceButton=get('inspector-content').querySelectorAll('.component-item').find(button=>button.textContent==='src →');
 sourceButton.fire('click');
 assert.equal(get('breadcrumb').children.at(-1).textContent,'src');
+switchView('atlas');
+switchView('calls');
+assert.equal(get('data-panel').hidden,false);
+assert.match(get('data-panel').children[0].textContent,/Calls require the local structural index/);
+assert.equal(get('tab-calls').attributes['aria-selected'],'true');
 switchView('atlas');
 get('home').fire('click');
 assert.equal(get('breadcrumb').children.at(-1).textContent,'Synthetic');
