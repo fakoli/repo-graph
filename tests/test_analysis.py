@@ -47,6 +47,15 @@ def blobs(root, paths):
              'content': (root / path).read_bytes()} for path in paths]
 
 
+def import_projection(index):
+    """Finite synthetic parity oracle, never used by production queries."""
+    db = search.connect(index.output, readonly=True, owner=index.output_owner)
+    try:
+        return [dict(row) for row in db.execute('SELECT * FROM structural_import_relationships ORDER BY path,ordinal,target_path')]
+    finally:
+        db.close()
+
+
 @unittest.skipUnless(AVAILABLE, 'Optional analysis extra is not installed')
 class StructuralIndexTests(unittest.TestCase):
     def setUp(self):
@@ -68,6 +77,247 @@ class StructuralIndexTests(unittest.TestCase):
         self.assertEqual(clean['status'], 'complete', clean)
         for kind in ('definitions', 'sites'):
             self.assertEqual(canonical(index.read_facts(kind)), canonical(clean['facts'][kind]))
+
+    def test_impact_import_projection_and_source_area_share_captured_evidence(self):
+        from repo_graph import analysis as index_module
+        from repo_graph.analysis_queries import Queries, Limits, encoded
+        sources = {'pkg/leaf.py': 'def target(): return 1\n',
+            'pkg/caller.py': 'from .leaf import target as alias\ndef run(): return alias()\ndef dynamic(callback): return callback()\n',
+            'pkg/unused.py': 'from .leaf import target as unused\ndef idle(): return 0\n',
+            'pkg/missing.py': 'from .absent import target\ndef missing(): return target()\n',
+            'pkg2/outside.py': 'def outside(): return 0\n',
+            'web/mod.ts': 'export function target() { return 1; }\n',
+            'web/mod/index.ts': 'export function target() { return 2; }\n',
+            'web/use.ts': 'import {target} from "./mod"; export function use() { return target(); }\n',
+            'js/leaf.js': 'export function target() { return 1; }\n',
+            'js/use.js': 'import {target} from "./leaf"; export function idle() { return 0; }\n'}
+        write_sources(self.root, sources)
+        index = StructuralIndex(self.root, self.output)
+        receipt = self.ready(index, sources)
+        projection = import_projection(index)
+        self.assertTrue(any(row['path'] == 'pkg/unused.py' and row['target_path'] == 'pkg/leaf.py' for row in projection))
+        self.assertEqual({row['target_path'] for row in projection if row['path'] == 'web/use.ts'},
+                         {'web/mod.ts', 'web/mod/index.ts'})
+        self.assertTrue(all(row['certainty'] == 'candidate' for row in projection if row['path'] == 'web/use.ts'))
+        self.assertTrue(any(row['path'] == 'js/use.js' and row['target_path'] == 'js/leaf.js' for row in projection))
+        clean = StructuralIndex(self.root, self.scratch / 'impact-clean')
+        rebuilt = self.ready(clean, sources)
+        self.assertEqual(import_projection(index), import_projection(clean))
+        self.assertEqual((receipt['generation'], receipt['source_identity']), (rebuilt['generation'], rebuilt['source_identity']))
+        payload = {'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': ['pkg/']}, 'role': 'all'}
+        with Queries(self.output) as queries, patch.object(SourceRoot, 'read', side_effect=AssertionError('query source read')), \
+                patch.object(index_module, '_git_capture', side_effect=AssertionError('query Git')), \
+                patch.object(index_module, 'collect_files', side_effect=AssertionError('query parse')):
+            result = queries.run(payload)
+            self.assertEqual(result['config_identity'], receipt['config_identity'])
+            self.assertEqual(result['impact_identity'], receipt['impact_identity'])
+            self.assertFalse(result['contracts_available'])
+            self.assertFalse(result['runtime_complete'])
+            self.assertFalse(result['live_source_observed'])
+            self.assertTrue(all(row['path'].startswith('pkg/') for row in result['selected_files']))
+            self.assertTrue(any(row['relation'] == 'import' and row['site']['path'] == 'pkg/unused.py' for row in result['rows']))
+            self.assertTrue(any(row['relation'] == 'call' and row['target'] is None for row in result['rows']))
+            self.assertGreater(result['unknown_boundaries'].get('unresolved_call', 0), 0)
+            self.assertLessEqual(len(encoded(result)), 32768)
+            self.assertLessEqual(result['returned_entities'], 50)
+            self.assertLessEqual(result['examined_work'], 10000)
+            candidate = queries.run({'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': ['web/mod.ts']},
+                                     'relations': ['import'], 'certainties': ['candidate']})
+            self.assertTrue(candidate['rows'])
+            self.assertTrue(all(row['relation'] == 'import' and row['certainty'] == 'candidate' for row in candidate['rows']))
+            missing = queries.run({'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': ['absent/']}})
+            self.assertEqual(missing['unknown_boundaries']['source_area_not_in_admitted_inventory'], 1)
+            self.assertNotEqual(missing['total_count']['kind'], 'exact')
+            for invalid in ({'operation': 'call', 'relations': ['import']},
+                            {'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': ['../escape']}},
+                            {'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': []}},
+                            {'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': ['pkg/'], 'foreign_output': 'outside'}},
+                            {'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': ['pkg/']}, 'relations': ['contract']}):
+                with self.assertRaises(ValueError): queries.run(invalid)
+
+    def test_impact_import_add_delete_rename_cycles_match_clean_publication(self):
+        from repo_graph.analysis_queries import Queries
+        sources = {'pkg/unused.py': 'from .late import target as unused\ndef idle(): return 0\n',
+            'pkg/left.py': 'from .right import right\ndef left(): return right()\n',
+            'pkg/right.py': 'from .left import left\ndef right(): return left()\n'}
+        write_sources(self.root, sources)
+        index = StructuralIndex(self.root, self.output)
+        for stage in ('missing', 'add', 'delete', 'rename'):
+            if stage == 'add': sources['pkg/late.py'] = 'def target(): return 1\n'
+            elif stage == 'delete':
+                del sources['pkg/late.py']; (self.root / 'pkg/late.py').unlink()
+            elif stage == 'rename':
+                sources['pkg/renamed.py'] = 'def target(): return 2\n'
+                sources['pkg/unused.py'] = sources['pkg/unused.py'].replace('.late', '.renamed')
+            write_sources(self.root, sources)
+            current = self.ready(index, sources)
+            clean = StructuralIndex(self.root, self.scratch / ('impact-clean-' + stage))
+            fresh = self.ready(clean, sources)
+            self.assertEqual(import_projection(index), import_projection(clean))
+            self.assertEqual(current['generation'], fresh['generation'])
+            self.assertEqual(facts(index), facts(clean))
+        with Queries(self.output) as queries:
+            result = queries.run({'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': ['pkg/left.py']}})
+        keys = [(r['relation'], r['site']['id'], r['target']['id'] if r['target'] else '') for r in result['rows']]
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertTrue(any(r['relation'] == 'call' for r in result['rows']))
+        self.assertTrue(any(r['relation'] == 'import' for r in result['rows']))
+        self.assertFalse(result['runtime_complete'])
+
+    def test_impact_go_package_projection_preserves_unqualified_member_candidates(self):
+        from repo_graph.analysis_queries import Queries
+        sources = {'go.mod': 'module example.invalid/synthetic\n\ngo 1.23\n',
+            'main.go': 'package main\nimport alias "example.invalid/synthetic/helpers"\nfunc Caller() { alias.Finish() }\n',
+            'helpers/finish.go': 'package helpers\nfunc Finish() {}\n',
+            'helpers/extra.go': 'package helpers\nfunc Extra() {}\n'}
+        write_sources(self.root, sources)
+        index = StructuralIndex(self.root, self.output)
+        initial = self.ready(index, sources)
+        rows = import_projection(index)
+        self.assertEqual({row['target_path'] for row in rows}, {'helpers/finish.go', 'helpers/extra.go'})
+        self.assertTrue(all(row['certainty'] == 'candidate' for row in rows))
+        self.assertTrue(all('build/runtime selection unqualified' in json.loads(row['data'])['reason'] for row in rows))
+        self.assertTrue(all(not json.loads(row['data'])['targets_exhaustive'] for row in rows))
+        clean = StructuralIndex(self.root, self.scratch / 'impact-go-clean')
+        rebuilt = self.ready(clean, sources)
+        self.assertEqual(import_projection(index), import_projection(clean))
+        self.assertEqual(initial['generation'], rebuilt['generation'])
+        with Queries(self.output) as queries:
+            result = queries.run({'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': ['helpers/']}})
+        imported = [row for row in result['rows'] if row['relation'] == 'import']
+        self.assertEqual({row['target']['path'] for row in imported}, {'helpers/finish.go', 'helpers/extra.go'})
+        self.assertTrue(all(row['certainty'] == 'candidate' and not row['targets_exhaustive'] for row in imported))
+        direct = [row for row in result['rows'] if row['relation'] == 'call' and row['target']]
+        self.assertEqual([(row['caller']['name'], row['target']['name']) for row in direct], [('Caller', 'Finish')])
+        self.assertFalse(result['runtime_complete'])
+        sources['go.mod'] = sources['go.mod'].replace('example.invalid/synthetic', 'example.invalid/changed')
+        write_sources(self.root, sources)
+        changed = self.ready(index, sources)
+        self.assertEqual(changed['resources']['changed_files_collected'], 0)
+        self.assertTrue(all(row['target_path'] == '' and row['certainty'] == 'unresolved' for row in import_projection(index)))
+        fresh = StructuralIndex(self.root, self.scratch / 'impact-go-config-clean')
+        rebuilt = self.ready(fresh, sources)
+        self.assertEqual(import_projection(index), import_projection(fresh))
+        self.assertEqual(changed['generation'], rebuilt['generation'])
+        retained = import_projection(index)
+        failed = index.refresh(sources, cancel=lambda: True)
+        self.assertFalse(failed['published'])
+        self.assertEqual(import_projection(index), retained)
+
+    def test_impact_git_receipt_affinity_and_current_commit_invalidate_only_impact(self):
+        from repo_graph.analysis_queries import Queries
+        env = {'PATH': os.environ.get('PATH', ''), 'GIT_CONFIG_GLOBAL': os.devnull,
+               'GIT_CONFIG_NOSYSTEM': '1', 'GIT_OPTIONAL_LOCKS': '0', 'GIT_TERMINAL_PROMPT': '0'}
+        def git(*args):
+            return subprocess.run(['git', '-c', 'core.hooksPath=' + os.devnull, '-c', 'user.name=Synthetic Fixture',
+                '-c', 'user.email=fixture@example.invalid', '-C', str(self.root), *args], env=env,
+                check=True, capture_output=True, text=True, timeout=5).stdout.strip()
+        git('init', '--initial-branch=main')
+        sources = {'pkg/leaf.py': 'def target(): return 1\n',
+            'pkg/caller.py': 'from .leaf import target\ndef run():\n target()\n return target()\n',
+            'pkg/deleted.py': 'def old(): return 0\n'}
+        write_sources(self.root, sources); git('add', '--all'); git('commit', '-m', 'Synthetic base')
+        base = git('rev-parse', 'HEAD')
+        index = StructuralIndex(self.root, self.output)
+        initial = self.ready(index, sources)
+        sources['pkg/leaf.py'] = 'def target(): return 2\n'
+        del sources['pkg/deleted.py']; (self.root / 'pkg/deleted.py').unlink()
+        sources['pkg/moved.py'] = 'def old(): return 0\n'
+        write_sources(self.root, sources); git('add', '--all'); git('commit', '-m', 'Synthetic changed paths')
+        current = self.ready(index, sources, git_base=base)
+        payload = {'operation': 'impact', 'selector': {'kind': 'git_change', 'base_revision': base}}
+        with Queries(self.output) as queries:
+            result = queries.run(payload)
+            self.assertEqual(result['selection']['git_change']['current_revision'], git('rev-parse', 'HEAD'))
+            self.assertEqual(result['selection']['git_change']['source_byte_affinity'], 'unobserved_worktree')
+            self.assertIsNone(result['selection']['revision_dirty']['dirty'])
+            self.assertEqual(result['selection']['base_snapshot']['generation'], initial['generation'])
+            self.assertGreater(result['unknown_boundaries'].get('historical_or_nonadmitted_source_path', 0), 0)
+            self.assertEqual([row['path'] for row in result['unavailable_paths']], ['pkg/deleted.py'])
+            self.assertIsNone(result['unavailable_paths'][0]['source_sha256'])
+            self.assertEqual(result['historical_call_closure'], 'unavailable_current_index_only')
+            self.assertFalse(any(r['path'] == 'pkg/deleted.py' for r in result['selected_symbols']))
+            impact = queries.run(dict(payload, limits={'max_edges': 1}))
+            calls = queries.run({'operation': 'call', 'limits': {'max_edges': 1}})
+            self.assertIsNotNone(impact['cursor']); self.assertIsNotNone(calls['cursor'])
+            git('commit', '--allow-empty', '-m', 'Synthetic same-source new commit')
+            republished = self.ready(index, sources, git_base=base)
+            self.assertEqual((current['generation'], current['source_identity']),
+                             (republished['generation'], republished['source_identity']))
+            self.assertNotEqual(current['impact_identity'], republished['impact_identity'])
+            with self.assertRaisesRegex(ValueError, 'stale'):
+                queries.run(dict(payload, cursor=impact['cursor'], limits={'max_edges': 1}))
+            old = queries.run({'operation': 'call', 'cursor': calls['cursor'], 'limits': {'max_edges': 1}})
+            self.assertEqual(old['generation'], current['generation'])
+            with self.assertRaises(ValueError):
+                queries.run({'operation': 'impact', 'selector': {'kind': 'git_change', 'base_revision': '0' * 40}})
+        absent = self.ready(index, sources, git_base='0' * 40)
+        with Queries(self.output) as queries, self.assertRaises(ValueError): queries.run(payload)
+        self.assertEqual(absent['status'], 'ready')
+        with self.assertRaises(ValueError): index.refresh(sources, git_base='HEAD')
+
+    def test_impact_selection_and_edges_share_work_entity_byte_and_cursor_budgets(self):
+        from repo_graph.analysis_queries import Queries, SQLSnapshot, Limits, encoded
+        sources = {'leaf.py': 'def target(): return 1\n',
+            'fanout.py': 'from .leaf import target\ndef hub():\n' + ' target()\n' * 60}
+        write_sources(self.root, sources)
+        index = StructuralIndex(self.root, self.output)
+        self.ready(index, sources)
+        payload = {'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': ['leaf.py']}}
+        with Queries(self.output) as queries:
+            bounded = queries.run(dict(payload, limits={'max_examined_relationships': 12}))
+            self.assertLessEqual(bounded['examined_work'], 12)
+            self.assertEqual(bounded['stop_reason'], 'work_budget_exceeded')
+            entity = queries.run(dict(payload, limits={'max_entities': 1}))
+            self.assertEqual(entity['stop_reason'], 'entity_budget_exceeded')
+            self.assertLessEqual(entity['returned_entities'], 1)
+            self.assertIsNotNone(entity['cursor'])
+            resumed = queries.run(dict(payload, cursor=entity['cursor'], limits={'max_edges': 1}))
+            self.assertLessEqual(resumed['returned_edges'], 1)
+            with self.assertRaises(ValueError):
+                queries.run(dict(payload, cursor=resumed['cursor'], relations=['import']))
+            pages, cursor = [], None
+            for _ in range(80):
+                page = queries.run(dict(payload, limits={'max_edges': 7, 'max_response_bytes': 8192}, **({'cursor': cursor} if cursor else {})))
+                self.assertLessEqual(len(encoded(page)), 8192)
+                self.assertLessEqual(page['returned_edges'], 7)
+                self.assertLessEqual(page['returned_entities'], 50)
+                pages.extend(page['rows']); cursor = page['cursor']
+                if cursor is None: break
+            self.assertIsNone(cursor)
+            keys = [(r['relation'], r['site']['id'], r['target']['id'] if r['target'] else '') for r in pages]
+            self.assertEqual(len(keys), len(set(keys)))
+            self.assertEqual(sum(r['relation'] == 'call' for r in pages), 60)
+            stopped = queries.run(payload, cancel=lambda: True)
+            self.assertEqual(stopped['stop_reason'], 'cancelled')
+            with self.assertRaises(ValueError): queries.run(dict(payload, limits={'max_response_bytes': 200}))
+        with self.assertRaises(ValueError): Queries(self.output, owner='0' * 64)
+        with Queries(self.output, repository_identity='0' * 64) as foreign, self.assertRaises(ValueError): foreign.run(payload)
+        with SQLSnapshot(self.output, index.owner, index.output_owner) as snapshot:
+            ticks = [0.0]
+            def clock():
+                ticks[0] += .1
+                return ticks[0]
+            snapshot._clock = clock
+            deadline = snapshot.query(operation='impact', selector=payload['selector'], limits=Limits(timeout_seconds=.5))
+            self.assertEqual(deadline['stop_reason'], 'deadline_exceeded')
+            self.assertIsNone(deadline['cursor'])
+            self.assertNotEqual(deadline['total_count']['kind'], 'exact')
+        db = search.connect(self.output, owner=index.output_owner)
+        try:
+            with db: db.execute('DROP INDEX structural_reverse_import')
+        finally: db.close()
+        with Queries(self.output) as queries, self.assertRaisesRegex(ValueError, 'projection'):
+            queries.run(payload)
+        db = search.connect(self.output, owner=index.output_owner)
+        try:
+            with db:
+                db.execute('CREATE INDEX structural_reverse_import ON structural_import_relationships(target_path,path,start_byte,end_byte,id)')
+                db.execute("DELETE FROM meta WHERE key='structural_impact_receipt'")
+        finally: db.close()
+        with Queries(self.output) as queries:
+            self.assertTrue(queries.run({'operation': 'call'})['rows'])
+            with self.assertRaisesRegex(ValueError, 'projection'): queries.run(payload)
 
     def test_function_projection_uses_captured_text_and_rolls_back_with_structural_stage(self):
         from repo_graph import analysis as index_module

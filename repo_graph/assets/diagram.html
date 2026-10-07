@@ -77,6 +77,10 @@
   .call-element h3 { margin:0 0 7px; font-size:14px; }
   .call-element p { margin:6px 0; font-size:12px; }
   .call-element button { margin:4px 4px 0 0; color:#354bab; }
+  .saved-view { margin:12px 0; font-size:11px; color:var(--muted); }
+  .saved-view p { margin:0 0 6px; overflow-wrap:anywhere; }
+  .saved-view button { min-height:44px; padding:7px; border:1px solid var(--line); background:#fff; border-radius:7px; color:var(--ink); cursor:pointer; }
+  .saved-view input { width:100%; min-height:44px; margin-top:5px; border:1px solid var(--line); border-radius:7px; padding:7px; font:inherit; }
   .call-evidence pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.5 monospace; max-height:320px; overflow:auto; }
   @media (max-width:720px) { .calls-columns { grid-template-columns:1fr; } .calls-panel { padding:12px; } .calls-panel label { flex:1 1 100%; } }
   .data-panel[hidden] { display:none; }
@@ -211,6 +215,13 @@
         <label>Sort<select id="sort-mode"><option value="name">Name</option><option value="files">Most files</option><option value="imports">Most imports</option></select></label>
         <label>Show<select id="kind-filter"><option value="all">Directories and files</option><option value="directory">Directories</option><option value="file">Files</option></select></label>
       </div>
+      <section class="saved-view" aria-label="Saved view">
+        <p id="saved-view-status" role="status" aria-live="polite">Saved in this tab only. Query text is excluded.</p>
+        <button id="clear-saved-view" type="button">Clear saved view</button>
+        <button id="copy-view-bookmark" type="button">Copy bookmark</button>
+        <button id="cancel-saved-restore" type="button" hidden>Cancel restore</button>
+        <label id="bookmark-field" hidden>Bookmark link<input id="bookmark-url" aria-label="Bookmark URL" readonly></label>
+      </section>
       <div class="stat-grid"><div class="stat"><strong id="stat-components">0</strong><span>Parts</span></div><div class="stat"><strong id="stat-links">0</strong><span>Links</span></div><div class="stat"><strong id="stat-files">0</strong><span>Files</span></div></div>
       <nav class="navigation" aria-label="Directory navigation"><button id="home" type="button" aria-label="Repository root">Root</button><button id="up" type="button" aria-label="Go up one directory">↑ Up</button><div class="breadcrumb" id="breadcrumb" aria-label="Current directory"></div></nav>
       <div class="section-line"><h2>Components</h2><span id="list-count"></span></div>
@@ -269,13 +280,15 @@ __VIEW_HELPERS__
   }
   renderIndexStatus(data.index_status);
   const online = location.protocol === 'http:' && location.hostname === '127.0.0.1';
+  let observedStatus=null;
   const statusRequest = online ? fetch('/api/status').then(response => response.json()).then(state => {
-    renderIndexStatus(state,false); return state;
+    observedStatus=state;renderIndexStatus(state,false); return state;
   }).catch(() => {
     renderIndexStatus(data.index_status,true,'Live status unavailable. Showing captured export status.'); return null;
   }) : Promise.resolve(null);
 
   function renderScope() {
+    scheduleSavedView();
     document.getElementById('workspace').classList.toggle('search-view',['search','calls'].includes(viewMode));
     for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-calls',viewMode === 'calls'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) {
       const tab = document.getElementById(id); tab.setAttribute('aria-selected',String(active)); tab.setAttribute('tabindex',active ? '0' : '-1'); tab.setAttribute('aria-controls','view-panel');
@@ -459,13 +472,16 @@ __VIEW_HELPERS__
     positions = RepoViews.layout(parts,viewMode,links).boxes;
   }
 
-  let callsState={lookup:null,matches:[],selected:null,captured:null,scene:null,branch:null,page:null,prefix:'',scope:'',size:8};
+  let callsState={lookup:null,matches:[],selected:null,captured:null,scene:null,branch:null,page:null,prefix:'',scope:'',size:8,intents:[],saveBlocked:false};
   let callsUI=null,callsController=null,callsEpoch=0;
+  let savedStorage=null,savedBooting=true,savedScheduled=false,savedControl=null,savedCleared=false;
+  const savedKey='repo-graph:view:'+location.pathname;
   const callElement=(tag,text='',className='')=>{const el=document.createElement(tag);el.textContent=text;el.className=className;return el;};
   const callButton=(text,action)=>{const button=callElement('button',text);button.type='button';button.addEventListener('click',action);return button;};
   function stopCalls(announce=true) {
     callsEpoch++; callsController?.abort(); callsController=null;
     if(callsUI) {callsUI.cancel.disabled=true;if(announce)callsUI.status.textContent='Stopped waiting. Bounded server work may finish; late responses will not be shown.';}
+    if(announce && savedControl)cancelSavedRestore('Restore partial: cancelled. Bounded server work may finish; late responses are ignored.');
   }
   async function callsJSON(response) {
     const reader=response.body.getReader();let size=0,bytes=[];
@@ -477,16 +493,20 @@ __VIEW_HELPERS__
     try {return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(result));}
     catch {throw new Error('Invalid bounded response');}
   }
-  async function callsRequest(endpoint,payload,publish) {
+  async function callsRequest(endpoint,payload,publish,replay=false) {
+    if(savedControl && !replay)cancelSavedRestore('Restore partial: another action stopped replay.');
     stopCalls(false);const epoch=callsEpoch,controller=new AbortController();callsController=controller;
     callsUI.cancel.disabled=false;callsUI.status.textContent='Reading bounded captured evidence…';
     try {
       const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal});
       const result=await callsJSON(response);
-      if(epoch!==callsEpoch || viewMode!=='calls')return;
+      if(epoch!==callsEpoch || viewMode!=='calls')return false;
       await publish(result,()=>epoch===callsEpoch && viewMode==='calls');
+      return true;
     } catch(error) {
       if(epoch===callsEpoch && viewMode==='calls')callsUI.status.textContent=error.name==='AbortError' ? 'Stopped waiting; late responses will not be shown.' : error.message;
+      if(replay)throw error;
+      return false;
     } finally {if(epoch===callsEpoch){callsController=null;callsUI.cancel.disabled=true;}}
   }
   function callStatus(page) {
@@ -547,23 +567,27 @@ __VIEW_HELPERS__
     callsUI.more.disabled=!callsState.page?.cursor;
     callsUI.more.textContent=size>=23 || callsState.page?.rows.length===0 ? 'Next page (replace scene)' : 'More callsites';
   }
-  function loadCalls(seed,operation,cursor=null,reset=false) {
+  function loadCalls(seed,operation,cursor=null,reset=false,replay=false,limits=null) {
     const size=(callsState.scene?.handles.length || 1)+(callsState.scene?.sites.length || 0);
     if(!reset && size>=24){callsUI.status.textContent='24 element limit reached. Start a new view to expand this symbol.';return;}
     const captured=callsState.captured;
     callsUI.evidence.hidden=true;callsUI.evidence.replaceChildren();
-    const payload={operation,seed:seed.id,depth:1,prefix:'',scope:'',role:'call',limits:callLimits(reset)};
+    const payload={operation,seed:seed.id,depth:1,prefix:'',scope:'',role:'call',limits:limits || callLimits(reset)};
     if(cursor)payload.cursor=cursor;
-    callsRequest('/api/query',payload,page=>{
+    return callsRequest('/api/query',payload,page=>{
       RepoViews.queryPage(page,operation,seed.id,captured);
       const scene=RepoViews.callScene(reset ? null : callsState.scene,page,seed);
       callsState.scene=scene;callsState.branch={seed,operation};callsState.page=page;
+      if(callsState.intents.length<24)callsState.intents.push({seed:seed.id,operation,continuation:cursor!==null,reset,limits:{...payload.limits}});
+      else callsState.saveBlocked=true;
       showCallScene(reset);callsUI.status.textContent=callStatus(page);callsUI.matches.replaceChildren();callsUI.moreMatches.disabled=true;
-    });
+      saveView(true);
+    },replay);
   }
   function chooseCallSymbol(handle,captured) {
     callsUI.evidence.hidden=true;callsUI.evidence.replaceChildren();
     callsState.selected=handle;callsState.captured=captured;callsState.scene={handles:[handle],sites:[]};callsState.page=null;
+    callsState.intents=[];callsState.saveBlocked=false;
     callsUI.matches.replaceChildren();showCallScene(true);loadCalls(handle,callsUI.direction.value);
   }
   function findCallSymbols(cursor=null) {
@@ -577,7 +601,9 @@ __VIEW_HELPERS__
       callsUI.moreMatches.disabled=!page.cursor;callsUI.status.textContent=callStatus(page);
       // Symbol selection and a call scene are separate bounded pages.
       callsState.scene=null;callsState.selected=null;callsState.captured=null;callsState.branch=null;callsState.page=null;
+      callsState.intents=[];callsState.saveBlocked=false;
       callsUI.symbols.replaceChildren();callsUI.sites.replaceChildren();callsUI.more.disabled=true;callsUI.capture.textContent='Select one declaration to inspect its calls.';
+      saveView(true);
     });
   }
   function renderCalls() {
@@ -607,9 +633,150 @@ __VIEW_HELPERS__
     const evidence=callElement('section','','call-evidence');evidence.hidden=true;panel.append(form,status,matches,moreMatches,tools,capture,evidence,columns);
     callsUI={panel,status,matches,moreMatches,direction,cancel,more,capture,symbols,sites,evidence};
     form.addEventListener('submit',event=>{event.preventDefault();callsState.prefix=prefix.value.trim();callsState.scope=scope.value.trim();findCallSymbols();});
-    direction.addEventListener('change',()=>{if(callsState.selected){callsState.scene={handles:[callsState.selected],sites:[]};loadCalls(callsState.selected,direction.value,null,true);}});
+    direction.addEventListener('change',()=>{if(callsState.selected)chooseCallSymbol(callsState.selected,callsState.captured);});
     size.addEventListener('change',()=>{callsState.size=Number(size.value);if(callsState.selected)chooseCallSymbol(callsState.selected,callsState.captured);});
     if(callsState.scene)showCallScene(true);
+  }
+
+  function savedNotice(message) { document.getElementById('saved-view-status').textContent=message; }
+  function scheduleSavedView() {
+    if(savedBooting || savedControl)return;
+    detachBookmark();
+    savedCleared=false;
+    if(savedScheduled)return;
+    savedScheduled=true;Promise.resolve().then(()=>{savedScheduled=false;saveView();});
+  }
+  function saveView(deliberate=false) {
+    if(savedBooting || savedControl || !savedStorage)return;
+    if(deliberate){savedCleared=false;detachBookmark();}
+    if(savedCleared)return;
+    try {
+      const {record,raw}=currentSavedView();
+      savedStorage.setItem(savedKey,raw);
+      savedNotice(record.snapshot ? 'Saved in this tab only, bound to the captured snapshot. Query text is excluded.' : 'Navigation saved in this tab; snapshot unavailable. Query text is excluded.');
+    } catch(error) {
+      if(['snapshot_unavailable','intents_overflow','saved_state_overflow'].includes(error.message)) {
+        try {savedStorage.removeItem(savedKey);}catch {}
+        savedNotice(error.message==='snapshot_unavailable' ? 'Snapshot unavailable or changed: this Calls selection was not saved.' : error.message==='intents_overflow' ? 'Saved state incomplete or exceeds 24 Calls intents. Start a new view to save its expansion.' : 'Saved state exceeds 32 KiB. This view was not saved; start a smaller view.');
+      } else savedNotice('Tab storage unavailable. This view was not saved; ordinary navigation remains available.');
+    }
+  }
+  function currentSavedView() {
+    let snapshot=RepoViews.capturedSnapshot(data.index_status),calls=null;
+    if(viewMode==='calls' && callsState.selected) {
+      const current=RepoViews.capturedSnapshot(observedStatus);
+      if(!current || ['generation','repository_identity','source_identity','analyzer_identity'].some(key=>current[key]!==callsState.captured[key]))throw new Error('snapshot_unavailable');
+      if(callsState.saveBlocked || callsState.intents.length===0)throw new Error('intents_overflow');
+      snapshot=current;calls={root:RepoViews.sourceHandle(callsState.selected),direction:callsUI?.direction.value || callsState.branch.operation,size:callsState.size,intents:callsState.intents};
+    }
+    const record=RepoViews.savedView({version:1,view:viewMode,scope:scopePath,sort:sortMode,kind:kindFilter,page,selected:viewMode==='calls' ? null : selected,snapshot,calls});
+    const raw=JSON.stringify(record);
+    if(new TextEncoder().encode(raw).length>32768)throw new Error('saved_state_overflow');
+    return {record,raw};
+  }
+  function detachBookmark() {
+    if(location.hash) {
+      const url=new URL(location.href);url.hash='';history.replaceState(null,'',url.href);
+    }
+    document.getElementById('bookmark-field').hidden=true;document.getElementById('bookmark-url').value='';
+  }
+  async function copyBookmark() {
+    try {
+      if(savedBooting || savedControl)throw new Error('restore_incomplete');
+      const {record}=currentSavedView();
+      if(!record.snapshot)throw new Error('snapshot_unavailable');
+      const url=new URL(location.href);url.search='';url.hash=RepoViews.bookmarkFragment(record);
+      if(new TextEncoder().encode(url.href).length>32768)throw new Error('bookmark_overflow');
+      const field=document.getElementById('bookmark-field'),input=document.getElementById('bookmark-url');field.hidden=false;input.value=url.href;
+      try {
+        await navigator.clipboard.writeText(url.href);savedNotice('Bookmark copied with snapshot, scope and selection. Query text and source excerpts are excluded.');
+      } catch {
+        input.focus();input.select();savedNotice('Clipboard unavailable. Copy the selected bookmark link; query text and source excerpts are excluded.');
+      }
+    } catch(error) {
+      savedNotice(['bookmark_overflow','saved_state_overflow'].includes(error.message) ? 'Bookmark exceeds 32 KiB; it was not copied. Start a smaller view.' : 'Bookmark unavailable for an incomplete view or unknown snapshot. Finish restoring or select again.');
+    }
+  }
+  function cancelSavedRestore(message='Restore partial: cancelled. Late responses are ignored.') {
+    if(!savedControl)return;
+    savedControl.cancelled=true;callsState.saveBlocked=true;stopCalls(false);
+    savedNotice(message);savedControl.reject(new Error('restore_cancelled'));
+  }
+  async function restoreSavedView() {
+    let record;const fromBookmark=!!location.hash;
+    try {savedStorage=window.sessionStorage;}catch {}
+    try {
+      if(fromBookmark) {
+        if(location.href.length>32768 || new TextEncoder().encode(location.href).length>32768)throw new Error('bookmark_overflow');
+        record=RepoViews.bookmarkView(location.hash);
+      } else {
+        const raw=savedStorage.getItem(savedKey);
+        if(raw===null){savedBooting=false;return;}
+        if(new TextEncoder().encode(raw).length>32768)throw new Error('saved_state_overflow');
+        record=RepoViews.savedView(JSON.parse(raw));
+      }
+      if(!Object.hasOwn(data.tree,record.scope))throw new Error('invalid_scope');
+      if(['atlas','tree','radial','treemap','table','matrix'].includes(record.view)) {
+        const branch=data.tree[record.scope];
+        const entries=(record.kind==='file' ? 0 : branch.children.length)+(record.kind==='directory' ? 0 : branch.direct.length);
+        if(record.page>=Math.max(1,Math.ceil(entries/(graphMode ? 24 : 23))))throw new Error('invalid_page');
+      }
+    } catch(error) {
+      savedBooting=false;
+      savedNotice(fromBookmark ? error.message==='bookmark_overflow' ? 'Bookmark exceeds 32 KiB; it was not restored.' : 'Invalid bookmark; clear it and select again.' : !savedStorage ? 'Tab storage unavailable; reload restoration is unavailable.' : error.message==='saved_state_overflow' ? 'Saved state exceeds 32 KiB; it was not restored.' : 'Invalid saved view; clear it and select again.');return;
+    }
+    const control={cancelled:false,deadline:performance.now()+12000};savedControl=control;
+    const interrupted=new Promise((_,reject)=>{control.reject=reject;});
+    const step=async promise=>{
+      if(control.cancelled || performance.now()>control.deadline)throw new Error('restore_cancelled');
+      return Promise.race([promise,interrupted]);
+    };
+    const cancel=document.getElementById('cancel-saved-restore');cancel.hidden=false;
+    const timer=setTimeout(()=>cancelSavedRestore('Restore partial: 12-second client waiting limit reached. Late responses are ignored.'),12000);
+    savedNotice(fromBookmark ? 'Restoring bookmark against its captured snapshot…' : 'Restoring saved view against its captured snapshot…');
+    try {
+      const status=online ? await step(statusRequest) : data.index_status;
+      if(record.snapshot && !RepoViews.sameSnapshot(record.snapshot,RepoViews.capturedSnapshot(status)))throw new Error('stale_snapshot');
+      if(record.calls && !online)throw new Error('offline_calls');
+      viewMode=record.view;scopePath=record.scope;sortMode=record.sort;kindFilter=record.kind;page=record.page;query='';
+      for(const [id,value] of [['view-mode',viewMode],['sort-mode',sortMode],['kind-filter',kindFilter]])document.getElementById(id).value=value;
+      renderScope();
+      if(record.calls) {
+        callsState.size=record.calls.size;callsUI.direction.value=record.calls.direction;
+        callsUI.panel.querySelector('[aria-label="Callsite rows per page"]').value=String(callsState.size);
+        const lookup={operation:'symbol',seed:record.calls.root.id,depth:1,prefix:'',scope:'',role:'call',limits:{max_entities:1,max_edges:1,max_response_bytes:32768,max_excerpt_bytes:0}};
+        const found=await step(callsRequest('/api/query',lookup,result=>{
+          RepoViews.queryPage(result,'symbol',null,record.snapshot);
+          if(result.rows.length!==1 || JSON.stringify(RepoViews.sourceHandle(result.rows[0]))!==JSON.stringify(record.calls.root))throw new Error('invalid_selection');
+          callsState.selected=result.rows[0];callsState.captured=result;callsState.scene={handles:[result.rows[0]],sites:[]};
+          callsState.page=null;callsState.branch=null;callsState.intents=[];callsState.saveBlocked=false;showCallScene(true);
+        },true));
+        if(!found)throw new Error('restore_cancelled');
+        for(const intent of record.calls.intents) {
+          const seed=callsState.scene.handles.find(handle=>handle.id===intent.seed);
+          if(!seed)throw new Error('invalid_selection');
+          let cursor=null;
+          if(intent.continuation) {
+            if(callsState.branch?.seed.id!==seed.id || callsState.branch.operation!==intent.operation || !callsState.page?.cursor)throw new Error('invalid_continuation');
+            cursor=callsState.page.cursor;
+          }
+          savedNotice(`Restoring Calls ${callsState.intents.length+1} / ${record.calls.intents.length} against the saved snapshot…`);
+          if(!await step(loadCalls(seed,intent.operation,cursor,intent.reset,true,intent.limits)))throw new Error('restore_cancelled');
+        }
+        callsUI.symbols.querySelector('button')?.focus({preventScroll:true});
+        savedNotice(fromBookmark ? 'Restored bookmark: selected symbol, snapshot and stable expansion. Source excerpts stay closed.' : 'Restored selected symbol, snapshot and stable expansion in this tab. Source excerpts stay closed.');
+      } else if(record.selected) {
+        if(!record.snapshot)throw new Error('unknown_snapshot');
+        if(!byId.has(record.selected))focusPath(record.selected);
+        if(!byId.has(record.selected))throw new Error('invalid_selection');
+        select(record.selected,true);savedNotice(fromBookmark ? 'Restored bookmark: view, source area and selection against the captured snapshot.' : 'Restored view, source area and selection against the captured snapshot in this tab.');
+      } else savedNotice(record.snapshot ? fromBookmark ? 'Restored bookmark: view and scope against the captured snapshot.' : 'Restored view and scope against the captured snapshot in this tab.' : 'Restored navigation only; snapshot and selection are unavailable.');
+    } catch(error) {
+      callsState.saveBlocked=true;
+      if(!control.cancelled)savedNotice(error.message==='stale_snapshot' || /Index changed/.test(error.message) ? fromBookmark ? 'Bookmark snapshot is stale or unavailable. Select again; the old selection was not restored.' : 'Saved snapshot is stale or unavailable. Select again; the old selection was not restored.' : error.message==='offline_calls' ? 'Saved Calls selection unavailable offline. Serve the structural index to restore it.' : 'Restore partial: invalid selection or unavailable captured evidence. Clear the saved view or select again.');
+    } finally {
+      clearTimeout(timer);cancel.hidden=true;savedControl=null;savedBooting=false;
+    }
   }
 
   function renderSystem() {
@@ -772,6 +939,7 @@ __VIEW_HELPERS__
         target?.focus({preventScroll:true});
       }
     });
+    scheduleSavedView();
   }
   function refresh() {
     const matches = new Set(parts.filter(n => n.name.toLowerCase().includes(query) || n.files.some(f => f.toLowerCase().includes(query))).map(n => n.id));
@@ -854,6 +1022,7 @@ __VIEW_HELPERS__
   document.getElementById('zoom-out').addEventListener('click',() => zoom(1/1.2));
   document.getElementById('fit').addEventListener('click',fit);
   function changeView(mode) {
+    if(savedControl)cancelSavedRestore('Restore partial: changing view stopped replay.');
     if(viewMode==='calls' && mode!=='calls') stopCalls(false);
     if (viewMode === 'search' && mode !== 'search') searchRequest++;
     if (mode === 'system' || viewMode === 'system') { query = ''; page = 0; document.getElementById('search').value = ''; }
@@ -886,7 +1055,16 @@ __VIEW_HELPERS__
   document.getElementById('next').addEventListener('click',() => { page++; renderScope(); });
   document.getElementById('export-svg').addEventListener('click',() => { const clone = svg.cloneNode(true); clone.setAttribute('xmlns',svgNS); clone.setAttribute('width',String(svg.clientWidth)); clone.setAttribute('height',String(svg.clientHeight)); const styles = document.createElementNS(svgNS,'style'); styles.textContent = [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules].map(rule => rule.cssText); } catch { return []; } }).join('\n'); clone.insertBefore(styles,clone.firstChild); const blob = new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${data.name}-${graphMode ? 'dependencies' : 'architecture'}.svg`; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000); });
   window.addEventListener('resize',() => selected ? centerNode(selected) : fit());
+  window.addEventListener('hashchange',()=>{stopCalls(false);location.reload();});
+  document.getElementById('cancel-saved-restore').addEventListener('click',()=>cancelSavedRestore());
+  document.getElementById('copy-view-bookmark').addEventListener('click',copyBookmark);
+  document.getElementById('clear-saved-view').addEventListener('click',()=>{
+    cancelSavedRestore();stopCalls(false);savedCleared=true;detachBookmark();
+    try {savedStorage?.removeItem(savedKey);savedNotice('Saved view cleared from this tab. The next reload starts with ordinary navigation.');}
+    catch {savedNotice('Tab storage unavailable; the saved view could not be cleared.');}
+  });
   renderScope();
+  restoreSavedView();
 })();
 </script>
 </body>

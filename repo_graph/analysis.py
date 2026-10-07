@@ -23,6 +23,7 @@ from .search import (connect, code_identity as writer_code_identity, begin_attem
 from .source import SourceRoot, PublicationError
 
 SCHEMA = 'structural-v2'
+IMPACT_SCHEMA = 'captured-impact-v1'
 _LOADED_INDEX_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 LANGUAGES = {'.py': 'python', '.go': 'go', '.js': 'javascript', '.jsx': 'javascript',
              '.ts': 'typescript', '.tsx': 'typescript'}
@@ -40,35 +41,41 @@ def analyzer_identity():
                                    'queue': queue_identity(), 'writer': writer_code_identity(), 'schema': SCHEMA})).hexdigest()
 
 
-def _git_observation(root, check):
-    """Capture Git knowledge during production, without retaining filenames or Git errors."""
+def _git_capture(root, args, maximum, check):
+    """Bounded fixed-argument Git observation through the held source directory."""
     env = {'PATH': os.environ.get('PATH', ''), 'GIT_CONFIG_GLOBAL': os.devnull,
            'GIT_CONFIG_NOSYSTEM': '1', 'GIT_OPTIONAL_LOCKS': '0', 'GIT_TERMINAL_PROMPT': '0',
            'GIT_NO_LAZY_FETCH': '1'}
-    command = ['git', '--no-optional-locks', '-c', 'core.fsmonitor=false',
-               '-c', 'core.hooksPath=' + os.devnull, '-c', 'core.quotePath=true', '-C', str(root)]
-    def run(args, maximum, prefix=None):
-        deadline, data = time.monotonic() + 2, bytearray()
-        with subprocess.Popen((command if prefix is None else prefix) + args, env=env, stdin=subprocess.DEVNULL,
-                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True) as process:
-            try:
-                while True:
-                    check()
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0: raise TimeoutError('Git capture deadline')
-                    if not select.select([process.stdout], [], [], min(remaining, 0.01))[0]: continue
-                    chunk = os.read(process.stdout.fileno(), maximum - len(data))
-                    if not chunk:
-                        return bytes(data) if process.wait(timeout=remaining) == 0 else None
-                    data.extend(chunk)
-                    if len(data) == maximum: return bytes(data)
-            finally:
-                # Only this owned process group is stopped; status output is deliberately bounded.
-                try: os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError: pass
-                process.wait()
+    if not isinstance(root, SourceRoot) or root.fd is None:
+        raise OSError('Held secure source directory required for Git capture')
+    command = ['git', '--no-optional-locks', '--no-replace-objects', '-c', 'core.fsmonitor=false',
+               '-c', 'core.hooksPath=' + os.devnull, '-c', 'core.quotePath=true',
+               '-C', '/proc/self/fd/' + str(root.fd)]
+    deadline, data = time.monotonic() + 2, bytearray()
+    with subprocess.Popen(command + args, env=env, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, start_new_session=True,
+            pass_fds=(root.fd,)) as process:
+        try:
+            while True:
+                check()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0: raise TimeoutError('Git capture deadline')
+                if not select.select([process.stdout], [], [], min(remaining, 0.01))[0]: continue
+                chunk = os.read(process.stdout.fileno(), min(65536, maximum + 1 - len(data)))
+                if not chunk:
+                    return bytes(data) if process.wait(timeout=remaining) == 0 else None
+                data.extend(chunk)
+                if len(data) > maximum: raise ValueError('Git capture output ceiling exhausted')
+        finally:
+            try: os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError: pass
+            process.wait()
+
+
+def _git_observation(root, check):
+    """Capture HEAD, never a project-configured worktree-cleanliness assertion."""
     try:
-        revision = run(['rev-parse', '--verify', 'HEAD'], 128)
+        revision = _git_capture(root, ['rev-parse', '--verify', 'HEAD'], 128, check)
         if revision is None: return {'revision': None, 'dirty': None, 'knowledge': 'unknown', 'reason': 'git_revision_unavailable'}
         revision = revision.decode('ascii').strip()
         if len(revision) not in (40, 64) or any(c not in '0123456789abcdef' for c in revision):
@@ -80,6 +87,46 @@ def _git_observation(root, check):
                 'dirty_basis': 'unobserved_repository_configured_status'}
     except (OSError, ValueError, TimeoutError, subprocess.TimeoutExpired):
         return {'revision': None, 'dirty': None, 'knowledge': 'unknown', 'reason': 'git_capture_unavailable_or_bounded_stop'}
+
+
+def _git_changes(root, base, revision, check):
+    """Capture bounded commit paths; their working-tree byte affinity is unknown."""
+    result = {'status': 'not_requested', 'base_revision': base, 'current_revision': revision,
+              'source_byte_affinity': 'unobserved_worktree', 'dirty': None,
+              'basis': 'committed_changed_paths_current_captured_definitions'}
+    if base is None:
+        return result, []
+    try:
+        if revision is None:
+            raise ValueError('Current captured commit unavailable')
+        prefix = _git_capture(root, ['rev-parse', '--show-prefix'], 4096, check)
+        if prefix is None or prefix.strip():
+            return dict(result, status='unavailable', reason='git_source_root_not_repository_root'), []
+        resolved = _git_capture(root, ['rev-parse', '--verify', base + '^{commit}'], 128, check)
+        if resolved is None or resolved.decode('ascii').strip() != base:
+            raise ValueError('Exact base commit unavailable')
+        raw = _git_capture(root, ['diff-tree', '--no-commit-id', '--name-status', '-r', '-z',
+            '--no-renames', '--no-ext-diff', '--no-textconv', base, revision, '--'], 131072, check)
+        if raw is None or raw and not raw.endswith(b'\0'):
+            raise ValueError('Bounded changed-path receipt unavailable')
+        values = raw.split(b'\0')[:-1] if raw else []
+        if len(values) % 2 or len(values) > 512:
+            raise ValueError('Changed-path ceiling exhausted')
+        changes = []
+        for status, path in zip(values[::2], values[1::2]):
+            check()
+            status, path = status.decode('ascii'), path.decode('utf-8')
+            if status not in ('A', 'D', 'M', 'T') or len(path.encode()) > 4096 or '\\' in path or str(PurePosixPath(path)) != path:
+                raise ValueError('Unsupported changed-path receipt')
+            SourceRoot.parts(path)
+            changes.append({'path': path, 'status': status})
+        changes.sort(key=lambda item: item['path'])
+        if len({item['path'] for item in changes}) != len(changes):
+            raise ValueError('Duplicate changed path')
+        return dict(result, status='ready', count=len(changes),
+                    changes_sha256=hashlib.sha256(encoded(changes)).hexdigest()), changes
+    except (OSError, UnicodeError, ValueError, TimeoutError, subprocess.TimeoutExpired):
+        return dict(result, status='unavailable', reason='git_change_capture_unavailable_or_bounded_stop'), []
 
 
 def _coverage(db, count, check):
@@ -305,6 +352,12 @@ def _schema(db):
     CREATE TABLE IF NOT EXISTS structural_sites(id TEXT PRIMARY KEY, path TEXT NOT NULL,
       ordinal INTEGER NOT NULL, role TEXT NOT NULL, data TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS structural_site_file ON structural_sites(path,ordinal);
+    CREATE TABLE IF NOT EXISTS structural_import_relationships(id TEXT NOT NULL, path TEXT NOT NULL,
+      ordinal INTEGER NOT NULL, start_byte INTEGER NOT NULL, end_byte INTEGER NOT NULL,
+      target_path TEXT NOT NULL, certainty TEXT NOT NULL, data TEXT NOT NULL,
+      PRIMARY KEY(id,target_path));
+    CREATE INDEX IF NOT EXISTS structural_reverse_import ON structural_import_relationships(target_path,path,start_byte,end_byte,id);
+    CREATE TABLE IF NOT EXISTS structural_git_changes(path TEXT PRIMARY KEY,status TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS structural_relationships(site_id TEXT NOT NULL, target_id TEXT NOT NULL,
       path TEXT NOT NULL, role TEXT NOT NULL, certainty TEXT NOT NULL,
       PRIMARY KEY(site_id,target_id));
@@ -325,6 +378,7 @@ def _schema(db):
     CREATE INDEX IF NOT EXISTS structural_outgoing ON structural_relationships(caller_id,path,site_start,site_end,role,target_path,target_start,target_end,site_id,target_id);
     CREATE INDEX IF NOT EXISTS structural_incoming ON structural_relationships(target_id,path,site_start,site_end,role,target_path,target_start,target_end,site_id);
     CREATE INDEX IF NOT EXISTS structural_occurrence_order ON structural_relationships(path,site_start,site_end,role,target_path,target_start,target_end,site_id,target_id);
+    CREATE INDEX IF NOT EXISTS structural_unassigned_occurrence ON structural_relationships(path,target_id,site_start,site_end,role,target_path,target_start,target_end,site_id);
     ''')
 
 
@@ -378,11 +432,14 @@ class StructuralIndex:
                         data['path'] = row['path']
                     yield data
 
-    def refresh(self, paths, *, mode='serial', concurrency=1, cancel=None, evidence_directory=None):
+    def refresh(self, paths, *, mode='serial', concurrency=1, cancel=None, evidence_directory=None, git_base=None):
         if (mode not in ('serial', 'queued') or type(concurrency) is not int or
                 not 1 <= concurrency <= 4 or mode == 'serial' and concurrency != 1 or
                 cancel is not None and not callable(cancel) or isinstance(paths, (str, bytes))):
             raise ValueError('Explicit serial/queued mode, bounded workers and inventory iterable required')
+        if git_base is not None and (type(git_base) is not str or len(git_base) not in (40, 64) or
+                any(c not in '0123456789abcdef' for c in git_base)):
+            raise ValueError('Git base must be an exact lowercase commit identity')
         started, limits, budget = time.monotonic(), self.limits, self.budget
         resources = {'batches': 0, 'changed_files_collected': 0,
                      'unchanged_source_collections_reused': 0, 'source_bytes': 0,
@@ -403,7 +460,8 @@ class StructuralIndex:
         try:
             analyzer = analyzer_identity()
             config = hashlib.sha256(encoded({'budget': asdict(budget), 'limits': asdict(limits),
-                                             'versions': native.PINS, 'schema': SCHEMA})).hexdigest()
+                                             'versions': native.PINS, 'schema': SCHEMA,
+                                             'impact_schema': IMPACT_SCHEMA})).hexdigest()
             with SourceRoot(self.output) as output:
                 if output.identity != self.output_owner:
                     raise RuntimeError('Index output ownership changed')
@@ -423,8 +481,12 @@ class StructuralIndex:
                 begin_attempt(self.output, self.output_owner, 'structural', attempt)
                 if {name: metadata.version(name) for name in native.PINS} != native.PINS:
                     raise native.BackendUnavailable('Optional backend versions differ from qualified pins')
-                git_before = _git_observation(source.root, check)
+                git_before = _git_observation(source, check)
+                git_change, changes = _git_changes(source, git_base, git_before['revision'], check)
                 _schema(db)
+                db.execute('DELETE FROM structural_git_changes')
+                db.executemany('INSERT INTO structural_git_changes VALUES(?,?)',
+                               ((item['path'], item['status']) for item in changes))
                 page_size = db.execute('PRAGMA page_size').fetchone()[0]
                 pages = db.execute('PRAGMA max_page_count=' + str(max(1, limits.max_index_bytes // page_size))).fetchone()[0]
                 if pages * page_size > limits.max_index_bytes:
@@ -432,7 +494,8 @@ class StructuralIndex:
                 db.set_progress_handler(lambda: int(check()), 1000)
                 if old.get('structural_analyzer') != analyzer or old.get('structural_config') != config:
                     for table in ('structural_files', 'structural_symbols', 'structural_scopes', 'structural_imports',
-                                  'structural_summaries', 'structural_dependencies', 'structural_sites', 'structural_relationships'):
+                                  'structural_summaries', 'structural_dependencies', 'structural_sites', 'structural_relationships',
+                                  'structural_import_relationships'):
                         db.execute('DELETE FROM ' + table)
                     resources['invalidation_reason'] = 'analyzer_or_limits_changed_or_initial_index'
                 else:
@@ -545,7 +608,8 @@ class StructuralIndex:
                     batch_bytes += len(raw)
                 flush()
                 for table in ('structural_files', 'structural_symbols', 'structural_scopes', 'structural_imports',
-                              'structural_summaries', 'structural_dependencies', 'structural_sites', 'structural_relationships'):
+                              'structural_summaries', 'structural_dependencies', 'structural_sites', 'structural_relationships',
+                              'structural_import_relationships'):
                     db.execute('DELETE FROM ' + table + ' WHERE path NOT IN (SELECT path FROM structural_seen)')
                 files = _Files(db, budget, check)
                 files.index_go_packages()
@@ -554,7 +618,7 @@ class StructuralIndex:
                     resources['dependency_lookups_checked'] += 1
                     if files.fingerprint(row['kind'], row['key'])[0] != row['fingerprint']:
                         db.execute('INSERT OR IGNORE INTO structural_dirty VALUES(?)', (row['path'],))
-                for table in ('structural_sites', 'structural_relationships', 'structural_dependencies'):
+                for table in ('structural_sites', 'structural_relationships', 'structural_dependencies', 'structural_import_relationships'):
                     db.execute('DELETE FROM ' + table + ' WHERE path IN (SELECT path FROM structural_dirty) OR path IN (SELECT path FROM structural_files WHERE ir IS NULL)')
                 configurations = _Configurations(db)
                 for path in files:
@@ -568,8 +632,33 @@ class StructuralIndex:
                     resolve = native.resolver(files, configurations, definitions=_Definitions(db))
                     work = native.Work(budget, check)
                     work.facts = len(file.definitions) + len(file.imports)
+                    unknown_import = False
+                    for ordinal, item in enumerate(file.imports):
+                        check()
+                        targets, _, reason = native.module_paths(file, item, files, configurations)
+                        if file.partial:
+                            targets, reason = [], 'partial import source; candidates unavailable'
+                        targets = sorted(set(targets))
+                        partial_target = any(files[target].partial for target in targets)
+                        certainty = 'unresolved' if not targets else 'resolved' if len(targets) == 1 and not partial_target and file.language != 'go' else 'candidate'
+                        unknown_import |= not targets
+                        span = item['range']
+                        identifier = 'import:' + hashlib.sha256(encoded([path, ordinal, span])).hexdigest()
+                        data = {'id': identifier, 'path': path, 'range': span,
+                            'source_sha256': item['provenance']['source_sha256'], 'language': file.language,
+                            'certainty': certainty, 'targets_exhaustive': False,
+                            'source_candidates_exhaustive': not file.partial and not partial_target and bool(targets),
+                            'reason': reason or ('Go package source membership; build/runtime selection unqualified' if file.language == 'go' else
+                                                'partial imported source; runtime selection unqualified' if partial_target else
+                                                'multiple admitted source candidates; runtime selection unqualified' if len(targets) > 1 else
+                                                'admitted import source; runtime selection unqualified'),
+                            'provenance': item['provenance'], 'scope': 'admitted_source_candidates_runtime_unqualified'}
+                        for target in targets or ['']:
+                            work.fact()
+                            db.execute('INSERT INTO structural_import_relationships VALUES(?,?,?,?,?,?,?,?)',
+                                (identifier, path, ordinal, span['start_byte'], span['end_byte'], target, certainty, encoded(data)))
                     file.emit_sites(resolve, work)
-                    if file.partial or any(site['certainty'] == 'unresolved' for site in file.sites):
+                    if file.partial or unknown_import or any(site['certainty'] == 'unresolved' for site in file.sites):
                         # ponytail: unknown closure rebuilds this consumer against the complete
                         # admitted inventory on change; qualify finer dependency rules later.
                         files.observe('inventory', '*')
@@ -599,9 +688,16 @@ class StructuralIndex:
                 for table in ('structural_symbols', 'structural_sites', 'structural_scopes', 'structural_imports'):
                     for row in db.execute('SELECT data FROM ' + table + ' ORDER BY path,ordinal'):
                         generation.update(row[0] if type(row[0]) is bytes else row[0].encode())
-                git_after = _git_observation(source.root, check)
+                generation.update(IMPACT_SCHEMA.encode())
+                for row in db.execute('SELECT target_path,data FROM structural_import_relationships ORDER BY path,ordinal,target_path'):
+                    check()
+                    generation.update(encoded([row['target_path'], json.loads(row['data'])]))
+                git_after = _git_observation(source, check)
                 if git_before != git_after:
                     git_after = {'revision': None, 'dirty': None, 'knowledge': 'unknown', 'reason': 'git_changed_during_capture'}
+                    git_change, changes = dict(git_change, status='unavailable', current_revision=None,
+                                               reason='git_changed_during_capture'), []
+                    db.execute('DELETE FROM structural_git_changes')
                 receipt = {'status': 'ready', 'published': True, 'generation': generation.hexdigest(),
                     'source_identity': source_identity, 'repository_identity': self.owner,
                     'analyzer_identity': analyzer, 'config_identity': config, 'resources': resources,
@@ -609,6 +705,25 @@ class StructuralIndex:
                     'versions': {'schema': SCHEMA, 'rules': native.RULE_VERSION, 'grammars': dict(native.PINS)},
                     'revision_dirty': dict(git_after, content_identity=source_identity),
                     'scope': 'Persistent bounded structural foundation; scale and query defaults unqualified'}
+                base_snapshot = None
+                prior_receipt = json.loads(old.get('structural_receipt', '{}'))
+                prior_impact = json.loads(old.get('structural_impact_receipt', '{}'))
+                if (git_base is not None and prior_impact.get('git_change', {}).get('base_revision') == git_base and
+                        prior_impact.get('repository_identity') == self.owner):
+                    base_snapshot = prior_impact.get('base_snapshot')
+                if git_base is not None and prior_receipt.get('revision_dirty', {}).get('revision') == git_base:
+                    base_snapshot = {key: old.get('structural_' + name) for key, name in
+                        (('repository_identity', 'repository'), ('source_identity', 'source'), ('analyzer_identity', 'analyzer'),
+                         ('config_identity', 'config'), ('generation', 'generation'))}
+                impact = {'schema': IMPACT_SCHEMA, 'repository_identity': self.owner,
+                    'source_identity': source_identity, 'analyzer_identity': analyzer, 'config_identity': config,
+                    'generation': receipt['generation'], 'revision_dirty': receipt['revision_dirty'],
+                    'git_change': git_change, 'base_snapshot': base_snapshot,
+                    'historical_call_closure': 'unavailable_current_index_only', 'contracts_available': False}
+                impact['identity'] = hashlib.sha256(encoded(impact)).hexdigest()
+                receipt['impact_identity'] = impact['identity']
+                db.executemany('INSERT OR REPLACE INTO meta VALUES(?,?)',
+                    (('structural_impact_schema', IMPACT_SCHEMA), ('structural_impact_receipt', encoded(impact).decode())))
                 project_function_evidence(db, {
                     'repository_identity': self.owner, 'source_identity': source_identity,
                     'structural_generation': receipt['generation'],

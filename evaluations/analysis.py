@@ -38,6 +38,7 @@ from evaluations.tree_sitter_baseline import BackendUnavailable, Budget, LANGUAG
 INPUTS = 'evaluations/code-understanding/'
 DEFAULT_OUTPUT = 'evaluations/results/code-understanding/native-component.json'
 FACTS_OUTPUT = 'evaluations/results/code-understanding/facts.json'
+VIEWS_OUTPUT = 'evaluations/results/code-understanding/views.json'
 
 # Separately identified state/storage controls, frozen before producer execution.
 # They do not extend the original construct oracle or its coverage denominator.
@@ -780,6 +781,196 @@ def record_structural(root, task, result, maximum):
 
 def record_constructs(root, result, maximum):
     return record_structural(root, 'T010', result, maximum)
+
+
+def impact(root=ROOT, budget=None):
+    """Exercise captured reverse imports/calls against the locked source key."""
+    from repo_graph.analysis import IndexLimits, StructuralIndex
+    from repo_graph.analysis_queries import Queries, encoded
+    from repo_graph.search import connect
+    from evaluations.engine_checks import _adapter_materialize
+    root, budget = Path(root), budget or Budget(timeout_seconds=20)
+    fixture, frozen = frozen_inputs(root)
+    with SourceRoot(root) as owner:
+        blobs = {r['path']: owner.read(r['path'], 1024 * 1024, hash_full=True)[0] for r in fixture['files']}
+    inventory = {r['path']: {k: r[k] for k in ('path', 'language', 'kind', 'sha256', 'bytes')}
+                 for r in fixture['files']}
+    imported = [r for r in fixture['cases'] if r['id'] in ('PY-IMPORT', 'GO-IMPORT', 'JS-IMPORT', 'TS-IMPORT')]
+    if len(imported) != 4:
+        raise ValueError('Four locked language import judgments required')
+    question_ids = [r['id'] + '-reverse-impact' for r in imported] + [
+        'physical_pagination_no_duplicates', 'selection_work', 'selection_entities', 'setup_deadline',
+        'cancelled_without_facts', 'invalid_area_refused', 'unimplemented_contract_refused',
+        'changed_clean_shared_projection_parity', 'git_body_and_deleted_preimage_boundary',
+        'changed_impact_cursor_refused', 'ordinary_calls_keep_captured_snapshot', 'implementation_stable']
+    declarations = {r['id']: r for r in fixture['definitions']}
+    paths = ('evaluations/analysis.py', 'repo_graph/analysis.py', 'repo_graph/analysis_queries.py',
+             'repo_graph/analysis_native.py', 'repo_graph/analysis_queue.py', 'repo_graph/source.py',
+             'repo_graph/search.py', 'tests/test_analysis.py', 'pyproject.toml', 'uv.lock')
+    with SourceRoot(root) as owner:
+        before = {p: owner.read(p, 2 * 1024 * 1024, hash_full=True)[1] for p in paths}
+    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True, timeout=5).strip()
+    cases, modes = [], []
+    def case(identifier, action):
+        row = {'id': identifier, 'status': 'failed'}
+        cases.append(row)
+        try:
+            row['observed'] = action()
+            row['status'] = 'passed'
+        except Exception as error:
+            row['error_kind'] = type(error).__name__
+            if isinstance(error, AssertionError): row['reason'] = str(error)[:256]
+    def observed(value):
+        cases[-1]['observed'] = value
+        return value
+    def physical(handle):
+        return handle['path'], handle['range']
+    def projection(index):
+        db = connect(index.output, readonly=True, owner=index.output_owner)
+        try:
+            return [dict(r, data=json.loads(r['data'])) for r in db.execute(
+                'SELECT * FROM structural_import_relationships ORDER BY path,ordinal,target_path')]
+        finally: db.close()
+    def facts(index):
+        return {k: list(index.read_facts(k)) for k in ('definitions', 'sites', 'imports', 'scopes', 'relationships')}
+    def refused(action):
+        try: action()
+        except ValueError: return {'refused': True}
+        raise AssertionError('Invalid or stale request was admitted')
+    with tempfile.TemporaryDirectory(prefix='repo-graph-impact-') as scratch:
+        directory, source = Path(scratch), Path(scratch) / 'source'
+        source.mkdir(); _adapter_materialize(source, blobs)
+        env = {'PATH': os.environ.get('PATH', ''), 'GIT_CONFIG_GLOBAL': os.devnull,
+               'GIT_CONFIG_SYSTEM': os.devnull, 'GIT_CONFIG_NOSYSTEM': '1', 'GIT_TERMINAL_PROMPT': '0'}
+        def git(*args):
+            return subprocess.check_output(['git', '-c', 'core.hooksPath=' + os.devnull,
+                '-c', 'user.name=Synthetic Fixture', '-c', 'user.email=fixture@example.invalid',
+                '-C', str(source), *args], env=env, stderr=subprocess.DEVNULL, text=True, timeout=5).strip()
+        git('init', '--initial-branch=main'); git('add', '--all'); git('commit', '-m', 'Synthetic impact base')
+        base = git('rev-parse', 'HEAD')
+        limits = IndexLimits(max_files=budget.max_files, max_source_bytes=budget.max_total_bytes,
+                             total_wall_seconds=budget.timeout_seconds)
+        index = StructuralIndex(source, directory / 'index', budget=budget, limits=limits)
+        receipt = index.refresh(list(inventory.values()))
+        modes.append({'phase': 'base', 'receipt': receipt})
+        if receipt['status'] != 'ready':
+            cases.append({'id': 'base_publication', 'status': 'failed', 'observed': receipt})
+        else:
+            with Queries(index.output) as queries:
+                for expected in imported:
+                    target = declarations[expected['targets'][0]]
+                    payload = {'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': [target['path']]}, 'role': 'all'}
+                    def grade_import(expected=expected, target=target, payload=payload):
+                        result = observed(queries.run(payload))
+                        assert any(r['relation'] == 'call' and physical(r['site']) == physical(expected) and
+                            r['target'] and physical(r['target']) == physical(target) for r in result['rows']), 'Reviewed incoming call missing'
+                        assert any(r['relation'] == 'import' and r['site']['path'] == expected['path'] and
+                            r['target'] and r['target']['path'] == target['path'] for r in result['rows']), 'Captured reverse import missing'
+                        assert result['contracts_available'] is False and result['runtime_complete'] is False
+                        assert result['impact_identity'] == receipt['impact_identity']
+                        assert len(encoded(result)) <= 32768 and result['examined_work'] <= 10000
+                        if expected['language'] == 'go':
+                            assert all(r['certainty'] == 'candidate' for r in result['rows'] if
+                                r['relation'] == 'import' and r['target'] is not None), 'Go build membership falsely exact'
+                        return result
+                    case(expected['id'] + '-reverse-impact', grade_import)
+                py = next(r for r in imported if r['id'] == 'PY-IMPORT')
+                target = declarations[py['targets'][0]]
+                payload = {'operation': 'impact', 'selector': {'kind': 'source_area', 'paths': [target['path']]}, 'role': 'all'}
+                def pages():
+                    collected, observations, cursor = [], [], None
+                    observed(observations)
+                    for _ in range(80):
+                        page = queries.run(dict(payload, limits={'max_edges': 1, 'max_response_bytes': 8192},
+                            **({'cursor': cursor} if cursor else {})))
+                        observations.append(page)
+                        assert len(encoded(page)) <= 8192 and page['returned_edges'] <= 1
+                        collected.extend(page['rows']); cursor = page['cursor']
+                        if cursor is None: break
+                    assert cursor is None, 'Bounded synthetic pagination did not finish'
+                    keys = [(r['relation'], r['site']['id'], r['target']['id'] if r['target'] else '') for r in collected]
+                    assert len(keys) == len(set(keys)), 'Physical relation repeated across pages'
+                    return observations
+                case('physical_pagination_no_duplicates', pages)
+                for name, reduced, reason in (
+                    ('selection_work', {'max_examined_relationships': 1}, 'work_budget_exceeded'),
+                    ('selection_entities', {'max_entities': 1}, 'entity_budget_exceeded'),
+                    ('setup_deadline', {'timeout_seconds': 1e-9}, 'deadline_exceeded')):
+                    def stopped(reduced=reduced, reason=reason):
+                        response = observed(queries.run(dict(payload, limits=reduced)))
+                        assert response['stop_reason'] == reason, 'Requested boundary was not observed'
+                        return response
+                    case(name, stopped)
+                def cancelled():
+                    response = observed(queries.run(payload, cancel=lambda: True))
+                    assert response['stop_reason'] == 'cancelled'
+                    return response
+                case('cancelled_without_facts', cancelled)
+                case('invalid_area_refused', lambda: refused(lambda: queries.run(dict(payload,
+                    selector={'kind': 'source_area', 'paths': ['../escape']}))))
+                case('unimplemented_contract_refused', lambda: refused(lambda: queries.run(dict(payload, relations=['contract']))))
+                impact_page = queries.run(dict(payload, limits={'max_edges': 1}))
+                call_page = queries.run({'operation': 'call', 'limits': {'max_edges': 1}})
+                changed = dict(blobs)
+                changed[target['path']] = changed[target['path']].replace(b'value * 2', b'value * 3')
+                removed = declarations['GO.helpers.Finish']['path']; del changed[removed]
+                _adapter_materialize(source, changed, [removed])
+                git('add', '--all'); git('commit', '-m', 'Synthetic body and deleted import target')
+                updated = [dict(inventory[p], sha256=hashlib.sha256(raw).hexdigest(), bytes=len(raw)) for p, raw in changed.items()]
+                current = index.refresh(updated, git_base=base)
+                rebuilt = StructuralIndex(source, directory / 'clean', budget=budget, limits=limits)
+                clean = rebuilt.refresh(updated, git_base=base)
+                modes.extend([{'phase': 'changed', 'receipt': current}, {'phase': 'clean', 'receipt': clean}])
+                def parity():
+                    current_facts, clean_facts = facts(index), facts(rebuilt)
+                    current_imports, clean_imports = projection(index), projection(rebuilt)
+                    observed({'current_facts': current_facts, 'clean_facts': clean_facts,
+                              'current_imports': current_imports, 'clean_imports': clean_imports})
+                    assert current['status'] == clean['status'] == 'ready', 'Changed or clean publication failed'
+                    assert current['generation'] == clean['generation'] and current['source_identity'] == clean['source_identity']
+                    assert current_facts == clean_facts and current_imports == clean_imports, 'Shared facts or import projection differ'
+                    return {'generation': current['generation'], 'facts_sha256': hashlib.sha256(encoded(current_facts)).hexdigest(),
+                            'import_projection_sha256': hashlib.sha256(encoded(current_imports)).hexdigest()}
+                case('changed_clean_shared_projection_parity', parity)
+                def git_selection():
+                    response = observed(queries.run({'operation': 'impact', 'selector': {'kind': 'git_change', 'base_revision': base}}))
+                    assert response['selection']['git_change']['current_revision'] == git('rev-parse', 'HEAD')
+                    assert {r['path'] for r in response['selected_files']} == {target['path']}, 'Git changed-path selection differs'
+                    assert response['unknown_boundaries'].get('historical_or_nonadmitted_source_path', 0) > 0
+                    assert response['selection']['git_change']['source_byte_affinity'] == 'unobserved_worktree'
+                    assert response['historical_call_closure'] == 'unavailable_current_index_only'
+                    return response
+                case('git_body_and_deleted_preimage_boundary', git_selection)
+                case('changed_impact_cursor_refused', lambda: refused(lambda: queries.run(dict(payload,
+                    cursor=impact_page['cursor'], limits={'max_edges': 1}))))
+                def old_calls():
+                    assert call_page['cursor'], 'Control failed to obtain a call cursor'
+                    response = observed(queries.run({'operation': 'call', 'cursor': call_page['cursor'], 'limits': {'max_edges': 1}}))
+                    assert response['generation'] == receipt['generation'], 'Pinned Calls snapshot was replaced'
+                    return response
+                case('ordinary_calls_keep_captured_snapshot', old_calls)
+    with SourceRoot(root) as owner:
+        after = {p: owner.read(p, 2 * 1024 * 1024, hash_full=True)[1] for p in paths}
+    cases.append({'id': 'implementation_stable', 'status': 'passed' if before == after else 'failed'})
+    failures = [r for r in cases if r['status'] != 'passed']
+    return {'schema_version': 1, 'suite': 'impact', 'status': 'failed' if failures else 'passed',
+        'source_identity': {'inputs': frozen, 'implementation': {'commit': revision, 'sha256': before},
+            'question_ids': question_ids, 'question_core_sha256': hashlib.sha256(encoded(question_ids)).hexdigest(),
+            'update_recipe': 'same-size Python helper body edit and deletion of frozen Go helper'},
+        'case_results': cases, 'failures': failures, 'coverage_failures': [], 'modes': modes,
+        'counts': {'checks': len(cases), 'passed': len(cases) - len(failures)}, 'environment': environment(),
+        'qualification_complete': False, 'task_accepted': False, 'final_bundle_review_complete': False,
+        'scope': 'Locked synthetic source-key reverse import/call queries and current-index update controls; '
+                 'historical preimage closure, live-source affinity, real corpora, agent tasks and human UX unqualified.'}
+
+
+def record_view(root, task, result, maximum):
+    with SourceRoot(root) as source:
+        report, _ = read_json(source, VIEWS_OUTPUT, maximum)
+    if type(report) is not dict or report.get('schema_version') != 1 or 'T016' not in report.get('tasks', {}) or task != 'T043':
+        raise ValueError('Existing Calls proof and known view task required')
+    report['tasks'][task] = result
+    return write_result(root, VIEWS_OUTPUT, report, maximum)
 
 
 def _incremental_original_impact(facts, expected, phase, fixture, sources):
@@ -2702,7 +2893,7 @@ def main(argv=None):
                         help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
-    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence'], default='component')
+    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
                         help='finite report cap: 2 MiB for comparison/structural suites, 1 MiB otherwise')
@@ -2711,12 +2902,13 @@ def main(argv=None):
     parser.add_argument('--max-nodes', type=int, default=200_000)
     args = parser.parse_args(argv)
     structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012', 'coverage': 'T013', 'evidence': 'T014'}.get(args.suite)
-    if not (args.engine or args.screen_engines or args.compare or args.profile or args.profile_pilot) and structural_task is None:
+    view_task = 'T043' if args.suite == 'impact' else None
+    if not (args.engine or args.screen_engines or args.compare or args.profile or args.profile_pilot) and structural_task is None and view_task is None:
         parser.error('an engine, screening, comparison or profiling mode is required for component')
-    if structural_task and (args.screen_engines or args.compare or args.profile or args.profile_pilot):
+    if (structural_task or view_task) and (args.screen_engines or args.compare or args.profile or args.profile_pilot):
         parser.error(args.suite + ' uses the shared structural owner directly')
     if args.max_result_bytes is None:
-        args.max_result_bytes = (2 if args.compare or structural_task or args.protocol else 1) * 1024 * 1024
+        args.max_result_bytes = (2 if args.compare or structural_task or view_task or args.protocol else 1) * 1024 * 1024
     if args.protocol and (not args.profile_pilot or args.source_map is None):
         parser.error('--protocol requires --profile-pilot and a pinned --source-map')
     if args.protocol and not 0 < args.max_result_bytes <= 2 * 1024 * 1024:
@@ -2732,6 +2924,7 @@ def main(argv=None):
                'evaluations/results/code-understanding/persistent-Django.json' if args.profile_pilot and args.protocol else
                'evaluations/results/code-understanding/persistent-pilot.json' if args.profile_pilot else
                'evaluations/results/code-understanding/reusable-screen.json' if args.screen_engines else
+               VIEWS_OUTPUT if view_task else
                FACTS_OUTPUT if structural_task else DEFAULT_OUTPUT)
     args.output = args.output or default
     if args.profile_pilot:
@@ -2765,6 +2958,15 @@ def main(argv=None):
             print(json.dumps({'status': result['status'], 'result': args.output, 'result_bytes': size,
                 'qualification_complete': False, 'resource_budgets_frozen': False}, separators=(',', ':')))
             return 0 if result['status'] == 'complete' else 1
+        if view_task:
+            result = impact(ROOT, Budget(max_files=args.max_files,
+                max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes))
+            result['resources'] = {'impact_elapsed_seconds': time.perf_counter() - started}
+            size = (record_view(ROOT, view_task, result, args.max_result_bytes) if args.output == VIEWS_OUTPUT else
+                    write_result(ROOT, args.output, result, args.max_result_bytes))
+            print(json.dumps({'status': result['status'], 'counts': result['counts'],
+                'failures': len(result['failures']), 'result': args.output, 'result_bytes': size}, separators=(',', ':')))
+            return 0 if result['status'] == 'passed' else 1
         if structural_task:
             producer = {'constructs': constructs, 'incremental': incremental, 'queries': queries, 'coverage': coverage,
                         'evidence': evidence}[args.suite]
@@ -2818,7 +3020,9 @@ def main(argv=None):
                   'status': 'blocked', 'reason': str(error), 'engine_selected': False,
                   'setup': 'uv sync --python 3.12 --extra analysis'}
         try:
-            if structural_task and args.output == FACTS_OUTPUT:
+            if view_task and args.output == VIEWS_OUTPUT:
+                record_view(ROOT, view_task, result, args.max_result_bytes)
+            elif structural_task and args.output == FACTS_OUTPUT:
                 record_structural(ROOT, structural_task, result, args.max_result_bytes)
             else:
                 write_result(ROOT, args.output, result, args.max_result_bytes)
@@ -2831,12 +3035,14 @@ def main(argv=None):
         print(json.dumps(result, separators=(',', ':')))
         return 2
     except Exception as error:
-        if structural_task:
+        if structural_task or view_task:
             result = {'schema_version': 1, 'suite': args.suite, 'status': 'failed',
                 'error_kind': type(error).__name__, 'source_identity': None, 'case_results': [],
                 'coverage_failures': [], 'qualification_complete': False, 'limits_qualified': False}
             try:
-                if args.output == FACTS_OUTPUT:
+                if view_task and args.output == VIEWS_OUTPUT:
+                    record_view(ROOT, view_task, result, args.max_result_bytes)
+                elif args.output == FACTS_OUTPUT:
                     record_structural(ROOT, structural_task, result, args.max_result_bytes)
                 else:
                     write_result(ROOT, args.output, result, args.max_result_bytes)

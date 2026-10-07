@@ -247,6 +247,58 @@ const RepoViews = (() => {
       throw new Error('Source excerpt range mismatch');
     return value;
   }
-  return {metrics,ordered,layout,csv,systemOverview,indexStatus,sourceHandle,queryPage,callScene,sourceEvidence};
+  const snapshotKeys=['generation','repository_identity','source_identity','analyzer_identity','config_identity'];
+  function capturedSnapshot(status) {
+    const identities=status?.structural?.identities;
+    if(status?.status!=='ok' || status.structural?.artifact_ready!==true ||
+        snapshotKeys.some(key=>!/^[0-9a-f]{64}$/.test(identities?.[key] || '')))return null;
+    return Object.fromEntries(snapshotKeys.map(key=>[key,identities[key]]));
+  }
+  function sameSnapshot(a,b) { return !!a && !!b && snapshotKeys.every(key=>a[key]===b[key]); }
+  function savedView(value) {
+    const exact=(row,keys)=>row && typeof row==='object' && !Array.isArray(row) &&
+      Object.keys(row).length===keys.length && keys.every(key=>Object.hasOwn(row,key));
+    const text=(s,max)=>typeof s==='string' && s.length<=max;
+    const fail=()=>{throw new Error('Invalid saved view; clear it and select again');};
+    if(!exact(value,['version','view','scope','sort','kind','page','selected','snapshot','calls']) || value.version!==1 ||
+        !['system','atlas','tree','radial','treemap','table','matrix','search','calls'].includes(value.view) ||
+        !text(value.scope,4096) || !['name','files','imports'].includes(value.sort) ||
+        !['all','directory','file'].includes(value.kind) || !Number.isSafeInteger(value.page) || value.page<0 ||
+        value.selected!==null && (!text(value.selected,8192) || !value.selected))fail();
+    if(value.snapshot!==null && (!exact(value.snapshot,snapshotKeys) ||
+        snapshotKeys.some(key=>!/^[0-9a-f]{64}$/.test(value.snapshot[key] || ''))))fail();
+    if(value.calls!==null) {
+      const calls=value.calls;
+      if(value.view!=='calls' || value.snapshot===null ||
+          !exact(calls,['root','direction','size','intents']) ||
+          !exact(calls.root,['id','path','range','source_sha256']) ||
+          !exact(calls.root.range,['start_byte','end_byte','start_line','end_line']) ||
+          !['callees','callers'].includes(calls.direction) || ![1,4,8].includes(calls.size) ||
+          !Array.isArray(calls.intents) || calls.intents.length>24)fail();
+      sourceHandle(calls.root);
+      for(const step of calls.intents) {
+        if(!exact(step,['seed','operation','continuation','reset','limits']) || !text(step.seed,8192) || !step.seed ||
+            !['callees','callers'].includes(step.operation) || typeof step.continuation!=='boolean' || typeof step.reset!=='boolean' ||
+            !exact(step.limits,['max_entities','max_edges','max_response_bytes','max_excerpt_bytes']) ||
+            !Number.isSafeInteger(step.limits.max_entities) || step.limits.max_entities<1 || step.limits.max_entities>8 ||
+            !Number.isSafeInteger(step.limits.max_edges) || step.limits.max_edges<1 || step.limits.max_edges>8 ||
+            step.limits.max_response_bytes!==32768 || step.limits.max_excerpt_bytes!==0)fail();
+      }
+    }
+    return value;
+  }
+  function bookmarkFragment(value) {
+    const raw=JSON.stringify(savedView(value));
+    if(new TextEncoder().encode(raw).length>32768)throw new Error('bookmark_overflow');
+    const fragment='#view='+encodeURIComponent(raw);
+    if(new TextEncoder().encode(fragment).length>32768)throw new Error('bookmark_overflow');
+    return fragment;
+  }
+  function bookmarkView(fragment) {
+    if(typeof fragment!=='string' || fragment.length>32768 || new TextEncoder().encode(fragment).length>32768)throw new Error('bookmark_overflow');
+    if(!fragment.startsWith('#view='))throw new Error('invalid_bookmark');
+    return savedView(JSON.parse(decodeURIComponent(fragment.slice(6))));
+  }
+  return {metrics,ordered,layout,csv,systemOverview,indexStatus,sourceHandle,queryPage,callScene,sourceEvidence,capturedSnapshot,sameSnapshot,savedView,bookmarkFragment,bookmarkView};
 })();
 if (typeof module !== 'undefined') module.exports = RepoViews;

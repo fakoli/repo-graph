@@ -28,9 +28,10 @@ let stderr=''; server.stderr.on('data',chunk=>{stderr+=chunk;});
 const closed=once(server,'close');
 const url=await new Promise((accept,reject)=>{ const timer=setTimeout(()=>reject(new Error('Server start timeout: '+stderr)),30000); server.stdout.on('data',chunk=>{const value=String(chunk).match(/http:\/\/127\.0\.0\.1:\d+\/architecture.html/);if(value){clearTimeout(timer);accept(value[0]);}}); server.once('exit',()=>{clearTimeout(timer);reject(new Error(stderr));}); });
 const browser=await chromium.launch({executablePath:process.env.REPO_GRAPH_CHROME === 'chromium' ? undefined : process.env.REPO_GRAPH_CHROME || '/usr/bin/google-chrome',headless:true});
-const page=await browser.newPage({viewport:{width:1440,height:1000}}), errors=[];
+const context=await browser.newContext({viewport:{width:1440,height:1000}});
+const page=await context.newPage(), errors=[];
 page.on('pageerror',error=>errors.push(error.message));
-const checks=[],callsResponses=[],callsChecks=[];
+const checks=[],callsResponses=[],responseReads=[],callsChecks=[],savedChecks=[],savedObservations=[];
 try {
   const start=Date.now(); await page.goto(url); await page.locator('.node').first().waitFor();
   const loadMs=Date.now()-start;
@@ -186,7 +187,7 @@ try {
   await page.keyboard.press('Escape'); assert.equal(await page.locator('#inspector').isVisible(),false);
   assert.ok(await page.locator('#map').evaluate(map=>map===document.activeElement)); checks.push('narrow details focus and Escape return');
   if(!process.env.REPO_GRAPH_UX_OUTPUT) {
-    page.on('response',async response=>{if(/\/api\/(query|source)$/.test(response.url()) && response.status()===200){try{callsResponses.push({endpoint:new URL(response.url()).pathname,request:response.request().postDataJSON(),response:await response.json()});}catch{}}});
+    page.on('response',response=>{if(/\/api\/(query|source)$/.test(response.url()) && response.status()===200)responseReads.push((async()=>{try{callsResponses.push({endpoint:new URL(response.url()).pathname,request:response.request().postDataJSON(),response:await response.json()});}catch{}})());});
     await page.setViewportSize({width:1440,height:1000});await page.click('#tab-calls');
     const find=async name=>{
       await page.getByLabel('Symbol name prefix').fill(name);await page.getByLabel('Symbol path scope').fill('src/component00');
@@ -256,15 +257,153 @@ try {
     callsChecks.push('360px Calls controls and keyboard source inspection');
     if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-calls-narrow.png',fullPage:true});
     await page.setViewportSize({width:1440,height:1000});if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-calls.png'});
+
+    const readSaved=()=>page.evaluate(()=>{const key='repo-graph:view:'+location.pathname;const raw=sessionStorage.getItem(key);return {key,raw,value:raw===null ? null : JSON.parse(raw)};});
+    const writeSaved=value=>page.evaluate(value=>sessionStorage.setItem('repo-graph:view:'+location.pathname,JSON.stringify(value)),value);
+    const restored=()=>page.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.startsWith('Restored'));
+    const scene=()=>page.locator('.call-element').evaluateAll(cards=>cards.map(card=>({id:card.dataset.id,top:card.offsetTop,left:card.offsetLeft})));
+    await page.locator('.call-symbol').filter({hasText:'view_middle'}).getByRole('button',{name:'Expand outgoing',exact:true}).click();
+    await page.locator('.call-symbol').filter({hasText:'view_leaf'}).waitFor();
+    const expandedScene=await scene(),expandedRecord=(await readSaved()).value;
+    assert.equal(expandedRecord.calls.intents.length,2);assert.ok(Buffer.byteLength(JSON.stringify(expandedRecord))<=32768);
+    for(const word of ['cursor','text','rows','prefix','query','targets'])assert.equal(Object.hasOwn(expandedRecord,word),false);
+    savedObservations.push({case:'chain before reload',record:expandedRecord,scene:expandedScene});
+    await page.reload();await restored();
+    assert.equal(await page.locator('#tab-calls').getAttribute('aria-selected'),'true');
+    assert.deepEqual(await scene(),expandedScene);assert.deepEqual((await readSaved()).value.snapshot,expandedRecord.snapshot);
+    assert.equal(await page.locator('.call-evidence').isVisible(),false);
+    await page.locator('.call-symbol').filter({hasText:'view_middle'}).getByRole('button',{name:'Inspect declaration',exact:true}).click();await page.locator('.call-evidence pre').waitFor();
+    assert.match(await page.locator('.call-evidence pre').innerText(),/def view_middle/);await page.keyboard.press('Escape');
+    savedChecks.push('actual reload restores symbol, snapshot, ranges and stable call-chain positions without cached facts or excerpts');
+
+    await page.context().grantPermissions(['clipboard-read','clipboard-write'],{origin:new URL(url).origin});
+    await page.getByRole('button',{name:'Copy bookmark',exact:true}).click();await page.getByLabel('Bookmark URL').waitFor();
+    const bookmark=await page.getByLabel('Bookmark URL').inputValue();assert.ok(Buffer.byteLength(bookmark)<=32768);
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),bookmark);
+    assert.equal(new URL(bookmark).search,'');
+    const bookmarkRecord=JSON.parse(decodeURIComponent(new URL(bookmark).hash.slice(6)));
+    assert.deepEqual(bookmarkRecord.calls,expandedRecord.calls);assert.deepEqual(bookmarkRecord.snapshot,expandedRecord.snapshot);
+    const bookmarkPage=await page.context().newPage();await bookmarkPage.setViewportSize({width:1440,height:1000});
+    bookmarkPage.on('pageerror',error=>errors.push(error.message));
+    bookmarkPage.on('response',response=>{if(/\/api\/(query|source)$/.test(response.url()) && response.status()===200)responseReads.push((async()=>{try{callsResponses.push({page:'bookmark',endpoint:new URL(response.url()).pathname,request:response.request().postDataJSON(),response:await response.json()});}catch{}})());});
+    try {
+      await bookmarkPage.goto(bookmark);await bookmarkPage.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.startsWith('Restored bookmark'));
+      assert.deepEqual(await bookmarkPage.locator('.call-element').evaluateAll(cards=>cards.map(card=>({id:card.dataset.id,top:card.offsetTop,left:card.offsetLeft}))),expandedScene);
+      assert.equal(await bookmarkPage.evaluate(()=>sessionStorage.getItem('repo-graph:view:'+location.pathname)),null);
+      assert.equal(await bookmarkPage.locator('.call-evidence').isVisible(),false);
+      savedObservations.push({case:'actual copied bookmark new-tab roundtrip',url:bookmark,record:bookmarkRecord});
+      // A malformed explicit fragment takes precedence over an otherwise valid tab-local record.
+      await bookmarkPage.evaluate(record=>sessionStorage.setItem('repo-graph:view:'+location.pathname,JSON.stringify(record)),bookmarkRecord);
+      const invalidBookmark=new URL(bookmark);invalidBookmark.hash='#view=%not-json';
+      await bookmarkPage.goto(invalidBookmark.href);await bookmarkPage.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.includes('Invalid bookmark'));
+      assert.equal(await bookmarkPage.locator('.call-element').count(),0);
+      const staleBookmark=new URL(bookmark),staleBookmarkRecord=structuredClone(bookmarkRecord);staleBookmarkRecord.snapshot.generation='0'.repeat(64);
+      staleBookmark.hash='#view='+encodeURIComponent(JSON.stringify(staleBookmarkRecord));
+      await bookmarkPage.goto(staleBookmark.href);await bookmarkPage.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.includes('Bookmark snapshot is stale'));
+      assert.equal(await bookmarkPage.locator('.call-element').count(),0);
+      const oversizedBookmark=new URL(bookmark);oversizedBookmark.hash='#view='+'x'.repeat(32769);
+      await bookmarkPage.goto(oversizedBookmark.href);await bookmarkPage.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.includes('Bookmark exceeds 32 KiB'));
+      assert.equal(await bookmarkPage.locator('.call-element').count(),0);
+      await bookmarkPage.getByRole('button',{name:'Clear saved view',exact:true}).click();assert.equal(new URL(bookmarkPage.url()).hash,'');
+      savedChecks.push('actual clipboard bookmark new-tab roundtrip reuses bounded snapshot replay; invalid/stale/oversized fragments refuse selection and valid-storage fallback');
+    } finally {await bookmarkPage.close();}
+
+    await find('view_fanout');
+    const fanoutSeen=new Set();
+    for(let step=0;step<3;step++) {
+      for(const id of await page.locator('.call-site').evaluateAll(cards=>cards.map(card=>card.dataset.id)))fanoutSeen.add(id);
+      await page.getByRole('button',{name:/^(More callsites|Next page \(replace scene\))$/}).click();
+      await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('rows in this page'));
+    }
+    const replacedScene=await scene(),fanoutRecord=(await readSaved()).value;
+    assert.equal(fanoutRecord.calls.intents.length,4);assert.ok(fanoutRecord.calls.intents.some(step=>step.reset && step.continuation));
+    await Promise.all(responseReads);
+    const fanoutPage=callsResponses.filter(row=>row.endpoint==='/api/query' && row.request.operation==='callees' && row.request.seed===fanoutRecord.calls.root.id).at(-1);
+    assert.ok(fanoutPage.response.cursor);assert.doesNotMatch(JSON.stringify(fanoutRecord),new RegExp(fanoutPage.response.cursor));
+    savedObservations.push({case:'fanout replaced scene before cursor expiry',record:fanoutRecord,scene:replacedScene});
+    // Exercise the actual 60-second server cursor/session expiry, not a fabricated expiry response.
+    await page.waitForTimeout(31000);await page.waitForTimeout(31000);
+    const expired=await page.request.post(new URL('/api/query',url).toString(),{data:{...fanoutPage.request,cursor:fanoutPage.response.cursor}});
+    assert.equal(expired.status(),400);
+    await page.reload();await restored();assert.deepEqual(await scene(),replacedScene);
+    while(true) {
+      assert.ok(await page.locator('.call-element').count()<=24);
+      for(const id of await page.locator('.call-site').evaluateAll(cards=>cards.map(card=>card.dataset.id)))fanoutSeen.add(id);
+      const more=page.getByRole('button',{name:/^(More callsites|Next page \(replace scene\))$/});if(await more.isDisabled())break;
+      await more.click();await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('rows in this page'));
+    }
+    assert.equal(fanoutSeen.size,30);savedChecks.push('actual expired cursor is not persisted; fresh bounded replay restores replaced fanout page and complete continuation');
+
+    const stableRecord=(await readSaved()).value;
+    const staleRecord=structuredClone(stableRecord);staleRecord.snapshot.generation='0'.repeat(64);
+    await writeSaved(staleRecord);await page.reload();await page.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.includes('snapshot is stale'));
+    assert.equal(await page.locator('.call-element').count(),0);savedChecks.push('changed snapshot refuses old symbol and expansion before publishing a scene');
+    const invalidRecord=structuredClone(stableRecord);invalidRecord.calls.root.range.end_byte=-1;
+    await writeSaved(invalidRecord);await page.reload();await page.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.includes('Invalid saved view'));
+    assert.equal(await page.locator('.call-element').count(),0);
+    const forgedSelection=structuredClone(stableRecord);forgedSelection.calls.root.source_sha256='0'.repeat(64);
+    await writeSaved(forgedSelection);await page.reload();await page.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.includes('invalid selection'));
+    assert.equal(await page.locator('.call-element').count(),0);
+    await page.evaluate(()=>sessionStorage.setItem('repo-graph:view:'+location.pathname,' '.repeat(32769)));await page.reload();
+    await page.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.includes('exceeds 32 KiB'));
+    await page.getByRole('button',{name:'Clear saved view',exact:true}).click();await page.reload();
+    assert.equal((await readSaved()).value,null);assert.equal(await page.locator('#view-mode').inputValue(),'atlas');
+    savedChecks.push('malformed handles, forged digest, oversized record and clear controls never claim successful restoration');
+
+    await page.click('#tab-search');const sensitive='synthetic_private_query_9371';
+    await page.getByLabel('Repository search query').fill(sensitive);
+    await page.click('#tab-calls');await page.getByLabel('Symbol name prefix').fill(sensitive);await page.getByRole('button',{name:'Find symbols',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('rows in this page'));
+    assert.doesNotMatch(page.url(),new RegExp(sensitive));assert.doesNotMatch((await readSaved()).raw,new RegExp(sensitive));
+    await page.getByRole('button',{name:'Copy bookmark',exact:true}).click();await page.getByLabel('Bookmark URL').waitFor();
+    assert.doesNotMatch(await page.getByLabel('Bookmark URL').inputValue(),new RegExp(sensitive));
+    await page.click('#tab-search');await page.reload();await restored();
+    assert.equal(await page.getByLabel('Repository search query').inputValue(),'');
+    assert.doesNotMatch(page.url(),/[?#]/);savedChecks.push('sensitive queries remain absent from native record and URL; reload never replays Search work');
+
+    await page.click('#tab-explore');if(!await page.locator('#home').isDisabled())await page.click('#home');
+    await page.getByRole('button',{name:'Open src',exact:true}).click();await page.getByRole('button',{name:'Open src/component00',exact:true}).click();
+    await page.getByRole('button',{name:'Select src/component00/main.py',exact:true}).click();
+    const sourceRecord=(await readSaved()).value;await page.reload();await restored();
+    assert.equal(await page.locator('#breadcrumb').innerText().then(text=>text.includes('component00')),true);
+    assert.match(await page.locator('#selection-location').innerText(),/src\/component00\/main.py/);
+    assert.equal((await readSaved()).value.selected,sourceRecord.selected);
+    savedChecks.push('actual source area, view, scope and selected file restore after rendering');
+
+    await page.click('#tab-calls');await find('view_entry');
+    let resumeRestore,restoreStarted;const restoreWaiting=new Promise(resolve=>{restoreStarted=resolve;});const restoreBarrier=new Promise(resolve=>{resumeRestore=resolve;});
+    await page.route('**/api/query',async route=>{const response=await route.fetch();restoreStarted();await restoreBarrier;try{await route.fulfill({response});}catch{}});
+    await page.reload();await restoreWaiting;await page.getByRole('button',{name:'Cancel restore',exact:true}).click();resumeRestore();
+    await page.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.includes('Restore partial: cancelled'));
+    await page.waitForTimeout(100);assert.equal(await page.locator('.call-element').count(),0);await page.unroute('**/api/query');
+    savedChecks.push('cancelled restore ignores late actual backend reply and reports partial restoration');
+    await page.reload();await restored();await page.setViewportSize({width:360,height:900});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    await page.locator('.call-symbol').first().getByRole('button',{name:'Inspect declaration',exact:true}).focus();await page.keyboard.press('Enter');await page.locator('.call-evidence pre').waitFor();
+    await page.keyboard.press('Escape');assert.equal(await page.locator('.call-symbol').first().getByRole('button',{name:'Inspect declaration',exact:true}).evaluate(button=>button===document.activeElement),true);
+    await page.getByRole('button',{name:'Clear saved view',exact:true}).focus();assert.ok(await page.getByRole('button',{name:'Clear saved view',exact:true}).evaluate(button=>button.getBoundingClientRect().height>=44));
+    if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-saved-narrow.png',fullPage:true});
+    savedChecks.push('restored Calls keeps 360px keyboard source inspection, Escape return and labelled 44px storage controls');
+    await page.setViewportSize({width:1440,height:1000});
+    for(let i=0;i<24;i++) {
+      await page.locator('.call-symbol').first().getByRole('button',{name:'Expand outgoing',exact:true}).click();
+      await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('rows in this page'));
+    }
+    assert.equal((await readSaved()).value,null);assert.match(await page.locator('#saved-view-status').innerText(),/exceeds 24 Calls intents/);
+    savedChecks.push('actual 25th successful Calls intent refuses saving instead of silently truncating expansion');
+    await page.getByRole('button',{name:'New view at selected symbol',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('rows in this page'));
+    savedObservations.push({case:'new bounded view after overflow',record:(await readSaved()).value});
+    if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-saved.png'});
   }
+  await Promise.all(responseReads);
   assert.deepEqual(errors,[]); assert.ok(loadMs<5000); checks.push('no browser errors; load under 5 seconds');
   if(process.env.REPO_GRAPH_UX_REPORT) {
-    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',reranker:method,loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,callsResponses,browserErrors:errors},null,2)+'\n');
+    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',reranker:method,loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,savedChecks,savedObservations,callsResponses,browserErrors:errors},null,2)+'\n');
   }
-  console.log(JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,browserErrors:errors}));
+  console.log(JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,searchToGraphMs,systemMetrics,checks,callsChecks,savedChecks,browserErrors:errors}));
 } catch(error) {
   if(process.env.REPO_GRAPH_UX_REPORT) {
-    writeFileSync(process.env.REPO_GRAPH_UX_REPORT+'-failure.json',JSON.stringify({checks,callsChecks,callsResponses,browserErrors:errors,failure:{name:error.name,message:error.message,stack:error.stack}},null,2)+'\n');
+    writeFileSync(process.env.REPO_GRAPH_UX_REPORT+'-failure.json',JSON.stringify({checks,callsChecks,savedChecks,savedObservations,callsResponses,browserErrors:errors,failure:{name:error.name,message:error.message,stack:error.stack}},null,2)+'\n');
     await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-failure.png',fullPage:true}).catch(()=>{});
   }
   throw error;
