@@ -18,6 +18,7 @@ import json
 import math
 import os
 from pathlib import Path, PurePosixPath
+import signal
 import subprocess
 import sys
 import tempfile
@@ -221,7 +222,7 @@ def _ready(ready, worker, identity, token, limits):
             _encoded(ready['isolation'], CONTROL_BYTES) != _encoded(
                 {'python_isolated_mode': True, 'bytecode_writes_disabled': True,
                  'user_site_disabled': True, 'private_environment': True,
-                 'own_session_and_group': True}, CONTROL_BYTES)):
+                 'own_session_and_group': True, 'controller_death_signal': True}, CONTROL_BYTES)):
         raise ValueError('Invalid owned worker readiness')
 
 
@@ -286,7 +287,8 @@ def _start(guarded, identity, token, budget, limits, workers, cancel, deadline):
     job = Path('/proc/' + str(os.getpid()) + '/fd/' + str(guarded.fd))
     with handles[0] as stdout, handles[1] as stderr:
         worker['process'] = subprocess.Popen(
-            [sys.executable, '-I', '-B', str(Path(__file__).resolve()), '--worker-fd', str(guarded.fd)],
+            [sys.executable, '-I', '-B', str(Path(__file__).resolve()), '--worker-fd',
+             str(guarded.fd), str(os.getpid())],
             cwd=job, env=_environment(job), stdin=subprocess.DEVNULL,
             stdout=stdout, stderr=stderr, start_new_session=True, close_fds=True,
             pass_fds=(guarded.fd,))
@@ -530,7 +532,27 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
     return result
 
 
-def _worker(fd):
+def _guard_controller(creator_pid):
+    """Linux kills this worker when its creating controller thread exits.
+
+    Verify the parent around prctl: death before registration otherwise leaves
+    an orphan. This stops compute; the surviving owner must reap/remove evidence.
+    https://man7.org/linux/man-pages/man2/PR_SET_PDEATHSIG.2const.html
+    """
+    import ctypes
+    if sys.platform != 'linux' or type(creator_pid) is not int or creator_pid <= 0 or os.getppid() != creator_pid:
+        raise OSError('Owned controller unavailable before worker admission')
+    prctl = ctypes.CDLL(None, use_errno=True).prctl
+    prctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong, ctypes.c_ulong]
+    prctl.restype = ctypes.c_int
+    if prctl(1, signal.SIGKILL, 0, 0, 0) != 0:
+        raise OSError(ctypes.get_errno(), 'Controller death signal unavailable')
+    if os.getppid() != creator_pid:
+        raise OSError('Owned controller changed during worker admission')
+
+
+def _worker(fd, creator_pid):
+    _guard_controller(creator_pid)
     import resource
     with _directory_fd(fd) as job:
         os.close(fd)
@@ -557,7 +579,8 @@ def _worker(fd):
                     'private_environment': all(Path(os.environ.get(key, '')).resolve() == job.root / name
                         for key, name in (('HOME', 'home'), ('XDG_CONFIG_HOME', 'config'),
                             ('XDG_CACHE_HOME', 'cache'), ('XDG_DATA_HOME', 'data'), ('TMPDIR', 'tmp'))),
-                    'own_session_and_group': os.getpid() == os.getsid(0) == os.getpgrp()}
+                    'own_session_and_group': os.getpid() == os.getsid(0) == os.getpgrp(),
+                    'controller_death_signal': True}
         _write(job, 'ready.json', _encoded({'schema_version': 1, 'token': token,
             'identity': identity, 'pid': os.getpid(), 'limits': asdict(limits),
             'isolation': isolated}, CONTROL_BYTES), CONTROL_BYTES)
@@ -610,9 +633,9 @@ def _worker(fd):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3 or sys.argv[1] != '--worker-fd':
+    if len(sys.argv) != 4 or sys.argv[1] != '--worker-fd':
         raise SystemExit('Internal owned collector worker; use collect_files()')
     try:
-        raise SystemExit(_worker(int(sys.argv[2])))
+        raise SystemExit(_worker(int(sys.argv[2]), int(sys.argv[3])))
     except (OSError, ValueError, TypeError, KeyError, UnicodeError, MemoryError, RecursionError):
         raise SystemExit(2)

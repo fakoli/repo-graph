@@ -34,6 +34,62 @@ def backend_available():
 
 
 class AdmissionTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'linux', 'Linux parent-death signal required')
+    def test_controller_death_kills_owned_worker_after_readiness(self):
+        code = r'''
+import ctypes,os,select,signal,sys,time
+sys.path.insert(0,sys.argv[1])
+from evaluations.queued_collector import _guard_controller
+# A dedicated fixture process adopts and reaps only its known fork descendants.
+assert ctypes.CDLL(None).prctl(36,1,0,0,0)==0
+reader,writer=os.pipe();ready_reader,ready_writer=os.pipe()
+controller=os.fork()
+if controller==0:
+    os.close(reader);os.close(ready_reader)
+    worker=os.fork()
+    if worker==0:
+        os.close(writer)
+        os.setsid()
+        _guard_controller(os.getppid())
+        os.write(ready_writer,b'1');os.close(ready_writer)
+        while True:signal.pause()
+    os.write(writer,str(worker).encode());os.close(writer);os.close(ready_writer)
+    while True:signal.pause()
+os.close(writer);os.close(ready_writer)
+worker=None;reaped=set()
+try:
+    assert select.select([reader],[],[],3)[0], 'Controller did not register its worker'
+    worker=int(os.read(reader,64))
+    assert select.select([ready_reader],[],[],3)[0] and os.read(ready_reader,1)==b'1', 'Worker not ready'
+    os.kill(controller,signal.SIGKILL)
+    assert os.waitpid(controller,0)[1]==signal.SIGKILL;reaped.add(controller)
+    deadline=time.monotonic()+3
+    while time.monotonic()<deadline:
+        pid,status=os.waitpid(worker,os.WNOHANG)
+        if pid:
+            reaped.add(worker);assert status==signal.SIGKILL
+            break
+        time.sleep(.005)
+    else:raise AssertionError('Owned worker survived controller death')
+finally:
+    for pid in (controller,worker):
+        if pid is not None and pid not in reaped:
+            try:os.kill(pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            try:os.waitpid(pid,0)
+            except ChildProcessError:pass
+    os.close(reader);os.close(ready_reader)
+try:os.killpg(worker,0)
+except ProcessLookupError:pass
+else:raise AssertionError('Reaped worker group remains')
+try:_guard_controller(os.getppid()+1)
+except OSError:pass
+else:raise AssertionError('Foreign creator accepted')
+'''
+        result = subprocess.run([sys.executable, '-I', '-B', '-c', code, str(ROOT)],
+                                capture_output=True, timeout=12)
+        self.assertEqual(result.returncode, 0, result.stderr.decode())
+
     def test_run_creation_failure_closes_owner_and_removes_temporary_directory(self):
         opened, temporary = [], []
         original_root, original_temporary = queue.SourceRoot, queue.tempfile.TemporaryDirectory
