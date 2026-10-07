@@ -165,6 +165,109 @@ class ObservedProfile(unittest.TestCase):
             self.assertEqual(unreturned['source_accounting']['worker_requests_with_accounting'], 0)
             self.assertEqual(json.loads((logs / 'unreturned.json').read_bytes()), unreturned)
 
+    def test_persistent_compact_projects_private_failures_without_diagnostics(self):
+        """Serialize synthetic failure receipts; these counters are not a profile."""
+        from evaluations import engine_checks as checks
+        private_path = '/synthetic-private/diagnostic-canary.txt'
+        secret = 'SYNTHETIC_SECRET_CANARY'
+        try:
+            raise OSError(errno.ENOSPC, private_path + ' ' + secret)
+        except OSError as error:
+            diagnostic = checks._adapter_error(error)
+        diagnostic.update(errno=errno.ENOSPC, message=secret, reason=private_path)
+        accounting = performance._persistent_source_accounting()
+        for name, row in accounting['passes'].items():
+            row.update(operations=1, successful_operations=1, hashed_bytes=17, hash_passes=1)
+            if name in ('controller_original_source', 'mailbox_source'):
+                row.update(open_operations=1, stream_bytes=17, returned_prefix_bytes=17)
+        accounting.update(accounting_complete=False, totals_kind='lower_bound',
+            worker_requests_with_accounting=1, total_source_stream_bytes=34,
+            total_hashed_bytes=85, total_hash_passes=5,
+            failure=dict(diagnostic, stage='batch_receipt_retention'),
+            accounting_failure=dict(diagnostic, stage='source_accounting'))
+        sample = dict(temperature='cold', passed=False, elapsed_seconds=.0625,
+            returned_symbol_handles=1, returned_entities=0, returned_edges=0,
+            artifact=dict(path='synthetic-response.json', sha256='d' * 64, bytes=17))
+        queries = dict(passed=False, workloads=[dict(id='synthetic-query', passed=False, samples=[sample])],
+            cursor_control=None, failure=dict(diagnostic, stage='queries'),
+            retention_failure=dict(diagnostic, stage='query_report_retention'))
+        phase = dict(label='synthetic-failed', status='failed', wall_seconds=.125,
+                     source_accounting=accounting)
+        wrapper = dict(status='failed', cases=[dict(id='serial-1', mode='serial', concurrency=1,
+            status='failed', returncode=1, report=dict(phases=[phase], queries=queries))])
+        with tempfile.TemporaryDirectory(prefix='persistent-compact-private-') as scratch:
+            directory = Path(scratch)
+            checks._adapter_dump(directory, 'private.json', wrapper)
+            before = (directory / 'private.json').read_bytes()
+            portable = performance.compact_persistent_result(wrapper)
+            encoded = json.dumps(portable, sort_keys=True)
+            for canary in (private_path, secret, 'Traceback (most recent call last)'):
+                self.assertIn(canary, before.decode())
+                self.assertNotIn(canary, encoded)
+            self.assertEqual((directory / 'private.json').read_bytes(), before)
+            self.assertEqual(json.loads(before), wrapper)
+        self.assertEqual(portable['status'], 'failed')
+        case = portable['cases'][0]
+        self.assertEqual(case['status'], 'failed')
+        self.assertEqual(case['phases'][0]['wall_seconds'], phase['wall_seconds'])
+        public_accounting = case['phases'][0]['source_accounting']
+        for field in ('passes', 'total_source_stream_bytes', 'total_hashed_bytes', 'total_hash_passes',
+                      'worker_requests_with_accounting', 'accounting_complete', 'totals_kind'):
+            self.assertEqual(public_accounting[field], accounting[field])
+        projected = case['queries']['workloads'][0]['samples'][0]
+        self.assertEqual(projected, {key: value for key, value in sample.items() if key != 'artifact'})
+        self.assertFalse(case['queries']['passed'])
+        for error, stage in ((public_accounting['failure'], 'batch_receipt_retention'),
+                             (public_accounting['accounting_failure'], 'source_accounting'),
+                             (case['queries']['failure'], 'queries'),
+                             (case['queries']['retention_failure'], 'query_report_retention')):
+            self.assertEqual(error['error_kind'], 'OSError')
+            self.assertEqual(error['stage'], stage)
+            self.assertEqual(error['errno'], errno.ENOSPC)
+            self.assertTrue(set(error).isdisjoint(('error', 'message', 'reason', 'traceback')))
+
+    def test_persistent_early_query_failure_retains_empty_progress_and_prior_phase(self):
+        from repo_graph import analysis_queries as queries
+        spec = dict(id='synthetic-missing', operation='symbol', name='missing', path='main.py', span=(0, 10, 1, 1))
+        meta = dict(generation='g' * 64, source_identity='s' * 64, repository_identity='r' * 64,
+                    analyzer_identity='a' * 64, config_identity='c' * 64)
+        for failure in ('missing_selector', 'metadata'):
+            class Index:
+                def metadata(self):
+                    if failure == 'metadata': raise RuntimeError('synthetic metadata unavailable')
+                    return dict(meta)
+                def read_facts(self, kind): return iter(())
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(prefix='persistent-early-query-') as scratch:
+                directory, progress = Path(scratch), {}
+                error_kind, message = ((RuntimeError, 'synthetic metadata unavailable') if failure == 'metadata'
+                    else (ValueError, 'Missing or changed frozen query selector'))
+                with patch.object(queries, 'Queries') as session:
+                    with self.assertRaisesRegex(error_kind, message):
+                        performance._persistent_queries(Index(), directory, specs=(spec,), progress=progress)
+                session.assert_not_called()
+                self.assertFalse(progress['passed'])
+                self.assertEqual(progress['workloads'], [])
+                self.assertIsNone(progress['cursor_control'])
+                self.assertEqual(progress['failure']['error_kind'], error_kind.__name__)
+                self.assertEqual(progress['failure']['stage'], 'metadata' if failure == 'metadata' else 'selectors')
+                self.assertEqual(json.loads((directory / 'queries.json').read_bytes()), progress)
+                self.assertEqual(sorted(path.name for path in directory.iterdir()), ['queries.json'])
+                phase = dict(label='already-observed', status='ready', wall_seconds=.25,
+                             collection_totals=dict(actual_workers_started=1, files_collected=1))
+                wrapper = dict(status='failed', cases=[dict(id='serial-1', mode='serial', concurrency=1,
+                    status='failed', returncode=1, report=dict(phases=[phase]))])
+                prior_phases = performance.compact_persistent_result(wrapper)['cases'][0]['phases']
+                for partial in (progress, {}, None):
+                    wrapper['cases'][0]['report']['queries'] = partial
+                    compact = performance.compact_persistent_result(wrapper)
+                    self.assertEqual(compact['status'], 'failed')
+                    self.assertEqual(compact['cases'][0]['phases'], prior_phases)
+                    public = compact['cases'][0].get('queries')
+                    if public is not None:
+                        self.assertFalse(public.get('passed', False))
+                        self.assertEqual(public.get('workloads', []), [])
+                        self.assertIsNone(public.get('cursor_control'))
+
     def test_persistent_attempt_observes_actual_alias_streams_and_failed_observer(self):
         from repo_graph import analysis as runtime
         from tests.test_analysis import AVAILABLE

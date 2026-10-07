@@ -1709,21 +1709,11 @@ def _persistent_queries(index, directory, *, specs=PERSISTENT_QUERY_SPECS, fanou
     """
     from repo_graph.analysis_queries import Queries, encoded
     from evaluations import engine_checks as checks
-    if type(specs) not in (tuple, list) or not 1 <= len(specs) <= 6:
-        raise ValueError('Finite frozen query workload required')
-    metadata = index.metadata(); selected = {spec['id']: [] for spec in specs}
-    for definition in index.read_facts('definitions'):
-        for spec in specs:
-            span = tuple(definition['range'][key] for key in ('start_byte', 'end_byte', 'start_line', 'end_line'))
-            if definition['path'] == spec['path'] and definition['name'] == spec['name'] and span == tuple(spec['span']):
-                selected[spec['id']].append(definition['id'])
-                if len(selected[spec['id']]) > 1: raise ValueError('Ambiguous frozen query selector')
-    if index.metadata() != metadata or any(len(values) != 1 for values in selected.values()):
-        raise ValueError('Missing or changed frozen query selector')
     results = {} if progress is None else progress
-    results.update(freeze_sha256=PERSISTENT_FREEZE_SHA, generation=metadata['generation'],
-        identities=metadata, scope='unmodified fresh publication only; cold application session, OS cache possibly warm',
+    results.update(freeze_sha256=PERSISTENT_FREEZE_SHA, generation=None,
+        identities=None, scope='unmodified fresh publication only; cold application session, OS cache possibly warm',
         cold_calls=1, warm_calls=10, limits=dict(PERSISTENT_QUERY_LIMITS), workloads=[], cursor_control=None, passed=False)
+    stage = 'workload_validation'
 
     def record(session, payload, name, temperature, samples):
         sample = dict(temperature=temperature, passed=False); samples.append(sample)
@@ -1761,6 +1751,20 @@ def _persistent_queries(index, directory, *, specs=PERSISTENT_QUERY_SPECS, fanou
             raise ValueError('Frozen query generation, counter, work or stop control failed')
 
     try:
+        if type(specs) not in (tuple, list) or not 1 <= len(specs) <= 6:
+            raise ValueError('Finite frozen query workload required')
+        stage = 'metadata'; metadata = index.metadata()
+        results.update(generation=metadata['generation'], identities=metadata)
+        stage = 'selectors'; selected = {spec['id']: [] for spec in specs}
+        for definition in index.read_facts('definitions'):
+            for spec in specs:
+                span = tuple(definition['range'][key] for key in ('start_byte', 'end_byte', 'start_line', 'end_line'))
+                if definition['path'] == spec['path'] and definition['name'] == spec['name'] and span == tuple(spec['span']):
+                    selected[spec['id']].append(definition['id'])
+                    if len(selected[spec['id']]) > 1: raise ValueError('Ambiguous frozen query selector')
+        if index.metadata() != metadata or any(len(values) != 1 for values in selected.values()):
+            raise ValueError('Missing or changed frozen query selector')
+        stage = 'queries'
         for spec in specs:
             payload = dict(seed=selected[spec['id']][0], operation=spec['operation'], depth=2,
                 limits=dict(PERSISTENT_QUERY_LIMITS, **spec.get('overrides', {})))
@@ -1813,13 +1817,14 @@ def _persistent_queries(index, directory, *, specs=PERSISTENT_QUERY_SPECS, fanou
                 control.update(passed=True, physical_occurrences_sha256=digest(seen))
         if index.metadata() != metadata: raise ValueError('Query measurement publication changed')
         results['passed'] = True
+        stage = 'query_report_retention'
         checks._adapter_dump(directory, 'queries.json', results)
     except (OSError, ValueError, RuntimeError, TypeError, KeyError, MemoryError, RecursionError) as error:
         results['passed'] = False
-        results['failure'] = checks._adapter_error(error)
+        results['failure'] = dict(stage=stage, **checks._adapter_error(error))
         try: checks._adapter_dump(directory, 'queries.json', results)
         except (OSError, ValueError, RuntimeError, TypeError, KeyError, MemoryError, RecursionError) as retention_error:
-            results['retention_failure'] = checks._adapter_error(retention_error)
+            results['retention_failure'] = dict(stage='query_report_retention', **checks._adapter_error(retention_error))
         raise
     return results
 
@@ -2310,54 +2315,96 @@ def persistent_supervisor(argv):
 
 def compact_persistent_result(wrapper):
     """Portable observed measurements only; full raw receipts/PIDs stay private."""
+    def select(value, fields):
+        return {key: value[key] for key in fields.split() if key in value} if type(value) is dict else {}
+    def error(value):
+        known = {'OSError', 'ValueError', 'RuntimeError', 'TypeError', 'KeyError', 'MemoryError', 'RecursionError',
+                 'AttributeError', 'TimeoutExpired', 'BackendUnavailable', 'ChildProcessError', 'InterruptedError',
+                 'PermissionError', 'FileNotFoundError'}
+        stages = {'workload_validation', 'metadata', 'selectors', 'queries', 'query_report_retention',
+                  'collection', 'source_accounting', 'batch_receipt_retention', 'collection_metadata'}
+        kind = value.get('error_kind', value.get('kind')) if type(value) is dict else None
+        result = dict(error_kind=kind if type(kind) is str and kind in known else 'OtherError')
+        if type(value) is dict:
+            if type(value.get('stage')) is str and value['stage'] in stages: result['stage'] = value['stage']
+            for key, low, high in (('errno', 0, 4095), ('code', -255, 255)):
+                if type(value.get(key)) is int and low <= value[key] <= high: result[key] = value[key]
+        return result
+    def errors(source, destination, fields):
+        for key in fields.split():
+            if type(source) is dict and source.get(key) is not None: destination[key] = error(source[key])
     report = wrapper.get('full_private_report', wrapper)
     result = dict(schema_version=1, kind='persistent_fixture_profile', status=report['status'],
         engine_selected=False, qualification_complete=False, representative_corpus_profiled=False,
         resource_budgets_frozen=False, all_owned_source_reads_measured=False,
         source_data_accounting_complete=report.get('source_data_accounting_complete', False),
         qualification_blockers=report.get('qualification_blockers', []), cases=[])
+    errors(report, result, 'failure identity_failure')
     if report.get('binding_before'):
         bound = report['binding_before']
         result['source_binding'] = {key: bound[key] for key in ('measured_commit', 'implementation', 'input_binding', 'backend')}
     for case in report.get('cases', []):
         row = {key: case.get(key) for key in ('id', 'mode', 'concurrency', 'status', 'returncode')}
-        raw = case.get('report', {}); row['phases'] = []
-        for phase in raw.get('phases', []):
+        errors(case, row, 'failure identity_failure')
+        raw = case.get('report') or {}; row['phases'] = []
+        errors(raw, row, 'failure identity_failure memory_failure')
+        for phase in raw.get('phases') or []:
             item = {key: phase[key] for key in ('label', 'status', 'wall_seconds', 'proof_retention_seconds',
                 'observed_attempt_seconds', 'stages', 'collection_totals', 'native_file_timing_sums',
                 'queue_controller_timing_sums', 'timing_scope') if key in phase}
-            item['source_reads'] = {key: value for key, value in phase.get('source_reads', {}).items() if key != 'artifacts'}
-            item['source_accounting'] = phase.get('source_accounting')
+            item['source_reads'] = select(phase.get('source_reads'), 'operations successful_operations failed_operations '
+                'open_operations stream_bytes hashed_bytes returned_prefix_bytes hash_passes inclusive_read_ns by_pass scope '
+                'collector_original_source_reads collector_mailbox_read_bytes all_owned_source_reads_measured qualification_blocker')
+            accounting = phase.get('source_accounting')
+            item['source_accounting'] = select(accounting, 'schema_version accounting_complete passes '
+                'worker_requests_with_accounting worker_requests_unknown collector_original_source_stream_bytes '
+                'scope total_source_stream_bytes total_hashed_bytes total_hash_passes totals_kind') if accounting is not None else None
+            if accounting is not None: errors(accounting, item['source_accounting'], 'failure accounting_failure')
+            errors(phase, item, 'error measurement_error')
             if 'streamed_facts' in phase:
                 item['facts'] = {key: phase['streamed_facts'][key] for key in ('semantic_facts_sha256', 'counts')}
             if 'receipt' in phase:
-                item['coverage'] = phase['receipt'].get('coverage')
-                item['resources'] = phase['receipt'].get('resources')
+                receipt = phase.get('receipt') or {}
+                item['coverage'] = select(receipt.get('coverage'), 'files_total files_supported files_unsupported '
+                    'status_counts file_status by_language language_overflow sites_by_role_certainty parser_error_count '
+                    'parser_error_samples parser_error_samples_truncated inventory_scope discovery_skipped_files discovery_skip_knowledge')
+                item['resources'] = select(receipt.get('resources'), 'batches changed_files_collected '
+                    'unchanged_source_collections_reused source_bytes workers_started peak_batch_files peak_batch_source_bytes '
+                    'peak_batch_handoff_bytes owned_workers_reaped bindings_files_resolved bindings_files_reused '
+                    'unknown_closure_files_rebuilt dependency_lookups_checked inventory_entries_consumed invalidation_reason elapsed_seconds')
             row['phases'].append(item)
         row['equivalence'] = raw.get('equivalence')
-        row['source_impacts'] = {label: {key: {field: value for field, value in impact.items() if field != 'artifact'}
-            for key, impact in values.items()} for label, values in raw.get('source_impacts', {}).items()}
+        row['source_impacts'] = {label: {key: select(impact, 'passed checked_impacts expected_sha256 identities '
+            'selected_declarations selected_sites oracle_projection_sha256') for key, impact in (values or {}).items()}
+            for label, values in (raw.get('source_impacts') or {}).items()}
         queries = raw.get('queries')
         if queries is not None:
-            def sample(value): return {key: item for key, item in value.items() if key != 'artifact'}
-            row['queries'] = {key: value for key, value in queries.items() if key not in ('workloads', 'cursor_control')}
-            row['queries']['workloads'] = [dict({key: value for key, value in workload.items() if key != 'samples'},
-                samples=[sample(value) for value in workload['samples']]) for workload in queries['workloads']]
+            def sample(value):
+                return select(value, 'temperature elapsed_seconds passed wire_bytes generation source_identity '
+                    'examined_relationships examined_symbols returned_entities returned_symbol_handles returned_edges '
+                    'excerpt_bytes storage_progress_callbacks storage_setup_seconds snapshot_copy_seconds total_count truncated stop_reason')
+            row['queries'] = select(queries, 'freeze_sha256 generation identities scope cold_calls warm_calls limits passed')
+            errors(queries, row['queries'], 'failure retention_failure')
+            row['queries']['workloads'] = [dict(select(workload, 'id operation seed limits warm_p50_seconds '
+                'warm_p95_seconds rows_sha256 passed'), samples=[sample(value) for value in workload.get('samples') or []])
+                for workload in queries.get('workloads') or []]
             control = queries.get('cursor_control')
-            row['queries']['cursor_control'] = (dict({key: value for key, value in control.items() if key != 'pages'},
-                pages=[sample(value) for value in control['pages']]) if control else None)
-        rss = raw.get('owned_rss', {})
+            row['queries']['cursor_control'] = (dict(select(control, 'passed returned_occurrences expected_occurrences '
+                'max_pages physical_occurrences_sha256'), pages=[sample(value) for value in control.get('pages') or []])
+                if control is not None else None)
+        rss = raw.get('owned_rss') or {}
         row['owned_rss'] = {key: rss[key] for key in ('peak_sampled_owned_rss_bytes', 'sample_count', 'complete_sample_count',
             'sample_gap_count', 'created_child_count', 'largest_start_interval_ns', 'max_read_skew_ns', 'queue_high_water',
             'requested_interval_seconds', 'per_window_limits', 'max_windows', 'unsampled_peak_bound', 'all_created_children_registered',
             'all_measured_phase_children_registered', 'excluded_source_fence_intervals', 'excluded_source_fence_ns',
             'child_registration_scope') if key in rss}
+        errors(rss, row['owned_rss'], 'error')
         row['cleanup'] = ({key: case['cleanup'][key] for key in ('leader_reaped', 'group_absent')}
                           if case.get('cleanup') else None)
         result['cases'].append(row)
     result['phase_semantic_agreement'] = report.get('phase_semantic_agreement')
     result['same_source_owner_across_modes'] = report.get('same_source_owner_across_modes')
-    result['source_cleanup'] = report.get('source_cleanup')
+    result['source_cleanup'] = select(report.get('source_cleanup'), 'completed scope') if report.get('source_cleanup') is not None else None
     return result
 
 
