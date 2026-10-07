@@ -123,6 +123,11 @@ before repetitions two and three; it does not qualify the remaining corpora,
 adopt Rust, select an engine or freeze resource budgets. Storage ceilings are
 cooperative measurement stops; sampled owned RSS is not an exact peak or a
 kernel memory quota. The evaluator does not flush the OS cache.
+The work root must be outside every mapped corpus. Each controller has a hard
+job deadline within the pair deadline. Outer group cleanup covers only that
+group; absent collector receipts leave descendant cleanup unknown and stop
+further admission. Each captured snapshot must match all five identities in
+its ready refresh receipt, including generation and source.
 
 For the pinned local corpus checkouts, supply a private JSON source map with
 `schema_version: 1` and a `corpora` array of `{id, source, revision}` entries.

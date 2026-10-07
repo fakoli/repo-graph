@@ -37,25 +37,48 @@ class BackendTests(unittest.TestCase):
     def test_representative_pilot_cli_and_launcher_keep_protocol_descriptors_and_boundaries(self):
         from evaluations import engine_checks as checks, performance
         with tempfile.TemporaryDirectory(prefix='representative-launcher-') as scratch:
-            checkout, protocol, original, evidence = (Path(scratch) / name
-                for name in ('checkout', 'protocol', 'original', 'evidence'))
-            for directory in (checkout, protocol, original, evidence): directory.mkdir()
-            mapping = Path(scratch) / 'map.json'; mapping.write_text('{}')
+            checkout, protocol, original, evidence, unused = (Path(scratch) / name
+                for name in ('checkout', 'protocol', 'original', 'evidence', 'unused-corpus'))
+            for directory in (checkout, protocol, original, evidence, unused): directory.mkdir()
+            mapping = Path(scratch) / 'map.json'
+            mapping.write_text(json.dumps({'corpora': [{'source': str(original)}, {'source': str(unused)}]}))
             result = dict(kind='persistent_corpus_profile', status='complete', cases=[],
                 **{key: False for key in ('engine_selected', 'qualification_complete',
                     'resource_budgets_frozen', 'all_owned_source_reads_measured')})
             arguments = ['--profile-pilot', '--protocol', str(protocol), '--source-map', str(mapping),
                          '--work-root', str(evidence)]
+            admitted = []
+            def launch(held_root, held_evidence, **options):
+                self.assertEqual(held_root, checkout)
+                self.assertEqual(options, dict(protocol=protocol, original_source=original))
+                self.assertEqual(held_evidence.parent, Path('/proc/self/fd'))
+                with performance.SourceRoot(held_evidence) as owner, performance.SourceRoot(evidence) as expected:
+                    self.assertEqual(owner.identity, expected.identity)
+                admitted.append(int(held_evidence.name))
+                return result
             with patch.dict(os.environ, {}, clear=True), patch.object(analysis, 'ROOT', checkout), \
                     patch.object(performance, 'mapped_corpora', return_value={'django': {'source': str(original)}}), \
-                    patch.object(analysis, 'profile_fixture_pilot', return_value=result) as pilot, \
+                    patch.object(analysis, 'profile_fixture_pilot', side_effect=launch) as pilot, \
                     patch.object(analysis, 'write_result', return_value=123) as written, \
                     patch.object(analysis, 'record_task') as recorded, redirect_stdout(io.StringIO()):
                 self.assertEqual(analysis.main(arguments), 0)
-            pilot.assert_called_once_with(checkout, evidence, protocol=protocol, original_source=original)
+            self.assertEqual(pilot.call_count, 1)
+            with self.assertRaises(OSError): os.fstat(admitted[0])
             self.assertEqual(written.call_args.args[1], 'evaluations/results/code-understanding/persistent-Django.json')
             self.assertEqual(written.call_args.args[-1], 2 * 1024 * 1024)
             recorded.assert_not_called()
+            for work in (unused, unused / 'missing' / 'evidence', None):
+                flags = arguments[:-2] + (['--work-root', str(work)] if work is not None else [])
+                before = set(unused.rglob('*'))
+                with self.subTest(work=work), patch.dict(os.environ, {}, clear=True), \
+                        patch.object(analysis, 'ROOT', checkout), \
+                        patch.object(performance, 'mapped_corpora', return_value={'django': {'source': str(original)}}), \
+                        patch.object(analysis, 'profile_fixture_pilot') as denied, \
+                        patch.object(analysis, 'write_result', return_value=0), redirect_stdout(io.StringIO()):
+                    self.assertEqual(analysis.main(flags), 1)
+                denied.assert_not_called()
+                self.assertEqual(set(unused.rglob('*')), before)
+                self.assertFalse((unused / 'missing').exists())
             target = checkout / 'evaluations/results/code-understanding/persistent-Django.json'
             target.parent.mkdir(parents=True); target.write_bytes(b'preserved prior report')
             invalid = [arguments, arguments + ['--max-result-bytes', str(2 * 1024 * 1024 + 1)],
@@ -106,6 +129,8 @@ class BackendTests(unittest.TestCase):
                 self.assertEqual(receipt['protocol_sha256'], loads[-1]['protocol_sha256'])
                 self.assertEqual(receipt['original_owner'], loads[-1]['original_owner'])
                 self.assertTrue(receipt['cleanup']['group_absent'])
+                self.assertEqual(receipt['cleanup_scope'], 'supervisor_group_only')
+                self.assertEqual(receipt['descendant_cleanup'], 'see_supervisor_report' if code == 0 else 'unknown')
                 for fd in (observed[-1].protocol_fd, observed[-1].original_fd):
                     with self.assertRaises(OSError): os.fstat(fd)
             for protected in (original, protocol):

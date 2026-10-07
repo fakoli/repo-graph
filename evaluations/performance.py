@@ -1564,6 +1564,22 @@ def _persistent_facts_metadata(db, repository):
     return result
 
 
+def _persistent_receipt_identities(receipt):
+    """Project the successful producer receipt, independently of retained facts."""
+    keys = ('generation', 'repository_identity', 'source_identity', 'analyzer_identity', 'config_identity')
+    if (type(receipt) is not dict or receipt.get('status') != 'ready' or receipt.get('published') is not True or
+            any(not _persistent_hex(receipt.get(key)) for key in keys)):
+        raise ValueError('Published ready refresh receipt identities required')
+    return {key: receipt[key] for key in keys}
+
+
+def _persistent_check_receipt_facts(receipt, proof):
+    expected = _persistent_receipt_identities(receipt)
+    if type(proof) is not dict or proof.get('identities') != expected:
+        raise ValueError('Retained fact identities differ from ready refresh receipt')
+    return expected
+
+
 def _persistent_snapshot(index, directory, label, *, check, limits):
     """Pin a read transaction including WAL, retain SQLite, digest five streams."""
     from evaluations import engine_checks as checks
@@ -2480,16 +2496,19 @@ def _persistent_attempt(index, records, label, mode, concurrency, directory, sam
         if check is not None: check()
         attempt['status'] = attempt['receipt']['status']
         if attempt['status'] == 'ready':
+            attempt['status'] = 'proof_pending'
             sampler.set_phase(label + '-proof-retention'); proof_began = time.monotonic_ns()
             try:
                 attempt['streamed_facts'] = (_persistent_snapshot(index, directory, label, check=check,
                     limits=protocol['config']['ceilings']) if protocol else _persistent_fact_digest(index, directory, label))
+                _persistent_check_receipt_facts(attempt['receipt'], attempt['streamed_facts'])
+                attempt.update(status='ready', snapshot_receipt_identities_verified=True)
             finally: attempt['proof_retention_seconds'] = (time.monotonic_ns() - proof_began) / 1e9
         if sampler.error is not None:
             attempt.update(status='measurement_failed', measurement_error=dict(sampler.error))
     except (OSError, ValueError, RuntimeError, TypeError, KeyError, MemoryError, RecursionError, sqlite3.Error) as error:
         attempt.update(status='failed', error=checks._adapter_error(error))
-        if index.last_attempt is not None: attempt['receipt'] = index.last_attempt
+        if 'receipt' not in attempt and index.last_attempt is not None: attempt['receipt'] = index.last_attempt
     finally:
         source_reads = meter.summary()
         from repo_graph.source import SOURCE_ACCOUNTING_FIELDS
@@ -2737,6 +2756,8 @@ def _persistent_validate(report, bound, mode, concurrency, protocol=None):
             [row.get('label') for row in report['phases']] != labels[:len(report['phases'])] or len(report['phases']) > 7):
         raise ValueError('Persistent fixture report identity/phase mismatch')
     if report['status'] == 'complete':
+        for phase in report['phases']:
+            _persistent_check_receipt_facts(phase.get('receipt'), phase.get('streamed_facts'))
         expected = dict(unchanged_generation=True, unchanged_facts=True,
             **{edit: dict(identities=True, semantic_facts=True, counts=True, generation_changed=True,
                 source_identity_changed=True) for edit in edits})
@@ -2938,6 +2959,14 @@ def compact_persistent_result(wrapper):
         result['source_binding'] = {key: bound[key] for key in ('measured_commit', 'implementation', 'input_binding', 'backend')}
     for case in report.get('cases', []):
         row = {key: case.get(key) for key in ('id', 'mode', 'concurrency', 'status', 'returncode')}
+        if representative:
+            row['watchdog'] = select(case.get('watchdog'), 'job_wall_seconds wait_timeout_seconds')
+            row['controller_cleanup_scope'] = 'controller leader and controller process group only'
+            descendants = case.get('descendant_cleanup') or {}
+            row['descendant_cleanup'] = dict(
+                status='verified' if descendants.get('status') == 'verified' and descendants.get('collector_sessions_reaped') is True else 'unknown',
+                collector_sessions_reaped=True if descendants.get('status') == 'verified' and descendants.get('collector_sessions_reaped') is True else None,
+                scope='separate collector sessions; controller-group disappearance is not reaping proof')
         errors(case, row, 'failure identity_failure')
         raw = case.get('report') or {}; row['phases'] = []
         errors(raw, row, 'failure identity_failure memory_failure')
@@ -3079,10 +3108,18 @@ def profile_persistent_fixture(root, evidence_directory, runs=1, *, affinity=Non
                                     command += ['--protocol-fd', str(protocol_hold.fd), '--original-fd', str(original_hold.fd),
                                                 '--pair-fd', str(pair_hold.fd)]
                                     descriptors += (protocol_hold.fd, original_hold.fd, pair_hold.fd)
+                                job_started = time.monotonic()
                                 process = subprocess.Popen(command, cwd=bridge,
                                     env=checks._environment(bridge), pass_fds=descriptors, stdin=subprocess.DEVNULL,
                                     stdout=stdout, stderr=stderr, start_new_session=True)
-                                row['returncode'] = process.wait(timeout=max(.001, deadline - time.monotonic()))
+                                if loaded:
+                                    job_deadline = job_started + loaded['config']['ceilings']['job_wall_seconds']
+                                    remaining = min(job_deadline, deadline) - time.monotonic()
+                                    row['watchdog'] = dict(job_wall_seconds=loaded['config']['ceilings']['job_wall_seconds'],
+                                        wait_timeout_seconds=max(0.0, remaining), scope='controller spawn to exit; bounded by remaining pair wall')
+                                    if remaining <= 0: raise subprocess.TimeoutExpired(command, 0)
+                                    row['returncode'] = process.wait(timeout=remaining)
+                                else: row['returncode'] = process.wait(timeout=max(.001, deadline - time.monotonic()))
                             raw, sha, info = owner.read('result.json', DUAL_LOG_BYTES + 1, hash_full=False)
                             if len(raw) != info.st_size or len(raw) > DUAL_LOG_BYTES: raise ValueError('Bounded complete pilot report required')
                             row['report_artifact'] = dict(path=label + '/result.json', sha256=sha, bytes=info.st_size)
@@ -3100,6 +3137,17 @@ def profile_persistent_fixture(root, evidence_directory, runs=1, *, affinity=Non
                             row.update(status='failed', failure=checks._adapter_error(error))
                         finally:
                             row['cleanup'] = checks._stop_and_reap(process) if process is not None else None
+                            if loaded:
+                                row['controller_cleanup_scope'] = 'controller leader and controller process group only'
+                                verified = (row['status'] == 'complete' and row.get('returncode') == 0 and
+                                    type(row.get('report')) is dict and
+                                    row['report'].get('owned_rss', {}).get('error') is None and
+                                    row['report'].get('owned_rss', {}).get('remaining_registered_owned_child_owners') == [])
+                                row['descendant_cleanup'] = dict(status='verified' if verified else 'unknown',
+                                    collector_sessions_reaped=True if verified else None,
+                                    knowledge='validated_controller_terminal_receipts' if verified else 'no_validated_terminal_reaping_proof',
+                                    scope='separate collector sessions; controller-group cleanup and parent-death signals are not reaping proof')
+                                if not verified and row['status'] == 'complete': row['status'] = 'failed'
                             row['logs'] = []
                             for log in ('stdout.log', 'stderr.log'):
                                 try:

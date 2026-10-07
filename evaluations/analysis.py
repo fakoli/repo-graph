@@ -2667,6 +2667,10 @@ def profile_fixture_pilot(root, evidence_directory, *, protocol=None, original_s
             result['status'] = 'failed'
         finally:
             receipt['cleanup'] = checks._stop_and_reap(process) if process is not None else None
+            if protocol is not None:
+                receipt['cleanup_scope'] = 'supervisor_group_only'
+                receipt['descendant_cleanup'] = ('see_supervisor_report' if
+                    receipt['returncode'] == 0 and result['status'] == 'complete' else 'unknown')
             if not receipt['cleanup'] or not all(receipt['cleanup'].get(key) is True for key in ('leader_reaped', 'group_absent')):
                 result['status'] = 'cleanup_failed'
             receipt['logs'] = []
@@ -2748,10 +2752,13 @@ def main(argv=None):
         if args.profile_pilot:
             if args.protocol:
                 from evaluations.performance import mapped_corpora
+                if args.work_root is None:
+                    raise ValueError('Private --work-root or REPO_GRAPH_EVAL_WORK_ROOT required')
                 with SourceRoot(args.source_map.parent) as owner:
                     mapping, _ = read_json(owner, args.source_map.name)
                 original = Path(mapped_corpora(mapping)['django']['source'])
-                result = profile_fixture_pilot(ROOT, args.work_root, protocol=args.protocol, original_source=original)
+                with worker_directory(args.source_map, args.work_root) as directory:
+                    result = profile_fixture_pilot(ROOT, directory, protocol=args.protocol, original_source=original)
             else:
                 result = profile_fixture_pilot(ROOT, args.work_root)
             size = write_result(ROOT, args.output, result, args.max_result_bytes)

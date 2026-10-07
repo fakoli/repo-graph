@@ -19,6 +19,125 @@ from evaluations.acceptance import PINS
 
 
 class ObservedProfile(unittest.TestCase):
+    def test_representative_watchdog_bounds_each_job_and_retains_unknown_descendants(self):
+        """Immediate synthetic timeouts; no worker, query, parser or profile pair."""
+        from evaluations import engine_checks as checks
+        for pair_elapsed, maximum in ((0, 900), (2350, 50)):
+            with self.subTest(pair_elapsed=pair_elapsed), tempfile.TemporaryDirectory(prefix='representative-watchdog-') as scratch:
+                original, protocol, evidence = (Path(scratch) / name for name in ('original', 'protocol', 'evidence'))
+                for directory in (original, protocol, evidence): directory.mkdir()
+                with performance.SourceRoot(original) as source, performance.SourceRoot(protocol) as inputs:
+                    loaded = dict(config=dict(ceilings=dict(performance.REPRESENTATIVE_CEILINGS)),
+                        original_owner=source.identity, protocol_owner=inputs.identity, protocol_sha256='a' * 64)
+                clock, waits, cleaned = [0], [], []
+                class Child:
+                    pid, returncode = 999999999, None
+                    def __init__(self, command, **options):
+                        self.command = command
+                        for fd in options['pass_fds']: os.fstat(fd)
+                        os.write(options['stderr'].fileno(), b'synthetic stalled controller\n')
+                    def wait(self, timeout):
+                        waits.append(timeout)
+                        raise subprocess.TimeoutExpired(self.command, timeout)
+                def materialize(*args): clock[0] = pair_elapsed
+                def cleanup(process):
+                    cleaned.append(process)
+                    return dict(leader_reaped=True, group_absent=True)
+                with patch.object(performance.time, 'monotonic', side_effect=lambda: clock[0]), \
+                        patch.object(performance, '_dual_supervisor_limits', return_value={}), \
+                        patch.object(performance, '_persistent_protocol', return_value=loaded), \
+                        patch.object(performance, '_persistent_capture', return_value={}), \
+                        patch.object(performance, '_persistent_recheck', return_value={}), \
+                        patch.object(performance, '_persistent_materialize', side_effect=materialize), \
+                        patch.object(performance.subprocess, 'Popen', side_effect=Child) as launched, \
+                        patch.object(checks, '_stop_and_reap', side_effect=cleanup):
+                    result = performance.profile_persistent_fixture(Path(performance.__file__).resolve().parents[1],
+                        evidence, protocol=protocol, original_source=original)
+                self.assertEqual(launched.call_count, 1)
+                self.assertEqual(len(waits), 1); self.assertGreater(waits[0], 0)
+                self.assertLessEqual(waits[0], maximum)
+                self.assertEqual(result['status'], 'failed')
+                report = result['full_private_report']
+                self.assertEqual(len(report['cases']), 1)
+                case = report['cases'][0]
+                self.assertEqual(case['mode'], 'serial'); self.assertEqual(case['status'], 'failed')
+                self.assertEqual(case['failure']['error_kind'], 'TimeoutExpired')
+                self.assertEqual(len(cleaned), 1)
+                self.assertTrue(case['cleanup']['group_absent'])
+                self.assertEqual(case['descendant_cleanup']['status'], 'unknown')
+                self.assertIsNone(case['descendant_cleanup']['collector_sessions_reaped'])
+                compact = performance.compact_persistent_result(result)
+                self.assertEqual(compact['cases'][0]['descendant_cleanup'], {
+                    'status': 'unknown', 'collector_sessions_reaped': None,
+                    'scope': 'separate collector sessions; controller-group disappearance is not reaping proof'})
+                self.assertNotIn('knowledge', compact['cases'][0]['descendant_cleanup'])
+                run = evidence / result['archive']['directory']
+                self.assertEqual(json.loads((run / 'report.json').read_bytes()), report)
+                self.assertEqual((run / 'serial-1/stderr.log').read_bytes(), b'synthetic stalled controller\n')
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Native death/reaping control requires Linux')
+    def test_controller_group_cleanup_and_parent_death_do_not_claim_descendant_reaping(self):
+        root = str(Path(performance.__file__).resolve().parents[1])
+        child = '\n'.join((
+            'import json,os,sys,time', 'sys.path.insert(0,' + repr(root) + ')',
+            'from repo_graph.analysis_queue import _guard_controller',
+            '_guard_controller(os.getppid())',
+            'print(json.dumps(dict(pid=os.getpid(),pgid=os.getpgrp(),sid=os.getsid(0))),flush=True)',
+            'time.sleep(60)',
+        ))
+        controller = '\n'.join((
+            'import json,os,subprocess,sys', 'sys.path.insert(0,' + repr(root) + ')',
+            'from repo_graph.analysis_queue import _guard_controller', '_guard_controller(os.getppid())',
+            'child=subprocess.Popen([sys.executable,"-I","-B","-c",' + repr(child) + '],',
+            '    stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,start_new_session=True)',
+            'row=json.loads(child.stdout.readline())',
+            'print(json.dumps(dict(controller=os.getpid(),child=row)),flush=True)',
+            'sys.stdin.buffer.read(1)',
+        ))
+        supervisor = '\n'.join((
+            'import ctypes,json,os,select,signal,subprocess,sys,time',
+            'sys.path.insert(0,' + repr(root) + ')',
+            'from evaluations.engine_checks import _stop_and_reap',
+            'assert ctypes.CDLL(None).prctl(36,1,0,0,0)==0',
+            'process=None; child_pid=None',
+            'try:',
+            '    process=subprocess.Popen([sys.executable,"-I","-B","-c",' + repr(controller) + '],',
+            '        stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)',
+            '    assert select.select([process.stdout],[],[],3)[0],"owned readiness unavailable"',
+            '    row=json.loads(process.stdout.readline()); child_pid=row["child"]["pid"]',
+            '    assert row["child"]["pgid"]==row["child"]["sid"]==child_pid!=process.pid',
+            '    cleanup=_stop_and_reap(process)',
+            '    assert cleanup["leader_reaped"] and cleanup["group_absent"]',
+            '    deadline=time.monotonic()+2; state=None',
+            '    while time.monotonic()<deadline:',
+            '        with open("/proc/"+str(child_pid)+"/stat","rb") as stream: raw=stream.read(4096)',
+            '        state=raw[raw.rfind(b")")+2:].split()[0].decode()',
+            '        if state=="Z": break',
+            '        time.sleep(.005)',
+            '    assert state=="Z","death protection is not a reaping receipt"',
+            '    waited,status=os.waitpid(child_pid,0); assert waited==child_pid',
+            '    assert os.WIFSIGNALED(status) and os.WTERMSIG(status)==signal.SIGKILL',
+            '    child_pid=None',
+            '    print(json.dumps(dict(controller_cleanup=cleanup,descendant_state_before_reap=state,',
+            '        descendant_reaped_by_surviving_owner=True)),flush=True)',
+            'finally:',
+            '    if process is not None:',
+            '        _stop_and_reap(process)',
+            '        for stream in (process.stdin,process.stdout,process.stderr): stream.close()',
+            '    if child_pid is not None:',
+            '        try: os.kill(child_pid,signal.SIGKILL)',
+            '        except ProcessLookupError: pass',
+            '        os.waitpid(child_pid,0)',
+        ))
+        result = subprocess.run([sys.executable, '-I', '-B', '-c', supervisor],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            start_new_session=True, timeout=10, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+        observed = json.loads(result.stdout)
+        self.assertTrue(observed['controller_cleanup']['group_absent'])
+        self.assertEqual(observed['descendant_state_before_reap'], 'Z')
+        self.assertTrue(observed['descendant_reaped_by_surviving_owner'])
+
     def test_representative_flat_manifest_rejects_foreign_duplicate_and_changed_records(self):
         rows = [dict(path='src/' + str(number).zfill(4) + '.py', language='python',
                      kind='source', bytes=1, sha256=hashlib.sha256(b'x').hexdigest())
@@ -107,6 +226,57 @@ class ObservedProfile(unittest.TestCase):
             self.assertEqual(proof['semantic_facts_sha256'], hashlib.sha256(semantic).hexdigest())
             self.assertTrue(proof['snapshot']['sealed']); self.assertTrue(proof['snapshot']['metadata_verified'])
             self.assertGreater(proof['snapshot']['backup_progress_callbacks'], 1)
+            # Refresh is stubbed over the existing hand-built WAL owner; no parser runs.
+            from repo_graph.analysis_native import Budget
+            receipt = dict(identities, status='ready', published=True)
+            sampler = SimpleNamespace(error=None, set_phase=lambda label: None)
+            protocol = dict(config=dict(ceilings=dict(
+                performance.REPRESENTATIVE_CEILINGS, snapshot_bytes=1024 * 1024)))
+            for label, returned in (('matching', receipt),
+                    ('switched', dict(receipt, generation='a' * 64, source_identity='f' * 64))):
+                refresh = SimpleNamespace(**vars(index), budget=Budget(), last_attempt=dict(receipt),
+                    refresh=lambda *args, returned=returned, **kwargs: dict(returned))
+                attempt = performance._persistent_attempt(refresh, [], label, 'serial', 1, retained, sampler,
+                    protocol=protocol, check=lambda: None)
+                self.assertEqual(attempt['receipt'], returned)
+                self.assertEqual(attempt['streamed_facts']['identities'], identities)
+                self.assertTrue(attempt['streamed_facts']['snapshot']['sealed'])
+                self.assertEqual(attempt['status'], 'ready' if label == 'matching' else 'failed')
+                self.assertEqual(json.loads((retained / (label + '.json')).read_bytes()), attempt)
+                self.assertTrue((retained / attempt['streamed_facts']['artifact']['path']).exists())
+                if label == 'matching': self.assertTrue(attempt['snapshot_receipt_identities_verified'])
+                else: self.assertEqual(attempt['error']['error_kind'], 'ValueError')
+            # Only complete-report shape/attribution is graded; query workloads are stubbed.
+            bound = dict.fromkeys(('measured_commit', 'implementation', 'input_binding', 'root_identity',
+                'backend', 'queue_identity', 'runtime', 'persistent_writer_identity', 'persistent_limits'), 'synthetic')
+            edits = ('U-PY-BODY', 'U-PY-EXPORT')
+            report = dict(schema_version=1, kind='persistent_fixture', status='complete', binding_before=bound,
+                binding_after=bound, mode='serial', concurrency=1, qualification_complete=False,
+                resource_budgets_frozen=False, engine_selected=False, all_owned_source_reads_measured=False,
+                source_data_accounting_complete=True, source_owner_identity=index.owner,
+                source_owner_identity_after=index.owner, phases=[dict(label=label, status='ready', receipt=receipt,
+                    streamed_facts=proof, source_accounting=dict(accounting_complete=True, totals_kind='exact',
+                        worker_requests_unknown=0, collector_original_source_stream_bytes=0))
+                    for label in performance.PERSISTENT_PHASES],
+                owned_rss=dict(error=None, sampler_stopped=True, remaining_registered_owned_child_owners=[],
+                    complete_sample_count=1, peak_sampled_owned_rss_bytes=1,
+                    all_measured_phase_children_registered=True, all_created_children_registered=False,
+                    excluded_source_fence_intervals=7),
+                equivalence=dict(unchanged_generation=True, unchanged_facts=True,
+                    **{edit: dict(identities=True, semantic_facts=True, counts=True, generation_changed=True,
+                                 source_identity_changed=True) for edit in edits}))
+            report['source_impacts'] = {label: {edit: dict(passed=True, checked_impacts=1, artifact={},
+                oracle_projection_sha256=performance.PERSISTENT_IMPACT_SHA[edit]) for edit in
+                (edits if label == 'fresh-output' else
+                 (edits[0],) if label.startswith(edits[0]) else (edits[1],))}
+                for label in performance.PERSISTENT_PHASES if label != 'unchanged-repeat'}
+            with patch.object(performance, '_persistent_validate_queries', return_value=None):
+                self.assertIs(performance._persistent_validate(report, bound, 'serial', 1), report)
+                for key in identities:
+                    changed_report = json.loads(json.dumps(report))
+                    changed_report['phases'][1]['streamed_facts']['identities'][key] = '0' * 64
+                    with self.subTest(identity=key), self.assertRaisesRegex(ValueError, 'identities differ'):
+                        performance._persistent_validate(changed_report, bound, 'serial', 1)
             sealed = retained / proof['artifact']['path']
             initial = sealed.read_bytes()
             self.assertEqual(proof['artifact']['sha256'], hashlib.sha256(initial).hexdigest())
