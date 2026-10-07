@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import platform
 import subprocess
@@ -63,7 +64,10 @@ def read_json(source, path):
         return result
     def finite(_):
         raise ValueError('Non-finite JSON number')
-    return json.loads(raw, object_pairs_hook=unique, parse_constant=finite), sha
+    def parse_float(value):
+        number = float(value)
+        return number if math.isfinite(number) else finite(value)
+    return json.loads(raw, object_pairs_hook=unique, parse_constant=finite, parse_float=parse_float), sha
 
 
 def valid_range(record, raw):

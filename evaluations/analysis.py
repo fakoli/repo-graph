@@ -12,6 +12,7 @@ from contextlib import contextmanager
 import hashlib
 from importlib import metadata
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -408,40 +409,183 @@ def compare_component(source_map, work_root=None):
             'Missing incremental/query capability and failing supported-language recall prevent selection.']}
 
 
-def profile_component(source_map, work_root=None, freeze_budgets=False):
+def compact_profile_result(result):
+    """Export measured counters and every failed path, never arbitrary worker fields."""
+    def number(value, integer=False):
+        if type(value) not in ((int,) if integer else (int, float)) or value < 0 or not math.isfinite(value):
+            raise ValueError('Invalid profile measurement')
+        return value
+    def counters(value, allowed, integer=False):
+        if not isinstance(value, dict) or set(value) - set(allowed.split()):
+            raise ValueError('Invalid profile counter fields')
+        return {key: number(count, integer) for key, count in value.items()}
+    def label(value):
+        if not isinstance(value, str) or not re.fullmatch('[A-Za-z0-9_-]{1,100}', value):
+            raise ValueError('Invalid profile status label')
+        return value
+    def digest(value):
+        if not isinstance(value, str) or not re.fullmatch('[0-9a-f]{64}', value):
+            raise ValueError('Invalid profile digest')
+        return value
+    def failures(coverage):
+        files = coverage.get('files', [])
+        if not isinstance(files, list):
+            raise ValueError('Invalid profile file receipts')
+        failed = []
+        for item in files:
+            path, status = item['path'], label(item['status'])
+            parts = SourceRoot.parts(path)
+            if '\\' in path or ':' in path or '/'.join(parts) != path:
+                raise ValueError('Portable profile paths must be canonical relative POSIX paths')
+            if status not in ('parsed', 'configuration', 'read', 'metadata_only',
+                              'excluded_non_source', 'absent_optional_configuration'):
+                failed.append({'path': path, 'status': status})
+        return {'file_receipt_count': len(files), 'full_receipts_in_hashed_private_artifact': True}, failed
+    allowed = {'engine', 'status', 'error_kind', 'records', 'coverage', 'peak_rss_bytes',
+               'deterministic_repeat', 'native_repeat_cache', 'model_calls', 'rss_scope'}
+    if not isinstance(result, dict) or set(result) - allowed:
+        raise ValueError('Unexpected profile worker fields')
+    compact = {key: label(result[key]) for key in ('engine', 'status', 'error_kind') if key in result}
+    for key in ('peak_rss_bytes', 'model_calls'):
+        if key in result:
+            compact[key] = number(result[key], True)
+    if 'deterministic_repeat' in result:
+        if type(result['deterministic_repeat']) is not bool:
+            raise ValueError('Invalid repeat identity flag')
+        compact['deterministic_repeat'] = result['deterministic_repeat']
+    compact['records'] = []
+    if not isinstance(result.get('records', []), list):
+        raise ValueError('Invalid worker measurements')
+    for item in result.get('records', []):
+        row = {'run': label(item['run']), 'status': label(item['status'])}
+        if row['run'] not in ('fresh-output', 'unchanged-repeat') or row['status'] not in ('complete', 'partial'):
+            raise ValueError('Invalid profile trial')
+        row.update({key: number(item[key], key != 'wall_seconds') for key in ('wall_seconds', 'artifact_bytes', 'peak_rss_bytes')})
+        row.update({key: digest(item[key]) for key in ('semantic_facts_sha256', 'input_inventory_sha256')})
+        row['stages'] = counters(item['stages'], 'repo_files tree_index extract_dependencies catalog system_view write_page inventory_seconds source_bytes nodes_visited facts_emitted parse_seconds elapsed_seconds read_seconds')
+        row['source_reads'] = counters(item['source_reads'], 'operations hashed_bytes prefix_bytes', True)
+        row['counts'] = counters(item['counts'], 'inventoried_files import_edges indexed_documents code_files selected_source_files excluded_other_files definitions sites', True)
+        coverage = item['coverage']
+        row['coverage'], row['failed_files'] = failures(coverage)
+        row['coverage'].update(counters({k: coverage[k] for k in ('failed', 'truncated', 'scanned', 'reused', 'inventory_failed', 'search_failed', 'search_truncated') if k in coverage},
+            'failed truncated scanned reused inventory_failed search_failed search_truncated', True))
+        if 'inventory_statuses' in coverage:
+            row['coverage']['inventory_statuses'] = {label(k): number(v, True) for k, v in coverage['inventory_statuses'].items()}
+        if 'errors' in coverage:
+            row['coverage']['error_count'] = len(coverage['errors'])
+        compact['records'].append(row)
+    if 'coverage' in result:
+        compact['coverage'], compact['failed_files'] = failures(result['coverage'])
+    return compact
+
+
+def profile_component(source_map, work_root=None, freeze_budgets=False, recorded_report=None):
     """Capacity observations do not substitute for equivalent-fact/update work."""
-    from evaluations.performance import profile_structural
+    from evaluations.performance import IMPLEMENTATION_PATHS, mapped_corpora, profile_structural
+    from evaluations.acceptance import read_json as strict_read_json
     with SourceRoot(source_map.parent) as owner:
-        _, map_sha = read_json(owner, source_map.name)
+        mapping, map_sha = strict_read_json(owner, source_map.name)
+    mapped_corpora(mapping)
     with SourceRoot(ROOT) as owner:
         driver_sha = owner.read('evaluations/analysis.py', 1024 * 1024, hash_full=True)[1]
-    trial = 'capacity-' + uuid.uuid4().hex[:12]
-    with worker_directory(source_map, work_root) as directory:
-        artifact = directory / (trial + '.json')
-        records = profile_structural(source_map, artifact, directory / (trial + '-logs'))
-        with SourceRoot(directory) as owner:
-            _, artifact_sha, _ = owner.read(artifact.name, 0, hash_full=True)
+        reporter_helper_sha = owner.read('evaluations/performance.py', 1024 * 1024, hash_full=True)[1]
+    if recorded_report is not None:
+        with SourceRoot(recorded_report.parent) as owner, owner.open(recorded_report.name) as stream:
+            before = os.fstat(stream.fileno())
+            if before.st_size > 256 * 1024 * 1024:
+                raise ValueError('Archived profile exceeds 256 MiB input budget')
+            def unique(pairs):
+                result = {}
+                for key, value in pairs:
+                    if key in result:
+                        raise ValueError('Duplicate archived profile key')
+                    result[key] = value
+                return result
+            def finite(_):
+                raise ValueError('Non-finite archived profile measurement')
+            def parse_float(value):
+                number = float(value)
+                return number if math.isfinite(number) else finite(value)
+            raw = stream.read(256 * 1024 * 1024 + 1)
+            if len(raw) > 256 * 1024 * 1024:
+                raise ValueError('Archived profile exceeds 256 MiB input budget')
+            after = os.fstat(stream.fileno())
+            if len(raw) != before.st_size or (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+                raise ValueError('Archived profile changed during read')
+            artifact_sha = hashlib.sha256(raw).hexdigest()
+            archive = json.loads(raw, object_pairs_hook=unique, parse_constant=finite, parse_float=parse_float)
+            del raw
+        from evaluations.acceptance import PINS as CORPUS_PINS
+        if type(archive.get('schema_version')) is not int or archive['schema_version'] != 1 or archive['source_map_sha256'] != map_sha or archive['corpus_revisions'] != {
+                name: CORPUS_PINS[name] for name in ('django', 'odoo', 'aws', 'kubernetes')}:
+            raise ValueError('Archived profile map or frozen corpus mismatch')
+        implementation = archive['implementation']
+        if not isinstance(implementation['commit'], str) or not re.fullmatch('[0-9a-f]{40}', implementation['commit']):
+            raise ValueError('Archived implementation requires a full commit identity')
+        if set(implementation['sha256']) != set(IMPLEMENTATION_PATHS) or implementation['native_backend'] != PINS:
+            raise ValueError('Archived profile requires the complete measured implementation manifest')
+        for path, sha in implementation['sha256'].items():
+            SourceRoot.parts(path)
+            raw = subprocess.check_output(['git', 'show', implementation['commit'] + ':' + path], cwd=ROOT, timeout=20)
+            if hashlib.sha256(raw).hexdigest() != sha:
+                raise ValueError('Archived implementation does not match its recorded commit')
+        records = archive['records']
+        expected = {f'{name}:{engine}:{run}' for name in ('django', 'odoo', 'aws', 'kubernetes')
+                    for engine in ('current-map', 'tree-sitter') for run in range(3)}
+        if len(records) != len(expected) or {f"{r['corpus']}:{r['engine']}:{r['repeat']}" for r in records} != expected:
+            raise ValueError('Archived profile must retain all twenty-four trials')
+        if any(r['implementation_after']['commit'] != implementation['commit'] or
+               r['implementation_after']['sha256'] != implementation['sha256'] or
+               r['revision'] != CORPUS_PINS[r['corpus']] for r in records):
+            raise ValueError('Archived profile has mixed implementations')
+        env = archive['environment']
+        if (not isinstance(env, dict) or set(env) != {'python', 'platform', 'cpu_count', 'gpu_used'} or
+                env['gpu_used'] is not False or (env['cpu_count'] is not None and
+                (type(env['cpu_count']) is not int or env['cpu_count'] < 1)) or
+                any(not isinstance(env[k], str) or not re.fullmatch('[A-Za-z0-9_. -]{1,100}', env[k]) for k in ('python', 'platform'))):
+            raise ValueError('Invalid archived measurement environment')
+        checkouts = {}
+        for record in records:
+            measured = record['implementation_after']
+            if (set(measured) != {'commit', 'sha256', 'root_identity'} or
+                    measured['root_identity'] != implementation['root_identity'] or
+                    not isinstance(measured['root_identity'], str) or not re.fullmatch('[0-9a-f]{64}', measured['root_identity'])):
+                raise ValueError('Invalid archived implementation identity fields')
+            checkout = record['checkout_before']
+            if (not isinstance(checkout, dict) or set(checkout) != {'status', 'actual_revision', 'clean', 'root_identity'} or
+                    checkout['status'] != 'verified' or checkout['clean'] is not True or
+                    checkout['actual_revision'] != record['revision'] or not isinstance(checkout['root_identity'], str) or
+                    not re.fullmatch('[0-9a-f]{64}', checkout['root_identity']) or record['checkout_after'] != checkout or
+                    checkouts.setdefault(record['corpus'], checkout) != checkout):
+                raise ValueError('Invalid or changed archived source checkout receipt')
+    else:
+        trial = 'capacity-' + uuid.uuid4().hex[:12]
+        with worker_directory(source_map, work_root) as directory:
+            artifact = directory / (trial + '.json')
+            records = profile_structural(source_map, artifact, directory / (trial + '-logs'))
+            with SourceRoot(directory) as owner:
+                _, artifact_sha, _ = owner.read(artifact.name, 0, hash_full=True)
     with SourceRoot(source_map.parent) as owner:
-        if read_json(owner, source_map.name)[1] != map_sha:
+        if strict_read_json(owner, source_map.name)[1] != map_sha:
             raise ValueError('Private source map changed during profiling; receipts retained')
     if not records:
         raise ValueError('No measured worker records')
     with SourceRoot(ROOT) as owner:
-        if owner.read('evaluations/analysis.py', 1024 * 1024, hash_full=True)[1] != driver_sha:
+        if (owner.read('evaluations/analysis.py', 1024 * 1024, hash_full=True)[1] != driver_sha or
+                owner.read('evaluations/performance.py', 1024 * 1024, hash_full=True)[1] != reporter_helper_sha):
             raise ValueError('Profile driver changed; worker receipts retained')
     _, identity = frozen_inputs(ROOT)
     cases = []
     for record in records:
-        result = dict(record['result'])
-        # ponytail: complete inventory receipts stay in the hashed private report;
-        # task evidence retains individual failures without a second huge export.
-        result['records'] = [dict(item, coverage={k: v for k, v in item['coverage'].items() if k != 'files'},
-            failed_files=[f for f in item['coverage'].get('files', []) if f['status'] in
-                          ('partial_parse', 'source_error', 'truncated', 'not_observed')])
-            for item in result.get('records', [])]
-        if 'coverage' in result:
-            result['coverage'] = {'file_receipt_count': len(result['coverage'].get('files', [])),
-                'full_receipts_in_hashed_private_artifact': True}
+        if (type(record['identity_verified']) is not bool or type(record['exit_code']) is not int or
+                type(record['repeat']) is not int or type(record['worker_wall_seconds']) not in (int, float) or
+                not math.isfinite(record['worker_wall_seconds']) or record['worker_wall_seconds'] < 0 or
+                any(not isinstance(record[k], str) or not re.fullmatch('[0-9a-f]{64}', record[k]) for k in ('stdout_sha256', 'stderr_sha256'))):
+            raise ValueError('Invalid measured worker identity, resources or log digest')
+        result = compact_profile_result(record['result'])
+        if record['exit_code'] == 0 and (len(result['records']) != 2 or
+                {r['run'] for r in result['records']} != {'fresh-output', 'unchanged-repeat'}):
+            raise ValueError('Successful worker must retain both measured trials')
         cases.append({'id': f"{record['corpus']}:{record['engine']}:{record['repeat']}", 'exit_code': record['exit_code'],
             'corpus': record['corpus'], 'engine': record['engine'], 'repeat': record['repeat'],
             'revision': record['revision'], 'identity_verified': record['identity_verified'],
@@ -452,9 +596,12 @@ def profile_component(source_map, work_root=None, freeze_budgets=False):
     return {'schema_version': 1, 'experiment': 'capacity-profiling', 'status': 'blocked',
         'source_identity': identity, 'scope': 'Capacity baselines with different output workloads; no equivalent-workload gain',
         'case_results': cases, 'private_artifact_sha256': artifact_sha,
-        'source_map_sha256': map_sha, 'implementation': dict(records[0]['implementation_after'],
-            sha256=dict(records[0]['implementation_after']['sha256'], **{'evaluations/analysis.py': driver_sha})),
-        'native_backend': {name: metadata.version(name) for name in PINS}, 'environment': environment(),
+        'source_map_sha256': map_sha, 'implementation': records[0]['implementation_after'],
+        'reporting_implementation': {'analysis_sha256': driver_sha, 'performance_sha256': reporter_helper_sha,
+                                     'from_archive': recorded_report is not None},
+        'native_backend': archive['implementation']['native_backend'] if recorded_report is not None else
+                          {name: metadata.version(name) for name in PINS},
+        'environment': archive['environment'] if recorded_report is not None else environment(),
         'engine_selected': False, 'qualification_complete': False,
         'budget_freeze': {'requested': freeze_budgets, 'status': 'blocked',
             'reason': 'Equivalent-fact reference, one-file/dependent updates and scoped query measurements incomplete'},
@@ -477,6 +624,7 @@ def main(argv=None):
     parser.add_argument('--source-map', type=Path, default=os.environ.get('REPO_GRAPH_EVAL_SOURCE_MAP'),
                         help='private pinned source map; alternatively REPO_GRAPH_EVAL_SOURCE_MAP')
     parser.add_argument('--work-root', type=Path, help='private directory outside all source roots')
+    parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
     parser.add_argument('--suite', choices=['component'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int, default=1024 * 1024)
@@ -486,6 +634,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.freeze_budgets and not args.profile:
         parser.error('--freeze-budgets requires --profile')
+    if args.profile_report and not args.profile:
+        parser.error('--profile-report requires --profile')
     default = ('evaluations/results/code-understanding/engine-comparison.json' if args.compare else
                'evaluations/results/code-understanding/capacity-profile.json' if args.profile else
                'evaluations/results/code-understanding/reusable-screen.json' if args.screen_engines else DEFAULT_OUTPUT)
@@ -501,7 +651,7 @@ def main(argv=None):
                           'engine_selected': False, 'qualification_complete': False}
             else:
                 result = (compare_component(args.source_map, args.work_root) if args.compare else
-                          profile_component(args.source_map, args.work_root, args.freeze_budgets))
+                          profile_component(args.source_map, args.work_root, args.freeze_budgets, args.profile_report))
             size = write_result(ROOT, args.output, result, args.max_result_bytes)
             if args.output == default:
                 record_task(ROOT, 'T007' if args.compare else 'T008', result, args.output, args.max_result_bytes)

@@ -24,6 +24,29 @@ from repo_graph.search import Embeddings, Search, connect
 from repo_graph.source import SourceRoot
 
 LARGE_CORPORA = ('django', 'odoo', 'aws', 'kubernetes')
+IMPLEMENTATION_PATHS = ('evaluations/performance.py', 'evaluations/analysis.py', 'evaluations/engine_checks.py',
+    'evaluations/tree_sitter_baseline.py', 'evaluations/acceptance.py', 'evaluations/real_calls.py',
+    'repo_graph/builder.py', 'repo_graph/search.py', 'repo_graph/source.py', 'pyproject.toml', 'uv.lock')
+
+
+def mapped_corpora(config):
+    """Validate identities without reading or executing any mapped source."""
+    from evaluations.acceptance import PINS, identifier
+    if not isinstance(config, dict) or not isinstance(config.get('corpora'), list):
+        raise ValueError('Corpus source map must contain a list')
+    sources = {}
+    for item in config['corpora']:
+        if (not isinstance(item, dict) or not identifier(item.get('id')) or
+                not isinstance(item.get('source'), str) or not Path(item['source']).is_absolute() or
+                not isinstance(item.get('revision'), str) or len(item['revision']) != 40 or
+                any(c not in '0123456789abcdef' for c in item['revision'])):
+            raise ValueError('Corpus source map entries require typed identity, absolute root and revision')
+        if item['id'] in sources:
+            raise ValueError('Corpus source map ids must be unique')
+        sources[item['id']] = item
+    if any(name not in sources or sources[name]['revision'] != PINS[name] for name in LARGE_CORPORA):
+        raise ValueError('Required pinned large corpus missing or mismatched')
+    return sources
 
 
 def summary(samples):
@@ -201,7 +224,7 @@ def structural_worker(argv):
 
 def profile_structural(source_map, report_path, work_root, runs=3):
     """Measure frozen sources; import maps and callable facts are different workloads."""
-    from evaluations.acceptance import PINS, identifier, read_json
+    from evaluations.acceptance import PINS, read_json
     from evaluations.real_calls import checkout_identity
     from evaluations.tree_sitter_baseline import PINS as BACKEND_PINS, RULE_VERSION
     from evaluations.engine_checks import _environment
@@ -210,20 +233,7 @@ def profile_structural(source_map, report_path, work_root, runs=3):
     source_map = Path(source_map)
     with SourceRoot(source_map.parent) as source:
         config, map_sha = read_json(source, source_map.name)
-    if not isinstance(config, dict) or not isinstance(config.get('corpora'), list):
-        raise ValueError('Corpus source map must contain a list')
-    sources = {}
-    for item in config['corpora']:
-        if (not isinstance(item, dict) or not identifier(item.get('id')) or
-                not isinstance(item.get('source'), str) or not Path(item['source']).is_absolute() or
-                not isinstance(item.get('revision'), str) or len(item['revision']) != 40 or
-                any(c not in '0123456789abcdef' for c in item['revision'])):
-            raise ValueError('Corpus source map entries require typed identity, absolute root and revision')
-        if item['id'] in sources:
-            raise ValueError('Corpus source map ids must be unique')
-        sources[item['id']] = item
-    if any(name not in sources for name in LARGE_CORPORA):
-        raise ValueError('Required large corpus missing')
+    sources = mapped_corpora(config)
     destinations = [Path(report_path).resolve(), Path(work_root).resolve()]
     for c in sources.values():
         source = Path(c['source']).resolve()
@@ -250,15 +260,12 @@ def profile_structural(source_map, report_path, work_root, runs=3):
     records = []
     root = Path(work_root)
     root.mkdir(parents=True, exist_ok=True)
-    implementation_paths = ['evaluations/performance.py', 'evaluations/analysis.py', 'evaluations/engine_checks.py', 'evaluations/tree_sitter_baseline.py',
-                            'evaluations/acceptance.py', 'evaluations/real_calls.py',
-                            'repo_graph/builder.py', 'repo_graph/search.py', 'repo_graph/source.py', 'pyproject.toml', 'uv.lock']
     implementation_root = Path(__file__).resolve().parents[1]
     def implementation_identity():
         try:
             with SourceRoot(implementation_root) as implementation:
                 hashes = {path: implementation.read(path, 1024 * 1024, hash_full=True)[1]
-                          for path in implementation_paths}
+                          for path in IMPLEMENTATION_PATHS}
                 root_identity = implementation.identity
             revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=implementation_root,
                                                text=True, timeout=20, stderr=subprocess.DEVNULL).strip()

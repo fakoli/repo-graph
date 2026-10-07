@@ -15,6 +15,12 @@ from evaluations import analysis, real_calls
 
 
 class FreezeInputs(unittest.TestCase):
+    def test_strict_json_rejects_numeric_overflow_and_duplicates(self):
+        for raw in (b'{"measurement":1e999}', b'{"id":1,"id":2}'):
+            source = SimpleNamespace(read=lambda *args, **kwargs: (raw, '0' * 64, SimpleNamespace(st_size=len(raw))))
+            with self.assertRaises(ValueError):
+                gate.read_json(source, 'synthetic.json')
+
     def setUp(self):
         self.scratch = tempfile.TemporaryDirectory(prefix='repo-graph-freeze-test-')
         self.addCleanup(self.scratch.cleanup)

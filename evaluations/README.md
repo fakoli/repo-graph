@@ -118,6 +118,19 @@ beside the private source map; portable reports retain their digests, individual
 resource measurements and coverage failures. Worker directory creation and
 writes use held directory descriptors on Linux. Other kernels remain unqualified.
 
+Re-export a complete private profile without rerunning its workers:
+
+```bash
+uv run python evaluations/analysis.py --profile --profile-report PRIVATE_REPORT.json
+```
+
+The exporter verifies the recorded Git implementation and corpus/map identities,
+retains all twenty-four trials and distinguishes its own reporting code from the
+measured implementation. Full file receipts remain in the hashed private archive;
+the bounded portable report lists each failed file's path and status. Missing
+resource counters after native crashes remain unavailable. Archived measurements
+cannot establish qualification of a changed analyzer.
+
 The [single-worker scale pilots](results/code-understanding/structural-pilots.json)
 retain the initial native crash and fixed-run results. Django finished a partial
 scan in 15.4 seconds at 1,981,386,752 bytes peak RSS, with three partial parses.

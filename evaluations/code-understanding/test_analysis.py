@@ -33,6 +33,78 @@ def site(result, source):
 
 
 class BackendTests(unittest.TestCase):
+    def test_profile_archive_keeps_measured_code_and_bounds_failure_export(self):
+        from evaluations.acceptance import PINS as CORPUS_PINS
+        import hashlib
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            mapping = root / 'map.json'
+            from evaluations.performance import IMPLEMENTATION_PATHS, LARGE_CORPORA
+            mapping.write_text(json.dumps({'corpora': [{'id': name, 'source': str(root / name),
+                'revision': CORPUS_PINS[name]} for name in LARGE_CORPORA]}))
+            measured = {'commit': 'a' * 40, 'sha256': {path: hashlib.sha256(b'archived implementation').hexdigest()
+                for path in IMPLEMENTATION_PATHS}, 'root_identity': '0' * 64}
+            implementation = dict(measured, native_backend=dict(native.PINS))
+            rows = [{'corpus': name, 'revision': CORPUS_PINS[name], 'engine': engine, 'repeat': run,
+                     'exit_code': 1, 'identity_verified': True, 'implementation_after': measured,
+                     'checkout_before': {'status': 'verified', 'actual_revision': CORPUS_PINS[name], 'clean': True, 'root_identity': '0' * 64},
+                     'checkout_after': {'status': 'verified', 'actual_revision': CORPUS_PINS[name], 'clean': True, 'root_identity': '0' * 64},
+                     'worker_wall_seconds': 1, 'stdout_sha256': '0' * 64, 'stderr_sha256': '0' * 64,
+                     'result': {'records': [], 'error_kind': 'synthetic-negative'}}
+                    for name in ('django', 'odoo', 'aws', 'kubernetes')
+                    for engine in ('current-map', 'tree-sitter') for run in range(3)]
+            rows[0]['result']['records'] = [{'run': 'fresh-output', 'status': 'partial', 'wall_seconds': 1,
+                'artifact_bytes': 1, 'peak_rss_bytes': 1, 'stages': {}, 'source_reads': {}, 'counts': {},
+                'semantic_facts_sha256': '0' * 64, 'input_inventory_sha256': '0' * 64, 'coverage': {'files': [
+                {'path': 'failure.py', 'status': 'not_processed_after_deadline_exceeded', 'details': 'synthetic ' * 131072}]}}]
+            archive = {'schema_version': 1, 'source_map_sha256': hashlib.sha256(mapping.read_bytes()).hexdigest(),
+                       'corpus_revisions': {name: CORPUS_PINS[name] for name in ('django', 'odoo', 'aws', 'kubernetes')},
+                       'implementation': implementation, 'environment': {'python': 'synthetic', 'platform': 'synthetic',
+                        'cpu_count': 1, 'gpu_used': False}, 'records': rows}
+            path = root / 'profile.json'
+            path.write_text(json.dumps(archive))
+            with patch.object(analysis.subprocess, 'check_output', return_value=b'archived implementation'):
+                result = analysis.profile_component(mapping, recorded_report=path)
+            self.assertEqual(result['status'], 'blocked')
+            self.assertEqual(len(result['case_results']), 24)
+            self.assertEqual(result['implementation']['commit'], 'a' * 40)
+            self.assertTrue(result['reporting_implementation']['from_archive'])
+            self.assertNotEqual(result['implementation']['sha256']['evaluations/analysis.py'],
+                                result['reporting_implementation']['analysis_sha256'])
+            self.assertLess(len(json.dumps(result)), 65536)
+            self.assertEqual(result['case_results'][0]['result']['records'][0]['failed_files'],
+                             [{'path': 'failure.py', 'status': 'not_processed_after_deadline_exceeded'}])
+            with patch.object(analysis.subprocess, 'check_output', return_value=b'wrong archived code'):
+                with self.assertRaisesRegex(ValueError, 'recorded commit'):
+                    analysis.profile_component(mapping, recorded_report=path)
+            import copy
+            malformed = [lambda a: a['implementation'].update(sha256={}),
+                lambda a: a['records'][0].update(identity_verified='false'),
+                lambda a: a['records'][0].update(worker_wall_seconds=-1),
+                lambda a: a['records'][0].update(stdout_sha256='invalid'),
+                lambda a: a['records'][0].pop('checkout_before'),
+                lambda a: a['records'][0]['checkout_after'].update(clean=False),
+                lambda a: a['records'][0]['result']['records'][0]['coverage']['files'][0].update(path='C:\\synthetic-private\\file.py'),
+                lambda a: a['records'][0]['result'].update(raw_source='synthetic private text')]
+            with patch.object(analysis.subprocess, 'check_output', return_value=b'archived implementation'):
+                for edit in malformed:
+                    value = copy.deepcopy(archive)
+                    edit(value)
+                    path.write_text(json.dumps(value))
+                    with self.assertRaises((ValueError, KeyError)):
+                        analysis.profile_component(mapping, recorded_report=path)
+            path.write_text(json.dumps(archive).replace('"worker_wall_seconds": 1', '"worker_wall_seconds": 1e999'))
+            with self.assertRaisesRegex(ValueError, 'Non-finite'):
+                analysis.profile_component(mapping, recorded_report=path)
+            mapping.write_text('{"corpora":[]}')
+            with self.assertRaisesRegex(ValueError, 'Required pinned'):
+                analysis.profile_component(mapping, recorded_report=path)
+            mapping.write_text(json.dumps({'corpora': [{'id': name, 'source': str(root / name),
+                'revision': CORPUS_PINS[name]} for name in LARGE_CORPORA]}))
+            path.write_text('{"schema_version":1,"schema_version":1}')
+            with self.assertRaisesRegex(ValueError, 'Duplicate'):
+                analysis.profile_component(mapping, recorded_report=path)
+
     def test_work_root_creation_pins_parent_before_mkdir(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)
