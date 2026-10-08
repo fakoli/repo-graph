@@ -268,6 +268,48 @@ class FrameworkSyntaxTests(unittest.TestCase):
                             self.assertEqual(captured['text'],raw[witness['range']['start_byte']:witness['range']['end_byte']].decode())
             finally: engine.close()
 
+    def test_facade_reexports_resolve_from_the_actual_source_package(self):
+        from repo_graph.analysis import StructuralIndex
+        _,blobs,context = self.odoo_inputs()
+        def rows(values):
+            files = [native.collect_file(dict(path=path,language='python',content=raw))
+                for path,raw in values.items() if path.endswith('.py')]
+            result = native.resolve_collected(files,framework_context=context)
+            self.assertEqual(result['status'],'complete',result['stop_reason'])
+            return [row for row in result['facts']['sites'] if row['path']=='models.py' and
+                    row.get('candidate_relation_kind')=='odoo_model_method_declaration']
+        absolute = blobs | {'odoo/models/__init__.py':b'from odoo.orm.models import Model\n',
+                            'odoo/api/__init__.py':b'from odoo.orm.decorators import model\n'}
+        self.assertEqual(sum(row['family']=='framework' for row in rows(absolute)),5)
+        cases = {
+            'models':({'odoo/models/__init__.py':b'from .models import Model\n',
+                       'odoo/models/models.py':b'class Model: pass\n'},0),
+            'decorators':({'odoo/api/__init__.py':b'from .decorators import model\n',
+                           'odoo/api/decorators.py':b'def model(method): return method\n'},4),
+        }
+        for name,(changes,expected) in cases.items():
+            with self.subTest(facade=name):
+                observed=rows(blobs|changes)
+                self.assertEqual(sum(row['family']=='framework' for row in observed),expected)
+                refused=[row for row in observed if row['reason']=='unsupported_framework_reexport']
+                self.assertTrue(refused)
+                self.assertTrue(all(row['targets']==[] and row['certainty']=='unresolved' for row in refused))
+        # An export edit invalidates the captured identity instead of reusing
+        # the previous canonical target, even when a lookalike module exists.
+        with tempfile.TemporaryDirectory() as scratch:
+            source,output=Path(scratch)/'source',Path(scratch)/'index';source.mkdir()
+            for path,raw in blobs.items():
+                target=source/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+            index=StructuralIndex(source,output,framework_context=context)
+            self.assertEqual(index.refresh(sorted(blobs))['status'],'ready')
+            changes,_=cases['models']
+            for path,raw in changes.items():(source/path).write_bytes(raw)
+            self.assertEqual(index.refresh(sorted(blobs|changes))['status'],'ready')
+            stored=[row for row in index.read_facts('sites') if row['path']=='models.py' and
+                    row.get('candidate_relation_kind')=='odoo_model_method_declaration']
+            self.assertTrue(stored)
+            self.assertFalse(any(row['targets'] for row in stored))
+
     def test_odoo_configuration_and_api_negative_guards_are_bounded(self):
         _,blobs,context = self.odoo_inputs()
         for label, changes in {

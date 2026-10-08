@@ -511,6 +511,7 @@ class FrameworkEvaluatorTests(unittest.TestCase):
             self.assertEqual(blocked['source_identity']['input_manifest_sha256'],
                 '8d1ecb870da5d346e4b774a821ef02c0f0ae91d010bdd8d07ddeedaed664b824')
             self.assertFalse(blocked['qualification_complete'])
+            self.assertIs(blocked['task_accepted'], False)
             producer.assert_not_called()
         for change in ('input-key', 'fixture'):
             with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:

@@ -2176,9 +2176,13 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
             if later_wildcard(other, bindings[0], work, witnesses):
                 return 'conditional_or_later_wildcard_framework_export'
             spec = bindings[0].value
-            stem = target_module.rsplit('.', 1)[-1]
-            modules = (target_module, '.' + stem, '..' + target_module.removeprefix('odoo.')) if odoo else (target_module, '.' + stem)
-            if spec['module'] not in modules or spec['symbol'] != target_symbol:
+            exported = spec['module']
+            if exported.startswith('.'):
+                parent = _python_parent(other.path, exported)
+                stem = None if parent is None else posixpath.join(parent, exported.lstrip('.').replace('.', '/'))
+            else:
+                stem = prefix + exported.replace('.', '/')
+            if stem != prefix + target_module.replace('.', '/') or spec['symbol'] != target_symbol:
                 return 'unsupported_framework_reexport'
             ordinal = other.imports.index(spec)
             if other.syntax_metadata['import_contexts'][ordinal]['conditional'] or any(

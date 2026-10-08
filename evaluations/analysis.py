@@ -3404,7 +3404,7 @@ def _framework(root=ROOT, budget=None, *, source_map=None, work_root=None, frame
     if source_map is None:
         return dict(schema_version=1, suite=suite, status='blocked', source_identity=identity,
                     case_results=[], failures=[], counts={}, reason='Pinned private source map required',
-                    qualification_complete=False, limits_qualified=False)
+                    qualification_complete=False, limits_qualified=False, task_accepted=False)
     source_map = Path(source_map)
     with SourceRoot(source_map.parent) as owner:
         mapping, map_sha = read_json(owner, source_map.name)
@@ -3648,7 +3648,7 @@ def _framework(root=ROOT, budget=None, *, source_map=None, work_root=None, frame
         source_identity=identity, source_map_sha256=map_sha, case_results=checks, failures=failures, coverage_failures=[],
         counts=dict(frozen_cases=len(manifest['cases']), mutation_phases=len(manifest['incremental_mutations']),
                     checks=len(checks), passed=len(checks) - len(failures)), receipts=receipts, query_traces=query_traces, environment=environment(),
-        qualification_complete=False, limits_qualified=False, **({'per_family_metrics': metrics, 'private_evidence_id': evidence_id, 'limits': vars(budget)} if framework == 'odoo' else {}), scope='Finite opt-in ' + display + ' source registrations and explicit unknown boundaries; '
+        qualification_complete=False, limits_qualified=False, task_accepted=False, **({'per_family_metrics': metrics, 'private_evidence_id': evidence_id, 'limits': vars(budget)} if framework == 'odoo' else {}), scope='Finite opt-in ' + display + ' source registrations and explicit unknown boundaries; '
         'shared serial/queued facts, clean/update/restore and captured source/query parity. Runtime order, full business paths, scale and human UX unqualified.')
 
 
