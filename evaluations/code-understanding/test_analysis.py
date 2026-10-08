@@ -493,6 +493,115 @@ class BackendTests(unittest.TestCase):
 
 
 @unittest.skipUnless(AVAILABLE, 'Optional analysis extra is not installed')
+
+class FrameworkEvaluatorTests(unittest.TestCase):
+    def frozen(self):
+        manifest = json.loads((ROOT / 'evaluations/code-understanding/odoo-framework-inputs.json').read_text())
+        original = {row['path']: (ROOT / manifest['fixture_root'] / row['path']).read_bytes()
+                    for row in manifest['synthetic_inventory']}
+        return manifest, original
+
+    def test_odoo_admission_refuses_changed_input_or_fixture_before_producer(self):
+        from repo_graph import analysis as runtime
+        manifest, original = self.frozen()
+        with patch.object(runtime, 'StructuralIndex') as producer:
+            blocked = analysis.odoo_framework(ROOT)
+            self.assertEqual(blocked['status'], 'blocked')
+            self.assertEqual(blocked['case_results'], [])
+            self.assertEqual(blocked['source_identity']['input_manifest_sha256'],
+                '8d1ecb870da5d346e4b774a821ef02c0f0ae91d010bdd8d07ddeedaed664b824')
+            self.assertFalse(blocked['qualification_complete'])
+            producer.assert_not_called()
+        for change in ('input-key', 'fixture'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                for name in ('odoo-framework-inputs.json', 'odoo-framework-review.json'):
+                    path = root / analysis.INPUTS / name; path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes((ROOT / analysis.INPUTS / name).read_bytes())
+                for path, raw in original.items():
+                    target = root / manifest['fixture_root'] / path; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(raw)
+                if change == 'fixture':
+                    (root / manifest['fixture_root'] / 'controllers.py').write_bytes(original['controllers.py'] + b'# changed\n')
+                else:
+                    changed = json.loads(json.dumps(manifest)); changed['source_admission']['targets'] = ['oracle']
+                    (root / analysis.INPUTS / 'odoo-framework-inputs.json').write_text(json.dumps(changed))
+                with patch.object(runtime, 'StructuralIndex') as producer, self.assertRaises(ValueError):
+                    analysis.odoo_framework(root)
+                producer.assert_not_called()
+
+    def test_odoo_inventory_mutations_and_context_preserve_frozen_boundaries(self):
+        manifest, original = self.frozen(); saved = dict(original)
+        digest = analysis.framework_inventory(original, manifest['inventory_hashing']['commitments']['synthetic_baseline'])
+        self.assertEqual(digest, manifest['synthetic_inventory_sha256'])
+        for mutation in manifest['incremental_mutations']:
+            with self.subTest(mutation=mutation['id']):
+                changed = analysis.framework_mutation(original, mutation, {}, odoo=True)
+                self.assertEqual(analysis.framework_inventory(changed, mutation['result_inventory_commitment']), mutation['result_inventory_sha256'])
+                self.assertEqual(original, saved)
+                cases = analysis.odoo_mutation_cases(manifest, original, changed, mutation)
+                for identifier in ('OD-SYN-ROUTE-STACKED-DECORATOR', 'OD-SYN-ORM-UNSUPPORTED-DECORATOR'):
+                    row = next(row for row in cases if row['id'] == identifier)
+                    self.assertEqual(row['expected']['targets'], [])
+                    self.assertEqual(row['expected']['row_family'], 'framework_boundary')
+                context = analysis.odoo_framework_context(manifest, 'synthetic', changed)
+                self.assertEqual(set(context), {'schema_version', 'enabled', 'framework_id', 'policy_id', 'consumer',
+                    'dependency', 'source_roots', 'ownership', 'configurations'})
+                self.assertNotIn('source_key', json.dumps(context)); self.assertNotIn('targets', json.dumps(context))
+                self.assertEqual(context['consumer']['revision'], mutation['result_inventory_sha256'])
+                if mutation['id'] == 'OD-INC-JOB-DUPLICATE-ID':
+                    self.assertIn({'path': 'data/duplicate_jobs.xml', 'manifest_path': '__manifest__.py'}, context['configurations'])
+                    owner = next(row for row in context['ownership'] if row['path'] == 'data/duplicate_jobs.xml')
+                    self.assertEqual(owner['configuration_namespace'], 'synthetic_workflows')
+                with self.assertRaises(AssertionError): analysis.odoo_mutation_control({'sites': [], 'definitions': []}, original, changed, mutation)
+                bad = json.loads(json.dumps(mutation)); bad['result_inventory_sha256'] = 'f' * 64
+                with self.assertRaises(ValueError): analysis.framework_mutation(original, bad, {}, odoo=True)
+                bad = json.loads(json.dumps(mutation)); bad['starting_inventory_sha256'] = 'e' * 64
+                with self.assertRaises(ValueError): analysis.framework_mutation(original, bad, {}, odoo=True)
+        broken = dict(original); broken['models.py'] += b'# changed\n'
+        with self.assertRaises(ValueError): analysis.framework_inventory(broken, manifest['inventory_hashing']['commitments']['synthetic_baseline'])
+
+    def test_odoo_physical_pair_grader_rejects_vacuity_foreign_owner_type_and_runtime(self):
+        manifest, original = self.frozen(); expected = manifest['cases'][0]
+        target = expected['expected']['targets'][0]; span = {key: target['range'][key] for key in ('start_byte', 'end_byte', 'start_line', 'end_line')}
+        declaration = dict(id='local-method', path=target['path'], range=span, name=target['name'], kind='method',
+                           provenance={'source_sha256': target['source_sha256']})
+        origin = expected['origin']; label = expected['expected']
+        site = dict(id='local-route', path=origin['path'], range={key: origin['range'][key] for key in span}, role='framework',
+            family='framework', relation_kind='odoo_route_annotation', certainty='resolved', targets=['local-method'],
+            framework_identity_asserted=True, targets_exhaustive=True, partial=False, reason='static source',
+            provenance={'source_sha256': origin['source_sha256']}, consumer_id=expected['consumer_id'], service_id=expected['service_id'],
+            runtime_dispatch='unresolved', runtime_callable_targets=[], runtime_qualified=False,
+            evidence=[dict(path=w['path'], range={key:w['range'][key] for key in span}, source_sha256=w['source_sha256']) for w in expected['witnesses']])
+        facts = dict(definitions=[declaration], sites=[site]); frozen = json.dumps(expected, sort_keys=True)
+        result = analysis.odoo_case_grade(facts, expected)
+        self.assertEqual(result['status'], 'passed'); self.assertEqual(result['target_precision'], 1)
+        self.assertEqual(analysis.odoo_case_grade(dict(definitions=[], sites=[]), expected)['status'], 'failed')
+        for mutation in ('owner', 'type', 'digest', 'witness', 'runtime'):
+            changed = json.loads(json.dumps(facts))
+            if mutation == 'owner': changed['sites'][0]['consumer_id'] = 'foreign'
+            elif mutation == 'type': changed['definitions'][0]['kind'] = 'configuration_value'
+            elif mutation == 'digest': changed['definitions'][0]['provenance']['source_sha256'] = 'f' * 64
+            elif mutation == 'witness': changed['sites'][0]['evidence'][0]['source_sha256'] = 'f' * 64
+            else: changed['sites'][0]['runtime_callable_targets'] = ['invented-runtime']
+            with self.subTest(mutation=mutation): self.assertEqual(analysis.odoo_case_grade(changed, expected)['status'], 'failed')
+        negative = next(row for row in manifest['cases'] if row['expected']['row_family'] is None)
+        zero = analysis.odoo_case_grade(dict(definitions=[], sites=[]), negative)
+        self.assertEqual(zero['status'], 'passed'); self.assertIsNone(zero['target_precision']); self.assertIsNone(zero['target_recall'])
+        unknown = next(row for row in manifest['cases'] if row['expected']['row_family'] == 'framework_boundary')
+        self.assertEqual(analysis.odoo_case_grade(dict(definitions=[], sites=[]), unknown)['status'], 'failed')
+        self.assertEqual(json.dumps(expected, sort_keys=True), frozen)
+        malformed = dict(origin); malformed['slice_sha256'] = 'f' * 64
+        with self.assertRaises(ValueError): analysis.odoo_source_key(malformed, original)
+
+    def test_framework_cli_selects_odoo_and_retains_django_entrypoint(self):
+        for suite, helper in (('odoo-framework', 'odoo_framework'), ('django-framework', 'django_framework')):
+            with self.subTest(suite=suite), patch.object(analysis, helper,
+                    return_value=dict(status='passed', counts={}, failures=[])) as evaluate, \
+                    patch.object(analysis, 'write_result', return_value=0), redirect_stdout(io.StringIO()):
+                self.assertEqual(analysis.main(['--suite', suite, '--output', 'synthetic-framework-result.json']), 0)
+                evaluate.assert_called_once()
+
+
 class ExtractionTests(unittest.TestCase):
     def registered_compact(self, blobs, context):
         configurations, collected = {}, []

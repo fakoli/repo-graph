@@ -2991,49 +2991,334 @@ def profile_fixture_pilot(root, evidence_directory, *, protocol=None, original_s
         return result
 
 
+def framework_inventory(blobs, commitment):
+    """Grader-only reproduction of the frozen exact inventory serialization."""
+    rows = [[path, hashlib.sha256(raw).hexdigest(), len(raw)]
+            for path, raw in sorted(blobs.items(), key=lambda row: row[0].encode())]
+    raw = json.dumps(rows, separators=(',', ':'), ensure_ascii=False).encode()
+    digest = hashlib.sha256(raw).hexdigest()
+    if (commitment['serialization_id'] != 'source-inventory-tuples-json-utf8-v1' or
+            raw != commitment['canonical_inventory_utf8'].encode() or
+            len(raw) != commitment['serialized_bytes'] or digest != commitment['sha256']):
+        raise ValueError('Frozen framework inventory commitment differs')
+    return digest
+
+
+def framework_mutation(original, mutation, origins, *, odoo=False):
+    """Apply only the independently frozen edit, before creating a producer."""
+    changed = dict(original)
+    if odoo:
+        commitment = mutation['result_inventory_commitment']
+        before_rows = [[path, hashlib.sha256(raw).hexdigest(), len(raw)] for path, raw in sorted(original.items())]
+        before = hashlib.sha256(json.dumps(before_rows, separators=(',', ':')).encode()).hexdigest()
+        if before != mutation['starting_inventory_sha256'] or before != mutation['restore']['inventory_sha256']:
+            raise ValueError('Mutation starting/restoration inventory differs')
+        operations = [mutation['operation']]
+    else:
+        operations = mutation['operations']
+    for operation in operations:
+        path = operation['path']; SourceRoot.parts(path); verb = operation['operation']
+        if verb != 'add' and hashlib.sha256(changed[path]).hexdigest() != operation['before_sha256']:
+            raise ValueError('Mutation baseline digest differs')
+        if verb == 'delete':
+            del changed[path]
+            continue
+        if verb == 'rename':
+            destination = operation['destination']; SourceRoot.parts(destination)
+            if destination in changed: raise ValueError('Mutation rename would replace a source')
+            changed[destination] = changed.pop(path); path = destination
+            for origin in origins.values():
+                if origin['path'] == operation['path']: origin['path'] = destination
+        elif verb == 'add':
+            if path in changed: raise ValueError('Mutation addition already exists')
+            changed[path] = operation['content_utf8' if odoo else 'content'].encode()
+        elif verb == 'replace':
+            old, new = operation['old'].encode(), operation['new'].encode()
+            if changed[path].count(old) != 1: raise ValueError('Mutation must replace one reviewed slice')
+            offset = changed[path].index(old)
+            for origin in origins.values():
+                if origin['path'] == path and offset + len(old) <= origin['start']:
+                    origin['start'] += len(new) - len(old)
+            changed[path] = changed[path].replace(old, new, 1)
+        else:
+            raise ValueError('Unknown frozen mutation')
+        if hashlib.sha256(changed[path]).hexdigest() != operation['after_sha256'] or len(changed[path]) != operation['after_bytes']:
+            raise ValueError('Mutation result digest differs')
+    if odoo and framework_inventory(changed, commitment) != mutation['result_inventory_sha256']:
+        raise ValueError('Mutation result inventory differs')
+    return changed
+
+
+def odoo_framework_context(manifest, source_kind, blobs):
+    """Only enrollment/ownership metadata enters production, never judgments."""
+    admission = manifest['source_admission']
+    raw = next(row for row in admission['frozen_contexts'] if
+               (row['identity_kind'] == 'synthetic_fixture') == (source_kind == 'synthetic'))
+    fields = ('repository_id', 'revision', 'source_root_id')
+    context = dict(schema_version=1, enabled=True, framework_id='odoo', policy_id='odoo-hooks-finite-v1',
+        consumer={name: raw[name] for name in (*fields, 'consumer_id', 'service_id')},
+        dependency={name: raw[name] for name in (*fields, 'module_prefix', 'identity_kind')},
+        source_roots=[dict(id=raw['source_root_id'], source_prefix='', ownership='one_explicit_admitted_snapshot')])
+    if source_kind == 'synthetic':
+        rows = [[path, hashlib.sha256(body).hexdigest(), len(body)] for path, body in sorted(blobs.items())]
+        digest = hashlib.sha256(json.dumps(rows, separators=(',', ':')).encode()).hexdigest()
+        for name in ('consumer', 'dependency'): context[name]['revision'] = digest
+    declared = admission['frozen_ownership']['synthetic' if source_kind == 'synthetic' else 'pinned_odoo']
+    ownership = []
+    if source_kind == 'synthetic':
+        for path in [*declared['consumer_exact_paths'], declared['explicit_rename_destination']]:
+            ownership.append(dict(path=path, consumer_id=declared['consumer_id'], service_id=declared['service_id'],
+                                  configuration_namespace=declared['configuration_namespace']))
+        # These paths are explicitly enrolled configuration candidates. Literal
+        # manifest membership is separately decided by the shared producer.
+        for path in sorted(blobs):
+            if path.endswith('.xml') and path.startswith('data/') and not any(row['path'] == path for row in ownership):
+                ownership.append(dict(path=path, consumer_id=declared['consumer_id'], service_id=declared['service_id'],
+                                      configuration_namespace=declared['configuration_namespace']))
+        for path, owner in admission['ownership_controls'].items():
+            if type(owner) is dict and 'consumer_id' in owner:
+                ownership.append(dict(path=path, consumer_id=owner['consumer_id'], service_id=owner['service_id'],
+                                      configuration_namespace=None))
+        configurations = [dict(path=path, manifest_path='__manifest__.py') for path in sorted(blobs)
+                          if path.startswith('data/') and path.endswith('.xml')]
+    else:
+        namespaces = {row['prefix']: row['namespace'] for row in declared['configuration_namespaces']}
+        for prefix in declared['consumer_prefixes']:
+            ownership.append(dict(path=prefix, consumer_id=declared['consumer_id'], service_id=declared['service_id'],
+                                  configuration_namespace=namespaces.get(prefix)))
+        configurations = [dict(path=path, manifest_path=prefix + '__manifest__.py')
+            for prefix in declared['consumer_prefixes'] for path in sorted(blobs)
+            if path.startswith(prefix) and path.endswith('.xml') and prefix + '__manifest__.py' in blobs]
+    context.update(ownership=ownership, configurations=configurations)
+    return context
+
+
+def odoo_source_key(reference, blobs):
+    raw = blobs[reference['path']]; span = reference['range']
+    start, end = span['start_byte'], span['end_byte']
+    if not (0 <= start <= end <= len(raw)): raise ValueError('Frozen source range escapes admitted bytes')
+    raw[:start].decode(); raw[:end].decode()
+    if (hashlib.sha256(raw).hexdigest() != reference['source_sha256'] or
+            hashlib.sha256(raw[start:end]).hexdigest() != reference['slice_sha256'] or
+            raw[:start].count(b'\n') + 1 != span['start_line'] or
+            raw[:max(start, end - 1)].count(b'\n') + 1 != span['end_line']):
+        raise ValueError('Frozen framework physical source key differs')
+
+
+def odoo_case_grade(facts, expected):
+    """Independent physical pair grading; missing/foreign targets are failures."""
+    label = expected['expected']; origin = expected['origin']; fields = ('start_byte', 'end_byte', 'start_line', 'end_line')
+    found = [row for row in facts['sites'] if row['role'].startswith('framework') and row['path'] == origin['path']
+             and all(row['range'][name] == origin['range'][name] for name in fields)]
+    definitions = {row['id']: row for row in facts['definitions']}
+    def target_key(row, *, gold=False):
+        return (row['path'], *(row['range'][key] for key in fields),
+            row['source_sha256'] if gold else row['provenance']['source_sha256'], row['name'],
+            row['region_kind'] if gold else {'method': 'method_declaration'}.get(row['kind'], row['kind']),
+            expected['consumer_id'], expected['service_id'])
+    gold = {target_key(row, gold=True) for row in label['targets']}
+    actual = []
+    for site in found:
+        for target in site['targets']:
+            row = definitions.get(target)
+            # Owner is taken from the observed site, not borrowed from gold.
+            key = target_key(row)[:-2] + (site.get('consumer_id'), site.get('service_id')) if row else ('missing', target)
+            actual.append(key)
+    matches = len(gold & set(actual)); result = {}
+    result['occurrence_cardinality'] = len(found) == (0 if label['row_family'] is None else 1)
+    result['exact_target_pairs'] = set(actual) == gold and len(actual) == label['target_cardinality']
+    for row in found:
+        result.update(family=row['family'] == label['row_family'], relation_kind=row['relation_kind'] == label['row_kind'],
+            certainty=row['certainty'] == label['certainty'], framework_identity=row['framework_identity_asserted'] == label['framework_identity_asserted'],
+            exhaustive=row['targets_exhaustive'] == label['targets_exhaustive_for_declared_source_scope'],
+            partial=row['partial'] == label['partial'], source_sha256=row['provenance']['source_sha256'] == origin['source_sha256'],
+            consumer=row.get('consumer_id') == expected['consumer_id'], service=row.get('service_id') == expected['service_id'],
+            runtime_dispatch=row.get('runtime_dispatch') == 'unresolved', runtime_targets=row.get('runtime_callable_targets') == [],
+            runtime_unqualified=row.get('runtime_qualified') is False)
+        if label['unknown_boundary_required']: result['explicit_reason'] = type(row['reason']) is str and bool(row['reason'])
+        witness_keys = {(w['path'], *(w['range'][k] for k in fields), w['source_sha256']) for w in row['evidence']}
+        result['witnesses'] = all((w['path'], *(w['range'][k] for k in fields), w['source_sha256']) in witness_keys
+                                  for w in expected['witnesses'])
+    return dict(status='passed' if all(result.values()) else 'failed', checks=result,
+        occurrences=len(found), expected_targets=len(gold), actual_targets=len(actual),
+        true_positive=matches, false_positive=len(actual) - matches, false_negative=len(gold) - matches,
+        target_precision=matches / len(actual) if actual else None, target_recall=matches / len(gold) if gold else None,
+        metric_scope='Frozen exact physical source/type/consumer/service pairs only; runtime callable targets never inferred',
+        actual=found)
+
+
+def odoo_mutation_cases(manifest, original, changed, mutation):
+    """Grader normalization of the eight frozen postimages, not producer input."""
+    cases = json.loads(json.dumps([row for row in manifest['cases'] if row['source_kind'] == 'synthetic']))
+    operation = mutation['operation']; path = operation['path']; verb = operation['operation']
+    offset = original[path].index(operation['old'].encode()) if verb == 'replace' else None
+    old_end = offset + len(operation['old'].encode()) if offset is not None else None
+    delta = len(operation['new'].encode()) - len(operation['old'].encode()) if offset is not None else 0
+    for case in cases:
+        for reference in [case['origin'], *case['witnesses'], *case['expected']['targets']]:
+            if reference['path'] != path: continue
+            if verb == 'rename': reference['path'] = operation['destination']
+            if verb == 'delete': continue
+            span = reference['range']
+            if offset is not None:
+                for key in ('start_byte', 'end_byte'):
+                    if span[key] >= old_end: span[key] += delta
+            raw = changed[reference['path']]; start, end = span['start_byte'], span['end_byte']
+            span['start_line'] = raw[:start].count(b'\n') + 1
+            span['end_line'] = raw[:max(start, end - 1)].count(b'\n') + 1
+            reference['source_sha256'] = hashlib.sha256(raw).hexdigest()
+            reference['slice_sha256'] = hashlib.sha256(raw[start:end]).hexdigest()
+        label = case['expected']; identifier = mutation['id']
+        reject = ((identifier == 'OD-INC-API-COMPETING-PATH' and case['candidate_kind'] == 'odoo_route_annotation') or
+                  (identifier == 'OD-INC-BASE-EXPORT' and case['candidate_kind'] == 'odoo_model_method_declaration') or
+                  (identifier == 'OD-INC-PARTIAL-MODEL' and case['origin']['path'] == 'models.py') or
+                  (identifier in ('OD-INC-CONFIG-MEMBERSHIP', 'OD-INC-JOB-DUPLICATE-ID') and case['id'] == 'OD-SYN-JOB-DECLARATION'))
+        if reject and label['row_family'] is not None:
+            label.update(row_family='framework_boundary', row_kind='unknown_framework_candidate', certainty='unresolved',
+                targets=[], target_cardinality=0, targets_exhaustive_for_declared_source_scope=False,
+                framework_identity_asserted=False, unknown_boundary_required=True)
+        if identifier == 'OD-INC-PARTIAL-MODEL' and case['origin']['path'] == 'models.py': label['partial'] = True
+        if verb == 'delete' and case['origin']['path'] == path:
+            label.update(row_family=None, row_kind=None, targets=[], target_cardinality=0)
+    return cases
+
+
+def odoo_mutation_control(facts, original, changed, mutation):
+    """Nonvacuous checks of the independently frozen mutation questions."""
+    sites = [row for row in facts['sites'] if row['role'].startswith('framework')]
+    definitions = {row['id']: row for row in facts['definitions']}
+    identifier = mutation['id']; operation = mutation['operation']
+    def require(value, message):
+        if not value: raise AssertionError(message)
+    require(all(row.get('runtime_dispatch') == 'unresolved' and row.get('runtime_callable_targets') == []
+                and row.get('runtime_qualified') is False for row in sites), 'Mutation invented runtime callable dispatch')
+    methods = [row for row in sites if row.get('candidate_relation_kind') == 'odoo_model_method_declaration'
+               and row['path'] == ('moved_models.py' if identifier == 'OD-INC-MODEL-RENAME' else 'models.py')]
+    route = [row for row in sites if row['path'] == 'controllers.py' and row['range']['start_byte'] == 79]
+    cron = [row for row in sites if row['path'] == 'data/jobs.xml' and row['range']['start_byte'] == 50]
+    if identifier == 'OD-INC-ROUTE-BODY':
+        require(len(route) == 1 and len(route[0]['targets']) == 1, 'Edited route target missing')
+        target = definitions[route[0]['targets'][0]]
+        delta = len(operation['new'].encode()) - len(operation['old'].encode())
+        require(target['range']['start_byte'] == 153 and target['range']['end_byte'] == 209 + delta and
+                target['provenance']['source_sha256'] == operation['after_sha256'] and
+                target['provenance']['source_sha256'] != operation['before_sha256'], 'Edited route physical postimage differs')
+    elif identifier == 'OD-INC-MODEL-RENAME':
+        require(len(methods) >= 5 and sum(bool(row['targets']) for row in methods) == 5 and
+                not any(row['path'] == 'models.py' for row in facts['definitions'] + facts['sites']), 'Model rename lost declarations or retained old identities')
+    elif identifier == 'OD-INC-MODEL-DELETE':
+        require(not any(row['path'] == 'models.py' for row in facts['definitions'] + facts['sites']), 'Deleted model source retained facts')
+    elif identifier == 'OD-INC-API-COMPETING-PATH':
+        require(len(route) == 1 and not route[0]['targets'] and route[0]['family'] == 'framework_boundary'
+                and not route[0]['framework_identity_asserted'], 'Competing API did not withhold the known route')
+    elif identifier == 'OD-INC-BASE-EXPORT':
+        require(len(methods) >= 5 and all(not row['targets'] and not row['framework_identity_asserted'] for row in methods),
+                'Missing Model export did not withhold known model declarations')
+    elif identifier == 'OD-INC-PARTIAL-MODEL':
+        require(len(methods) >= 5 and all(not row['targets'] and row['partial'] and row['family'] == 'framework_boundary'
+                for row in methods), 'Partial model source did not preserve known partial boundaries')
+    elif identifier == 'OD-INC-CONFIG-MEMBERSHIP':
+        require(len(cron) == 1 and not cron[0]['targets'] and cron[0]['family'] == 'framework_boundary',
+                'Removed manifest membership did not preserve unknown job declaration')
+    elif identifier == 'OD-INC-JOB-DUPLICATE-ID':
+        raw = changed[operation['path']]
+        start = raw.index(b'<record '); end = raw.index(b'</record>', start) + len(b'</record>')
+        duplicate = [row for row in sites if row['path'] == operation['path'] and
+                     row['range']['start_byte'] == start and row['range']['end_byte'] == end]
+        require(len(cron) == 1 and len(duplicate) == 1 and all(not row['targets'] and row['family'] == 'framework_boundary'
+                and bool(row['reason']) for row in cron + duplicate), 'Duplicate configuration namespace did not reject both physical records')
+    else:
+        raise ValueError('Unjudged frozen Odoo mutation')
+    if identifier in ('OD-INC-MODEL-DELETE', 'OD-INC-MODEL-RENAME', 'OD-INC-PARTIAL-MODEL', 'OD-INC-BASE-EXPORT'):
+        require(len(cron) == 1 and len(cron[0]['targets']) == 1 and
+                definitions[cron[0]['targets'][0]]['kind'] == 'configuration_value', 'Model update altered independent physical job evidence')
+    return dict(postimage_sha256=mutation['result_inventory_sha256'], runtime_callable_targets=[])
+
+
+def odoo_query_grade(facts):
+    sites = {row['id']: row for row in facts['sites'] if row['role'].startswith('framework')}
+    definitions = {row['id']: row for row in facts['definitions']}
+    expected = [(row['id'], target) for row in sites.values() for target in (row['targets'] or [None])]
+    actual = [(row['site']['id'], row['target']['id'] if row['target'] else None) for row in facts['framework_query_rows']]
+    if sorted(expected, key=str) != sorted(actual, key=str):
+        raise AssertionError('Full framework query target/empty-boundary membership differs')
+    for row in facts['framework_query_rows']:
+        site = sites[row['site']['id']]
+        if (row['site']['path'] != site['path'] or row['site']['range'] != site['range'] or
+                row['site']['source_sha256'] != site['provenance']['source_sha256']):
+            raise AssertionError('Queried physical source differs')
+        for key in ('family', 'relation_kind', 'candidate_relation_kind', 'certainty', 'targets_exhaustive',
+                    'framework_identity_asserted', 'partial', 'partial_source_role', 'evidence',
+                    'consumer_id', 'service_id', 'configuration_namespace', 'runtime_dispatch', 'runtime_callable_targets'):
+            if row[key] != site[key]: raise AssertionError('Queried framework field differs: ' + key)
+        if row['target']:
+            target = definitions[row['target']['id']]
+            if any(row['target'][key] != target[key] for key in ('path', 'range', 'name')) or row['target']['source_sha256'] != target['provenance']['source_sha256']:
+                raise AssertionError('Queried declaration target differs')
+    return dict(queried_occurrences=len(sites), queried_rows=len(actual))
+
+
 def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None):
+    return _framework(root, budget, source_map=source_map, work_root=work_root, framework='django')
+
+
+def odoo_framework(root=ROOT, budget=None, *, source_map=None, work_root=None):
+    return _framework(root, budget, source_map=source_map, work_root=work_root, framework='odoo')
+
+
+def _framework(root=ROOT, budget=None, *, source_map=None, work_root=None, framework):
     """Frozen source questions graded after the single structural owner runs."""
     from evaluations.acceptance import committed
     root, budget = Path(root), budget or Budget()
+    suite = framework + '-framework'; display = 'Django' if framework == 'django' else 'Odoo'
+    task, frozen_input, frozen_review = ({'django': ('T018',
+        '2348603f592660275f9a5750c18fe3e08c1679516333e7613fef9f78589f26c9',
+        '93fadbc0202f5354890de3ee8a55670ca753b2f4e59ee42c0cf10898ddc86bbf'),
+        'odoo': ('T019', '8d1ecb870da5d346e4b774a821ef02c0f0ae91d010bdd8d07ddeedaed664b824',
+        '4c22c8482fb05134d4fb4abf06e870378fab9aa33c110ca14585deb1cac32d8e')})[framework]
     with SourceRoot(root) as owner:
-        manifest, input_sha = read_json(owner, INPUTS + 'django-framework-inputs.json')
-        review, review_sha = read_json(owner, INPUTS + 'django-framework-review.json')
-        if (input_sha != '2348603f592660275f9a5750c18fe3e08c1679516333e7613fef9f78589f26c9' or
-                review_sha != '93fadbc0202f5354890de3ee8a55670ca753b2f4e59ee42c0cf10898ddc86bbf' or
-                review['status'] != 'admitted_frozen_source_key' or review['task'] != 'T018' or
+        manifest, input_sha = read_json(owner, INPUTS + suite + '-inputs.json')
+        review, review_sha = read_json(owner, INPUTS + suite + '-review.json')
+        if (input_sha != frozen_input or
+                review_sha != frozen_review or
+                review['status'] != 'admitted_frozen_source_key' or review['task'] != task or
                 review['input_manifest']['sha256'] != input_sha):
-            raise ValueError('Independently admitted Django source key required')
-        hashes = {INPUTS + 'django-framework-inputs.json': input_sha, INPUTS + 'django-framework-review.json': review_sha}
+            raise ValueError('Independently admitted ' + display + ' source key required')
+        hashes = {INPUTS + suite + '-inputs.json': input_sha, INPUTS + suite + '-review.json': review_sha}
         original = {}
         for record in manifest['synthetic_inventory']:
             path = record['path']; SourceRoot.parts(path)
             full = manifest['fixture_root'] + '/' + path
             raw, sha, info = owner.read(full, budget.max_file_bytes + 1, hash_full=False)
             if len(raw) != info.st_size or sha != record['sha256'] or len(raw) != record['bytes']:
-                raise ValueError('Frozen Django fixture bytes differ')
+                raise ValueError('Frozen ' + display + ' fixture bytes differ')
             original[path] = raw; hashes[full] = sha
+    if framework == 'odoo':
+        framework_inventory(original, manifest['inventory_hashing']['commitments']['synthetic_baseline'])
+        for mutation in manifest['incremental_mutations']: framework_mutation(original, mutation, {}, odoo=True)
     if not committed(root, hashes):
-        raise ValueError('Frozen Django inputs must belong to this committed repository')
+        raise ValueError('Frozen ' + display + ' inputs must belong to this committed repository')
     identity = {'input_manifest_sha256': input_sha, 'independent_review_sha256': review_sha,
                 'synthetic_inventory_sha256': manifest['synthetic_inventory_sha256'],
                 'corpus_revision': manifest['corpus']['revision']}
     code_paths = ('evaluations/analysis.py', 'repo_graph/analysis.py', 'repo_graph/analysis_native.py',
                   'repo_graph/analysis_queue.py', 'repo_graph/analysis_queries.py', 'repo_graph/search.py',
-                  'repo_graph/cli.py', 'pyproject.toml', 'uv.lock')
+                  'repo_graph/cli.py', 'repo_graph/source.py', 'tests/test_frameworks.py',
+                  'evaluations/code-understanding/test_analysis.py', 'pyproject.toml', 'uv.lock')
     with SourceRoot(root) as owner:
         implementation = {path: owner.read(path, 1024 * 1024, hash_full=True)[1] for path in code_paths}
     identity['implementation'] = {'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
                                   'sha256': implementation}
     if source_map is None:
-        return dict(schema_version=1, suite='django-framework', status='blocked', source_identity=identity,
+        return dict(schema_version=1, suite=suite, status='blocked', source_identity=identity,
                     case_results=[], failures=[], counts={}, reason='Pinned private source map required',
                     qualification_complete=False, limits_qualified=False)
     source_map = Path(source_map)
     with SourceRoot(source_map.parent) as owner:
         mapping, map_sha = read_json(owner, source_map.name)
-    selected = [row for row in mapping['corpora'] if row['id'] == 'django']
+    selected = [row for row in mapping['corpora'] if row['id'] == framework]
     if len(selected) != 1 or selected[0]['revision'] != manifest['corpus']['revision']:
-        raise ValueError('Pinned Django source-map identity differs')
+        raise ValueError('Pinned ' + display + ' source-map identity differs')
     from repo_graph.analysis import StructuralIndex, _git_capture
     from repo_graph.analysis_queries import Queries
     from repo_graph.search import Search, captured_source, connect
@@ -3043,12 +3328,18 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
         prefix = _git_capture(owner, ['rev-parse', '--show-prefix'], 4096, lambda: False)
         revision = _git_capture(owner, ['rev-parse', '--verify', 'HEAD'], 128, lambda: False)
         if prefix is None or prefix.strip() or revision is None or revision.decode().strip() != selected[0]['revision']:
-            raise ValueError('Django source must own the exact pinned repository revision')
+            raise ValueError(display + ' source must own the exact pinned repository revision')
         for record in manifest['corpus']['selected_file_inventory']:
             raw, sha, info = owner.read(record['path'], budget.max_file_bytes + 1, hash_full=False)
             if sha != record['sha256'] or len(raw) != record['bytes'] or len(raw) != info.st_size:
-                raise ValueError('Pinned Django source bytes differ')
+                raise ValueError('Pinned ' + display + ' source bytes differ')
             real[record['path']] = raw
+    if framework == 'odoo':
+        framework_inventory(real, manifest['inventory_hashing']['commitments']['selected_corpus'])
+        for expected in manifest['cases']:
+            blobs = original if expected['source_kind'] == 'synthetic' else real
+            for reference in [expected['origin'], *expected['witnesses'], *expected['expected']['targets']]:
+                odoo_source_key(reference, blobs)
     checks, receipts, query_traces = [], [], []
     def require(value, message):
         if not value: raise AssertionError(message)
@@ -3064,7 +3355,7 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
             facts['dependencies'] = [dict(row) for row in db.execute('SELECT * FROM structural_dependencies ORDER BY path,kind,key')]
             facts['import_relationships'] = [dict(row) for row in db.execute('SELECT * FROM structural_import_relationships ORDER BY path,ordinal,target_path')]
         return facts
-    def inspect(index, receipt, facts):
+    def inspect(index, receipt, facts, blobs):
         engine = Search(index.output)
         try:
             slices = []
@@ -3073,6 +3364,11 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
                     handle = {key: row[key] for key in ('id', 'path', 'range')}
                     handle['source_sha256'] = row['provenance']['source_sha256']
                     result = captured_source(engine, dict(generation=receipt['generation'], handle=handle, max_excerpt_bytes=4096))
+                    if framework == 'odoo':
+                        span = result['range']; raw = blobs[row['path']]; start, end = span['start_byte'], span['end_byte']
+                        require(row['range']['start_byte'] == start and start <= end <= row['range']['end_byte'], 'Captured source range differs')
+                        require(hashlib.sha256(raw[start:end]).hexdigest() == result['raw_digest'], 'Captured raw source slice differs')
+                        require(result['redacted'] or result['text'] == raw[start:end].decode(), 'Captured source text differs')
                     slices.append({key: result[key] for key in ('handle', 'text', 'range', 'raw_digest', 'truncated', 'redacted', 'certainty')})
             facts['source_slices'] = sorted(slices, key=lambda row: json.dumps(row, sort_keys=True))
         finally: engine.close()
@@ -3092,15 +3388,32 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
         receipt = index.refresh(sorted(blobs), mode=mode, concurrency=1 if mode == 'serial' else 2)
         receipts.append({'mode': mode, 'status': receipt['status'], 'coverage': receipt.get('coverage'), 'resources': receipt['resources']})
         require(receipt['status'] == 'ready', 'Shared index did not publish a coherent generation')
-        facts = normalized(index); inspect(index, receipt, facts)
+        facts = normalized(index); inspect(index, receipt, facts, blobs)
         with Queries(index.output) as queries:
             rows, pages = query_rows(queries, {'operation': 'framework'})
         facts['framework_query_rows'] = rows
+        artifacts = []
+        if framework == 'odoo':
+            from evaluations.engine_checks import _adapter_dump
+            for key, values in facts.items():
+                filename = f'phase-{len(receipts):03}-{key}.json'
+                _adapter_dump(retained, filename, values)
+                with SourceRoot(retained) as owner:
+                    _, digest, info = owner.read(filename, 0, hash_full=True)
+                artifacts.append(dict(stream=key, path=filename, sha256=digest, bytes=info.st_size))
+            check(mode + ':phase-' + str(len(receipts)) + ':full-query-projection', lambda: odoo_query_grade(facts))
         query_traces.append({'mode': mode, 'generation': receipt['generation'], 'source_identity': receipt['source_identity'],
             'row_count': len(rows), 'rows_sha256': hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest(),
-            'pages': pages})
+            'pages': pages, **({'artifacts': artifacts} if framework == 'odoo' else {})})
         return index, facts
-    def grade_cases(facts, source_kind, mode):
+    def grade_cases(facts, source_kind, mode, cases=None):
+        if framework == 'odoo':
+            for expected in cases if cases is not None else manifest['cases']:
+                if expected['source_kind'] != source_kind: continue
+                family = next(key for key, row in manifest['precision_recall'].items() if expected['id'] in row['case_ids'])
+                observed = odoo_case_grade(facts, expected)
+                checks.append(dict(id=mode + ':' + expected['id'], frozen_case_id=expected['id'], metric_family=family, **observed))
+            return
         definitions = {row['id']: row for row in facts['definitions']}
         for expected in manifest['cases']:
             if expected['source_kind'] != source_kind: continue
@@ -3135,11 +3448,15 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
                             for name in ('start_byte', 'end_byte', 'start_line', 'end_line')), 'Target declaration/source range differs')
                     require(any(item['source_role'] == 'candidate_import' for item in row['evidence']), 'Candidate import witness missing')
             check(mode + ':' + expected['id'], grade, observed)
-    contexts = manifest['source_admission']['frozen_contexts']
+    contexts = (dict(synthetic=odoo_framework_context(manifest, 'synthetic', original),
+                     pinned_odoo=odoo_framework_context(manifest, 'pinned_corpus', real))
+                if framework == 'odoo' else manifest['source_admission']['frozen_contexts'])
     with worker_directory(source_map, work_root) as work:
-        with tempfile.TemporaryDirectory(prefix='django-framework-', dir=work) as scratch:
+        retained = Path(tempfile.mkdtemp(prefix=suite + '-evidence-', dir=work)) if framework == 'odoo' else None
+        evidence_id = retained.name if retained is not None else None
+        with tempfile.TemporaryDirectory(prefix=suite + '-', dir=work) as scratch:
             scratch = Path(scratch)
-            for source_kind, blobs, context in (('synthetic', original, contexts['synthetic']), ('pinned_corpus', real, contexts['pinned_django'])):
+            for source_kind, blobs, context in (('synthetic', original, contexts['synthetic']), ('pinned_corpus', real, contexts['pinned_' + framework])):
                 source = scratch / source_kind; source.mkdir(); _adapter_materialize(source, blobs)
                 mode_facts = {}
                 for mode in ('serial', 'queued'):
@@ -3151,27 +3468,12 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
                 check(source_kind + ':mode-parity', lambda: require(mode_facts['serial'] == mode_facts['queued'], 'Serial/queued shared facts or source evidence differ'))
                 if source_kind != 'synthetic': continue
                 for number, mutation in enumerate(manifest['incremental_mutations']):
-                    changed = dict(original)
                     origins = {case['id']: dict(path=case['origin']['path'], start=case['origin']['range']['start_byte'])
                                for case in manifest['cases'] if case['source_kind'] == 'synthetic'}
-                    for operation in mutation['operations']:
-                        path = operation['path']; verb = operation['operation']
-                        if verb != 'add': require(hashlib.sha256(changed[path]).hexdigest() == operation['before_sha256'], 'Mutation baseline digest differs')
-                        if verb == 'delete': del changed[path]; continue
-                        if verb == 'rename': path = operation['destination']; changed[path] = changed.pop(operation['path'])
-                        elif verb == 'add': changed[path] = operation['content'].encode()
-                        elif verb == 'replace':
-                            old, new = operation['old'].encode(), operation['new'].encode()
-                            require(changed[path].count(old) == 1, 'Mutation must replace one reviewed slice')
-                            offset = changed[path].index(old)
-                            for origin in origins.values():
-                                if origin['path'] == path and offset + len(old) <= origin['start']:
-                                    origin['start'] += len(new) - len(old)
-                            changed[path] = changed[path].replace(old, new, 1)
-                        else: raise ValueError('Unknown frozen mutation')
-                        require(hashlib.sha256(changed[path]).hexdigest() == operation['after_sha256'] and len(changed[path]) == operation['after_bytes'], 'Mutation result digest differs')
+                    changed = framework_mutation(original, mutation, origins, odoo=framework == 'odoo')
                     mutated_context = json.loads(json.dumps(context))
                     for name in ('consumer', 'dependency'): mutated_context[name]['revision'] = mutation['result_inventory_sha256']
+                    if framework == 'odoo': mutated_context = odoo_framework_context(manifest, source_kind, changed)
                     with ExitStack() as held_context:
                         held = {}
                         request = {'operation': 'framework', 'limits': {'max_edges': 1}}
@@ -3201,6 +3503,11 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
                                         'pages': pages, 'fresh_session_rejected_prior_cursor': True}
                                 finally: queries.close()
                             check(mode + ':' + mutation['id'] + ':held-generation-continuation', continuation)
+                            if framework == 'odoo':
+                                grade_cases(updated, source_kind, mode + ':' + mutation['id'],
+                                    odoo_mutation_cases(manifest, original, changed, mutation))
+                                check(mode + ':' + mutation['id'] + ':postimage-controls', lambda: odoo_mutation_control(updated, original, changed, mutation))
+                                continue
                             judgments = {key: value for key, value in mutation['expected'].items() if key.startswith('DJ-')}
                             for group in ('listed_cases', 'facade_cases'):
                                 if group in mutation['expected']:
@@ -3233,17 +3540,33 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
                     for mode in ('serial', 'queued'):
                         _, restored = produce(source, scratch / (source_kind + '-' + mode), original, context, mode)
                         check(mode + ':' + mutation['id'] + ':restore-parity', lambda: require(restored == mode_facts[mode], 'Restored source facts/dependencies/captured slices differ'))
+                        if framework == 'odoo': grade_cases(restored, source_kind, mode + ':' + mutation['id'] + ':restored')
     with SourceRoot(source_map.parent) as owner:
         require(read_json(owner, source_map.name)[1] == map_sha, 'Private source map changed during finite evaluation')
     with SourceRoot(root) as owner:
         after = {path: owner.read(path, 1024 * 1024, hash_full=True)[1] for path in code_paths}
     check('implementation-stable', lambda: require(after == implementation, 'Implementation changed during finite evaluation'))
+    metrics = {}
+    if framework == 'odoo':
+        for mode in ('serial', 'queued'):
+            metrics[mode] = {}
+            for family, frozen in manifest['precision_recall'].items():
+                selected = [row for row in checks if row.get('metric_family') == family and row['id'] == mode + ':' + row['frozen_case_id']]
+                tp = sum(row['true_positive'] for row in selected); predicted = sum(row['actual_targets'] for row in selected)
+                gold = sum(row['expected_targets'] for row in selected)
+                metrics[mode][family] = dict(cases=len(selected), frozen_cases=len(frozen['case_ids']),
+                    expected_pairs=gold, frozen_pairs=len(frozen['source_target_pairs']), emitted_pairs=predicted,
+                    true_positive=tp, false_positive=predicted - tp, false_negative=gold - tp,
+                    precision=tp / predicted if predicted else None, recall=tp / gold if gold else None,
+                    runtime_callable_targets=[], scope='This framework/family/mode frozen physical pairs only')
+                check(mode + ':' + family + ':frozen-denominator', lambda selected=selected, frozen=frozen, gold=gold:
+                    require(len(selected) == len(frozen['case_ids']) and gold == len(frozen['source_target_pairs']), 'Frozen family denominator differs'))
     failures = [row for row in checks if row['status'] != 'passed']
-    return dict(schema_version=1, suite='django-framework', status='failed' if failures else 'passed',
+    return dict(schema_version=1, suite=suite, status='failed' if failures else 'passed',
         source_identity=identity, source_map_sha256=map_sha, case_results=checks, failures=failures, coverage_failures=[],
         counts=dict(frozen_cases=len(manifest['cases']), mutation_phases=len(manifest['incremental_mutations']),
                     checks=len(checks), passed=len(checks) - len(failures)), receipts=receipts, query_traces=query_traces, environment=environment(),
-        qualification_complete=False, limits_qualified=False, scope='Finite opt-in Django source registrations and explicit unknown boundaries; '
+        qualification_complete=False, limits_qualified=False, **({'per_family_metrics': metrics, 'private_evidence_id': evidence_id} if framework == 'odoo' else {}), scope='Finite opt-in ' + display + ' source registrations and explicit unknown boundaries; '
         'shared serial/queued facts, clean/update/restore and captured source/query parity. Runtime order, full business paths, scale and human UX unqualified.')
 
 
@@ -3883,7 +4206,7 @@ def main(argv=None):
                         help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
-    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact', 'impact-interface', 'django-framework', 'contracts', 'contract-impact'], default='component')
+    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact', 'impact-interface', 'django-framework', 'odoo-framework', 'contracts', 'contract-impact'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
                         help='finite report cap: 2 MiB for comparison/structural suites, 1 MiB otherwise')
@@ -3898,7 +4221,7 @@ def main(argv=None):
         parser.error('--repetition beyond one requires --protocol')
     structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012', 'coverage': 'T013', 'evidence': 'T014'}.get(args.suite)
     view_task = {'impact': 'T043', 'impact-interface': 'T044'}.get(args.suite)
-    business_task = {'django-framework':'T018','contracts':'T020','contract-impact':'T069'}.get(args.suite)
+    business_task = {'django-framework':'T018','odoo-framework':'T019','contracts':'T020','contract-impact':'T069'}.get(args.suite)
     if not (args.engine or args.screen_engines or args.compare or args.profile or args.profile_pilot) and structural_task is None and view_task is None and business_task is None:
         parser.error('an engine, screening, comparison or profiling mode is required for component')
     if (structural_task or view_task or business_task) and (args.screen_engines or args.compare or args.profile or args.profile_pilot):
@@ -3941,7 +4264,7 @@ def main(argv=None):
         if business_task:
             result = (contract_impact(ROOT,Budget(max_files=args.max_files,max_total_bytes=args.max_source_bytes,max_nodes=args.max_nodes))
                 if args.suite=='contract-impact' else contracts(ROOT,Budget(max_files=args.max_files,max_total_bytes=args.max_source_bytes,max_nodes=args.max_nodes))
-                if args.suite=='contracts' else django_framework(ROOT, Budget(max_files=args.max_files,
+                if args.suite=='contracts' else (odoo_framework if args.suite == 'odoo-framework' else django_framework)(ROOT, Budget(max_files=args.max_files,
                 max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes), source_map=args.source_map, work_root=args.work_root))
             result['resources'] = {'finite_framework_elapsed_seconds': time.perf_counter() - started,
                                    'tokens': None, 'native_peak_rss': None}
