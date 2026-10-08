@@ -66,6 +66,7 @@ runpy.run_path(str(script), run_name='__main__')
                     self.assertEqual(result.returncode, 1, result.stderr)
                     observation = json.loads(result.stdout)
                     self.assertEqual((observation['status'], observation['stopped_phase']), ('blocked', 'inputs'))
+                    self.assertEqual(observation['source_identity'], {})
                     self.assertEqual(report.read_bytes(), b'preserved evidence')
 
     def test_impact_cli_selectors_filters_and_producer_git_base_forwarding(self):

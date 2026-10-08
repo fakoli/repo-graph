@@ -3362,7 +3362,196 @@
         "status": "passed",
         "producer_import_trap": true,
         "refused_report_preserved": true
-      }
+      },
+      "prior_failed_attempts": [
+        {
+          "command": "uv run python evaluations/acceptance.py --gate task-preflight --task T047 --checks ranking-boundary",
+          "command_receipt_sha256": "9939476165632314c81b49bc6cf78d56b93210c964a29940cd5e246e20fa7549",
+          "diagnosis_sha256": "6892a1098ca1f20ebf248abb1347c8e57596ab72652b3da07217344d5bc41aa8",
+          "elapsed_seconds": 0.31499204703141004,
+          "ended_at": "2026-10-08T00:38:02.958130+00:00",
+          "exit_code": 1,
+          "label": "run-1_evaluator_output_directory_setup",
+          "result": {
+            "case_results": [
+              {
+                "detail": "Six exact input Git blobs admitted before extraction",
+                "id": "committed_reviewed_inputs",
+                "status": "passed"
+              },
+              {
+                "detail": "Uncommitted inputs, changed source and malformed review refused",
+                "id": "input_refusal_before_extraction",
+                "status": "passed"
+              },
+              {
+                "detail": "Input, capture or query boundary failed; no retry or source-key retuning",
+                "id": "observation_available",
+                "status": "failed"
+              }
+            ],
+            "checks": "ranking-boundary",
+            "error_kind": "FileNotFoundError",
+            "gate": "task-preflight",
+            "human_evaluation": false,
+            "input_refusal_controls": [
+              {
+                "expected_status": "blocked",
+                "id": "uncommitted_inputs",
+                "observation": {
+                  "case_results": [
+                    {
+                      "detail": "Input, capture or query boundary failed; no retry or source-key retuning",
+                      "id": "observation_available",
+                      "status": "failed"
+                    }
+                  ],
+                  "checks": "ranking-boundary",
+                  "error_kind": "ValueError",
+                  "gate": "task-preflight",
+                  "human_evaluation": false,
+                  "model_quality_measured": false,
+                  "qualification_complete": false,
+                  "questions": [],
+                  "resources": {
+                    "benchmark_peak_rss_bytes": null,
+                    "child_process_cpu_seconds": null,
+                    "elapsed_seconds": 0.002514649007935077,
+                    "model_tokens": null,
+                    "process_cpu_seconds": 0.0015135159999999925,
+                    "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+                  },
+                  "schema_version": 1,
+                  "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+                  "source_identity": {},
+                  "status": "blocked",
+                  "stopped_phase": "inputs",
+                  "task": "T047",
+                  "task_accepted": false,
+                  "token_savings_measured": false
+                }
+              },
+              {
+                "expected_status": "blocked",
+                "id": "changed_source",
+                "observation": {
+                  "case_results": [
+                    {
+                      "detail": "Input, capture or query boundary failed; no retry or source-key retuning",
+                      "id": "observation_available",
+                      "status": "failed"
+                    }
+                  ],
+                  "checks": "ranking-boundary",
+                  "error_kind": "ValueError",
+                  "gate": "task-preflight",
+                  "human_evaluation": false,
+                  "model_quality_measured": false,
+                  "qualification_complete": false,
+                  "questions": [],
+                  "resources": {
+                    "benchmark_peak_rss_bytes": null,
+                    "child_process_cpu_seconds": null,
+                    "elapsed_seconds": 0.0014753899886272848,
+                    "model_tokens": null,
+                    "process_cpu_seconds": 0.0014761870000000038,
+                    "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+                  },
+                  "schema_version": 1,
+                  "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+                  "source_identity": {},
+                  "status": "blocked",
+                  "stopped_phase": "inputs",
+                  "task": "T047",
+                  "task_accepted": false,
+                  "token_savings_measured": false
+                }
+              },
+              {
+                "expected_status": "blocked",
+                "id": "malformed_review",
+                "observation": {
+                  "case_results": [
+                    {
+                      "detail": "Input, capture or query boundary failed; no retry or source-key retuning",
+                      "id": "observation_available",
+                      "status": "failed"
+                    }
+                  ],
+                  "checks": "ranking-boundary",
+                  "error_kind": "JSONDecodeError",
+                  "gate": "task-preflight",
+                  "human_evaluation": false,
+                  "model_quality_measured": false,
+                  "qualification_complete": false,
+                  "questions": [],
+                  "resources": {
+                    "benchmark_peak_rss_bytes": null,
+                    "child_process_cpu_seconds": null,
+                    "elapsed_seconds": 0.0005905599682591856,
+                    "model_tokens": null,
+                    "process_cpu_seconds": 0.000590927000000005,
+                    "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+                  },
+                  "schema_version": 1,
+                  "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+                  "source_identity": {},
+                  "status": "blocked",
+                  "stopped_phase": "inputs",
+                  "task": "T047",
+                  "task_accepted": false,
+                  "token_savings_measured": false
+                }
+              }
+            ],
+            "model_quality_measured": false,
+            "qualification_complete": false,
+            "questions": [],
+            "resources": {
+              "benchmark_peak_rss_bytes": null,
+              "child_process_cpu_seconds": null,
+              "elapsed_seconds": 0.16259447700576857,
+              "model_tokens": null,
+              "process_cpu_seconds": 0.143773496,
+              "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+            },
+            "schema_version": 1,
+            "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+            "source_identity": {
+              "implementation": {
+                "sha256": {
+                  "evaluations/acceptance.py": "da5cc7c4260aefa8201d005a13298f1b46a1d76d34b18c4854412e65b83f7319",
+                  "pyproject.toml": "5c11057fc766142b82a7d975262c033b43ddaddd441fa4c1d93edf99778950e0",
+                  "repo_graph/analysis.py": "26d216c9c9e4b9c9bbebab1b4369a768dca1a3bbbcea8ccc82a7341f2a451173",
+                  "repo_graph/analysis_native.py": "a1a7696dea5e8f19ccd43622ce5b04403066b81cbf78162f5f011a52078ec70d",
+                  "repo_graph/analysis_queue.py": "ca4d74ec173a782cd8cc75bc48dbc7f322f48ac596b762c1c44f3beeda16afca",
+                  "repo_graph/jev.py": "a8f27d62c381948ab248ee477cc3e353b8af240f8daf67c63947025849857243",
+                  "repo_graph/rerank.py": "1c682aae730fc860da8fd95b14eea6fa6c37caaf815e57e254d987a76a4e57cf",
+                  "repo_graph/search.py": "e2955152ae0495c305e33d2bc7247ce054a145d966ccc77d4d080e6ef97e51f9",
+                  "repo_graph/source.py": "b4459e73a611d5fd807d84789f2f4d438e2bf78a756093626a0f227e465a4dbc",
+                  "uv.lock": "2070aae111fd848c56247bc0ccf82060f3e24164f0700855f05b0225e59cb7d4"
+                }
+              },
+              "inputs": {
+                "evaluations/code-understanding/function-relevance-inputs.json": "bd2291fd403411a276e268564145844f0be4bc68b0632597784dc8cba9befe00",
+                "evaluations/code-understanding/function-relevance-review.json": "d4cc1bb4b7400e4f3f7620b43ffb633462796a82481a8f71838286a81eac1e68",
+                "tests/fixtures/code-understanding/retrieval/go.go": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b",
+                "tests/fixtures/code-understanding/retrieval/javascript.js": "8c23afc39757e66f8679ac473dca7b5ec792df7f90dce5ae3978c072038740f0",
+                "tests/fixtures/code-understanding/retrieval/python.py": "6ad715939587fd255cb9e6f5eeb491f95e09ce7fc01dfdb328a3d9b584becfcd",
+                "tests/fixtures/code-understanding/retrieval/typescript.ts": "af6e4caf3690f296f722f99f1d7afc61a0822b10043357f46cebdfbf6a8aee89"
+              },
+              "review_receipt_sha256": "388dcdc6616954d221d7a5deabaa8e34e57011980b9049f287fcc7a6b951c6d6"
+            },
+            "status": "blocked",
+            "stopped_phase": "capture",
+            "task": "T047",
+            "task_accepted": false,
+            "token_savings_measured": false
+          },
+          "started_at": "2026-10-08T00:38:02.643149+00:00",
+          "stdout_sha256": "f8216d2a13803a0f361ef345348c9c0242ae0e8e36f21309c54b52387ae3cbcb"
+        }
+      ]
     }
   }
 }

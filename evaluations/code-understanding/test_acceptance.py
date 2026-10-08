@@ -266,14 +266,17 @@ class FreezeInputs(unittest.TestCase):
         wanted = {'first': gate.digest(b'a-first'), 'second': gate.digest(b'b-second')}
         def git(args, **kwargs):
             if args[1] == 'rev-parse':
-                return SimpleNamespace(returncode=0, stdout=revision + '\n')
+                value = str(self.root) if args[-1] == '--show-toplevel' else revision
+                return SimpleNamespace(returncode=0, stdout=value + '\n')
             commit, path = args[-1].split(':')
             # HEAD moves between show calls; this mixed input exists in no single commit.
             data = (b'a-first' if path == 'first' else b'b-second') if commit == 'HEAD' else (
                 b'a-first' if path == 'first' else b'a-second')
             return SimpleNamespace(returncode=0, stdout=data)
-        with patch.object(gate.subprocess, 'run', side_effect=git):
+        with patch.object(gate.subprocess, 'run', side_effect=git) as calls:
             self.assertFalse(gate.committed(self.root, wanted))
+            self.assertEqual([call.args[0] for call in calls.call_args_list if call.args[0][1] == 'show'],
+                             [['git', 'show', revision + ':first'], ['git', 'show', revision + ':second']])
 
     def experiment(self, kind, cases=None):
         for path in ('evaluations/analysis.py', 'evaluations/acceptance.py'):
