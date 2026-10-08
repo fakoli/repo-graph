@@ -118,6 +118,43 @@ class AdapterEvidence(unittest.TestCase):
 
 
 class FreezeInputs(unittest.TestCase):
+    def test_ranking_aggregate_preserves_children_and_refuses_failed_foreign_or_skipped_evidence(self):
+        admitted = gate._ranking_inputs(gate.ROOT)
+        original = json.loads((gate.ROOT / 'evaluations/results/code-understanding/business.json').read_text())
+        stdout = b''
+        stderr = ''.join(f'{name} (tests.test_rerank.RerankTests.{name}) ... ok\n'
+                         for name in gate._RANKING_CASES).encode()
+        for mutation in ('none', 'failed_child', 'foreign_input', 'missing_question', 'optional_build', 'skipped', 'failed_current'):
+            report = copy.deepcopy(original)
+            fresh = copy.deepcopy(original['tasks']['T047'])
+            observed = SimpleNamespace(returncode=0, stdout=stdout, stderr=stderr)
+            if mutation == 'failed_child': report['tasks']['T046']['case_results'][0]['status'] = 'failed'
+            if mutation == 'foreign_input': report['tasks']['T047']['source_identity']['inputs'] = {}
+            if mutation == 'missing_question': report['tasks']['T047']['questions'].pop()
+            if mutation == 'optional_build': report['tasks']['T047']['optional_decisions'][0]['decision'] = 'build automatically'
+            if mutation == 'skipped': observed.stderr = stderr.replace(b'... ok', b'... skipped', 1)
+            if mutation == 'failed_current': fresh['status'] = 'blocked'
+            before = copy.deepcopy(report)
+            with self.subTest(mutation=mutation), patch.object(gate, '_ranking_inputs', return_value=admitted), \
+                    patch.object(gate, 'read_json', return_value=(report, '0' * 64)), \
+                    patch.object(gate, 'committed', return_value=True), \
+                    patch.object(gate.subprocess, 'run', return_value=observed) as runner, \
+                    patch.object(gate, 'ranking_boundary', return_value=fresh) as comparison:
+                result = gate.ranking_gate()
+                self.assertEqual(result['status'], 'passed' if mutation == 'none' else 'blocked')
+                self.assertFalse(result['task_accepted']); self.assertFalse(result['model_quality_measured'])
+                self.assertFalse(result['human_evaluation']); self.assertFalse(result['token_savings_measured'])
+                self.assertEqual(report, before)
+                if mutation in ('failed_child', 'foreign_input', 'missing_question', 'optional_build'):
+                    runner.assert_not_called(); comparison.assert_not_called()
+                elif mutation == 'skipped':
+                    comparison.assert_not_called()
+                else:
+                    comparison.assert_called_once()
+                if mutation == 'none':
+                    self.assertEqual(result['retained_aggregate'], before['tasks']['T047']['aggregate'])
+                    self.assertEqual(result['optional_decisions'], before['tasks']['T047']['optional_decisions'])
+
     def test_ranking_report_retains_failed_attempts_after_repeated_success(self):
         with tempfile.TemporaryDirectory() as scratch:
             root = Path(scratch)

@@ -2434,27 +2434,133 @@ def ranking_boundary(root=None):
     return result
 
 
-def _record_ranking_boundary(root, result):
+_RANKING_CASES = (
+    'test_api_contract_limits_and_redirect_protection',
+    'test_bad_judgments_preserve_default_order_and_do_not_cache',
+    'test_batched_export_validation_cache_and_invalidation',
+    'test_function_corrupt_rankings_and_cache_preserve_targets_provenance_and_identity',
+    'test_function_rankings_export_bounded_captured_evidence_without_mutating_facts',
+    'test_loopback_jev_requires_explicit_startup_permission',
+    'test_slow_judgment_keeps_status_and_keywords_responsive_and_bounds_inference')
+
+
+def ranking_gate(root=None):
+    """Retain accepted child observations and verify the affected current boundary."""
+    root = Path(root or ROOT)
+    checks, identity = [], None
+    result = {'schema_version': 1, 'task': 'T022', 'gate': 'ranking-boundary',
+        'status': 'blocked', 'source_identity': identity, 'case_results': checks,
+        'qualification_complete': False, 'task_accepted': False, 'human_evaluation': False,
+        'model_quality_measured': False, 'token_savings_measured': False,
+        'scope': 'Synthetic opt-in ranking and four-file native relevance only. '
+                 'Child acceptance is owned by Anvil; actual model, scale, agent and human quality remain unmeasured.'}
+    def check(name, condition, detail):
+        checks.append({'id': name, 'status': 'passed' if condition else 'failed', 'detail': detail})
+    try:
+        manifest, _, _, frozen = _ranking_inputs(root)
+        with SourceRoot(root) as source:
+            business, _ = read_json(source, 'evaluations/results/code-understanding/business.json', 2 * 1024 * 1024)
+        expected = ['committed_reviewed_inputs', 'input_refusal_before_extraction',
+            'captured_foundation_ready', 'shared_repository_affinity', 'physical_definition_inventory']
+        expected += ['physical_source:' + row['label'] for row in manifest['functions']]
+        expected += ['file_content_affinity']
+        for row in manifest['questions']:
+            expected += [row['id'] + ':' + suffix for suffix in ('files:source_affinity',
+                'functions:source_affinity', 'snapshot', 'deadline', 'measured')]
+            if row.get('exact_identifier'):
+                expected.append(row['id'] + ':exact_identifier')
+        expected += ['captured_snapshot_unchanged', 'zero_inference', 'implementation_stable', 'inputs_stable']
+        bindings = {}
+        for task, names in (('T046', ['test_rerank.RerankTests.' + name for name in _RANKING_CASES]),
+                            ('T047', expected)):
+            child = business['tasks'][task]; rows = child['case_results']
+            bindings[task] = digest(canonical(child))
+            check(task + ':cases', child['status'] == 'passed' and len(rows) == len(names)
+                and {row['id'] for row in rows} == set(names)
+                and all(row['status'] == 'passed' for row in rows), 'All registered historical observations retained')
+            check(task + ':scope', child['qualification_complete'] is False,
+                'Functional child observations do not qualify model, agent, human or scale performance')
+        retained = business['tasks']['T047']
+        check('frozen_relevance', retained['source_identity']['inputs'] == frozen,
+            'Relevance key and original source bytes remain frozen before comparison')
+        check('retained_misses_and_decisions', len(retained['questions']) == len(manifest['questions'])
+            and {row['id'] for row in retained['questions']} == {row['id'] for row in manifest['questions']}
+            and bool(retained['optional_decisions']) and all(
+                row['decision'] in ('defer implementation', 'not admitted for this freeze')
+                for row in retained['optional_decisions']), 'Original misses and optional alternatives remain evidence, not automatic builds')
+        if any(row['status'] != 'passed' for row in checks):
+            raise ValueError('Historical ranking evidence differs')
+        paths = ('evaluations/acceptance.py', 'repo_graph/search.py', 'repo_graph/rerank.py',
+            'repo_graph/jev.py', 'repo_graph/source.py', 'repo_graph/analysis.py',
+            'repo_graph/analysis_native.py', 'repo_graph/analysis_queue.py',
+            'repo_graph/analysis_queries.py', 'repo_graph/server.py', 'tests/test_rerank.py',
+            'tests/test_analysis.py', 'pyproject.toml', 'uv.lock')
+        with SourceRoot(root) as source:
+            current = {path: source.read(path, 1024 * 1024, hash_full=True)[1] for path in paths}
+        if not committed(root, current):
+            raise ValueError('Current ranking implementation is uncommitted')
+        # Existing seven synthetic checks mock Jev and stub the local encoder;
+        # repeat these small affected boundaries, never a paid model comparison.
+        command = [sys.executable, '-B', '-m', 'unittest', 'tests.test_rerank', '-v']
+        started = time.perf_counter()
+        observed = subprocess.run(command, cwd=root, capture_output=True, timeout=30)
+        output = observed.stderr.decode('utf-8', errors='replace')
+        result['current_ranking_checks'] = {'command': command[2:], 'exit_code': observed.returncode,
+            'elapsed_seconds': time.perf_counter() - started,
+            'stdout_sha256': digest(observed.stdout), 'stderr_sha256': digest(observed.stderr),
+            'stdout_bytes': len(observed.stdout), 'stderr_bytes': len(observed.stderr),
+            'model_tokens': None, 'api_network_calls': 0, 'jev': 'mocked', 'local_encoder': 'stubbed'}
+        check('current_ranking_checks', observed.returncode == 0 and len(observed.stdout) <= 65536
+            and len(observed.stderr) <= 65536 and all(
+                f'{name} (tests.test_rerank.RerankTests.{name}) ... ok' in output for name in _RANKING_CASES)
+            and len(re.findall(r'\.\.\. ok$', output, re.M)) == len(_RANKING_CASES),
+            'Every current corruption, injection, fallback, cache and opt-in check ran without skips')
+        if checks[-1]['status'] != 'passed':
+            raise ValueError('Current ranking checks failed')
+        fresh = ranking_boundary(root)
+        result['current_relevance'] = fresh
+        check('current_relevance', fresh['status'] == 'passed'
+            and fresh['source_identity']['inputs'] == frozen
+            and fresh.get('human_evaluation') is False and fresh.get('model_quality_measured') is False
+            and fresh.get('token_savings_measured') is False,
+            'Fresh small native comparison retains actual numerators, denominators and candidate misses')
+        with SourceRoot(root) as source:
+            stable = all(source.read(path, 1024 * 1024, hash_full=True)[1] == sha for path, sha in current.items())
+        check('implementation_stable', stable and committed(root, current), 'Current checks and aggregate use unchanged committed bytes')
+        identity = {'inputs': frozen, 'implementation': {'sha256': current}, 'child_sha256': bindings}
+        result['retained_aggregate'] = retained['aggregate']
+        result['optional_decisions'] = retained['optional_decisions']
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError, subprocess.TimeoutExpired) as error:
+        check('ranking_evidence_available', False, 'Missing, failed, foreign, stale or timed-out ranking evidence')
+        result['error_kind'] = type(error).__name__
+    result['source_identity'] = identity
+    result['status'] = 'passed' if checks and all(row['status'] == 'passed' for row in checks) else 'blocked'
+    return result
+
+
+def _record_ranking_boundary(root, result, task='T047'):
     from evaluations.analysis import write_result
     path = 'evaluations/results/code-understanding/business.json'
     with SourceRoot(root) as source:
         existing, _ = read_json(source, path, 2 * 1024 * 1024)
     if type(existing) is not dict or type(existing.get('tasks')) is not dict:
         raise ValueError('Existing business evidence required')
-    previous = existing['tasks'].get('T047', {})
+    if task not in ('T022', 'T047'):
+        raise ValueError('Unknown ranking task')
+    previous = existing['tasks'].get(task, {})
     for key in ('prior_failed_attempt', 'prior_failed_attempts', 'prior_passed_attempt'):
         if key in previous:
             result.setdefault(key, previous[key])
     if previous.get('status') not in (None, 'passed'):
         failure = {key: value for key, value in previous.items() if not key.startswith('prior_')}
         result['prior_failed_attempts'] = [*result.get('prior_failed_attempts', []), failure]
-    existing['tasks']['T047'] = result
+    existing['tasks'][task] = result
     write_result(root, path, existing, 2 * 1024 * 1024)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--gate', choices=['freeze', 'engine', 'acceleration', 'impact', 'task-preflight'], default='freeze')
+    parser.add_argument('--gate', choices=['freeze', 'engine', 'acceleration', 'impact', 'ranking-boundary', 'task-preflight'], default='freeze')
     parser.add_argument('--task', choices=['T047'])
     parser.add_argument('--checks', choices=['ranking-boundary'])
     parser.add_argument('--evidence-root', type=Path, help='Existing private archived-worker root; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
@@ -2481,8 +2587,10 @@ def main(argv=None):
             parser.error('Source-freeze options apply only to --gate freeze')
         if args.gate != 'engine' and (args.evidence_root or args.source_map):
             parser.error('Private adapter evidence options apply only to --gate engine')
-        report = (impact_gate() if args.gate == 'impact' else
+        report = (ranking_gate() if args.gate == 'ranking-boundary' else impact_gate() if args.gate == 'impact' else
                   experiment_gate(args.gate, evidence_root=args.evidence_root, source_map=args.source_map))
+        if args.gate == 'ranking-boundary':
+            _record_ranking_boundary(ROOT, report, 'T022')
         if args.report:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             with SourceRoot(args.report.parent) as source:
