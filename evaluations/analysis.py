@@ -449,7 +449,7 @@ def constructs(root=ROOT, budget=None):
 
 def evidence(root=ROOT, budget=None, evidence_directory=None):
     """Grade frozen function questions against the actual shared persisted projection."""
-    from contextlib import closing, redirect_stdout
+    from contextlib import ExitStack, closing, redirect_stdout
     from dataclasses import replace
     import io
     import traceback
@@ -3049,7 +3049,7 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
             if sha != record['sha256'] or len(raw) != record['bytes'] or len(raw) != info.st_size:
                 raise ValueError('Pinned Django source bytes differ')
             real[record['path']] = raw
-    checks, receipts = [], []
+    checks, receipts, query_traces = [], [], []
     def require(value, message):
         if not value: raise AssertionError(message)
     def check(identifier, action, observed=None):
@@ -3076,12 +3076,29 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
                     slices.append({key: result[key] for key in ('handle', 'text', 'range', 'raw_digest', 'truncated', 'redacted', 'certainty')})
             facts['source_slices'] = sorted(slices, key=lambda row: json.dumps(row, sort_keys=True))
         finally: engine.close()
+    def query_rows(queries, request, page=None):
+        page = queries.run(request) if page is None else page
+        rows, pages = [], []
+        for _ in range(128):
+            rows.extend(page['rows'])
+            pages.append({key: page[key] for key in ('generation', 'returned_edges', 'examined_relationships',
+                'total_count', 'truncated', 'stop_reason', 'coverage')})
+            if not page['cursor']: break
+            page = queries.run(request | {'cursor': page['cursor']})
+        require(not page['truncated'] and page['stop_reason'] is None, 'Framework query did not exhaust under its finite bounds')
+        return sorted(rows, key=lambda row: json.dumps(row, sort_keys=True)), pages
     def produce(source, output, blobs, context, mode):
         index = StructuralIndex(source, output, budget=budget, framework_context=context)
         receipt = index.refresh(sorted(blobs), mode=mode, concurrency=1 if mode == 'serial' else 2)
         receipts.append({'mode': mode, 'status': receipt['status'], 'coverage': receipt.get('coverage'), 'resources': receipt['resources']})
         require(receipt['status'] == 'ready', 'Shared index did not publish a coherent generation')
         facts = normalized(index); inspect(index, receipt, facts)
+        with Queries(index.output) as queries:
+            rows, pages = query_rows(queries, {'operation': 'framework'})
+        facts['framework_query_rows'] = rows
+        query_traces.append({'mode': mode, 'generation': receipt['generation'], 'source_identity': receipt['source_identity'],
+            'row_count': len(rows), 'rows_sha256': hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest(),
+            'pages': pages})
         return index, facts
     def grade_cases(facts, source_kind, mode):
         definitions = {row['id']: row for row in facts['definitions']}
@@ -3129,14 +3146,8 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
                     index, facts = produce(source, scratch / (source_kind + '-' + mode), blobs, context, mode)
                     mode_facts[mode] = facts
                     grade_cases(facts, source_kind, mode)
-                    with Queries(index.output) as queries:
-                        rows, page = [], queries.run({'operation': 'framework'})
-                        for _ in range(128):
-                            rows.extend(page['rows'])
-                            if not page['cursor']: break
-                            page = queries.run({'operation': 'framework', 'cursor': page['cursor']})
-                        check(mode + ':' + source_kind + ':query-membership', lambda: require(not page['truncated'] and
-                            {row['site']['id'] for row in rows} == {row['id'] for row in facts['sites'] if row['role'].startswith('framework')}, 'Framework pagination lost/added occurrences'))
+                    check(mode + ':' + source_kind + ':query-membership', lambda: require(
+                        {row['site']['id'] for row in facts['framework_query_rows']} == {row['id'] for row in facts['sites'] if row['role'].startswith('framework')}, 'Framework pagination lost/added occurrences'))
                 check(source_kind + ':mode-parity', lambda: require(mode_facts['serial'] == mode_facts['queued'], 'Serial/queued shared facts or source evidence differ'))
                 if source_kind != 'synthetic': continue
                 for number, mutation in enumerate(manifest['incremental_mutations']):
@@ -3161,40 +3172,63 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
                         require(hashlib.sha256(changed[path]).hexdigest() == operation['after_sha256'] and len(changed[path]) == operation['after_bytes'], 'Mutation result digest differs')
                     mutated_context = json.loads(json.dumps(context))
                     for name in ('consumer', 'dependency'): mutated_context[name]['revision'] = mutation['result_inventory_sha256']
-                    _adapter_materialize(source, changed, removed=set(original) - set(changed))
-                    for mode in ('serial', 'queued'):
-                        output = scratch / (source_kind + '-' + mode)
-                        updated_index, updated = produce(source, output, changed, mutated_context, mode)
-                        _, clean = produce(source, scratch / f'clean-{number}-{mode}', changed, mutated_context, mode)
-                        check(mode + ':' + mutation['id'] + ':clean-parity', lambda: require(updated == clean, 'Incremental facts/dependencies/captured slices differ from clean rebuild'))
-                        judgments = {key: value for key, value in mutation['expected'].items() if key.startswith('DJ-')}
-                        for group in ('listed_cases', 'facade_cases'):
-                            if group in mutation['expected']:
-                                for case_id in mutation['affected_cases']:
-                                    if case_id not in judgments: judgments[case_id] = mutation['expected'][group]
-                        if mutation['expected'].get('all_framework_judgments') == 'unchanged':
-                            check(mode + ':' + mutation['id'] + ':unchanged-judgments', lambda: require(
-                                updated['sites'] == mode_facts[mode]['sites'], 'Configuration changed framework or lexical judgments'))
-                        if 'source_parses_for_unchanged_files' in mutation['expected']:
-                            check(mode + ':' + mutation['id'] + ':unchanged-collections', lambda: require(
-                                updated_index.last_attempt['resources']['changed_files_collected'] == 0, 'Configuration update recollected unchanged source'))
-                        for case_id, expected in judgments.items():
-                            def grade_mutation(case_id=case_id, expected=expected):
-                                baseline = next(case for case in manifest['cases'] if case['id'] == case_id)
-                                origin = origins[case_id]
-                                rows = [row for row in updated['sites'] if row['role'].startswith('framework') and row['path'] == origin['path']
-                                        and row['range']['start_byte'] == origin['start']]
-                                require(len(rows) == 1 and rows[0]['certainty'] == expected['certainty'] and len(rows[0]['targets']) == expected['target_cardinality'], 'Mutation certainty/target count differs')
-                                if 'required_row_family' in expected: require(rows[0]['family'] == expected['required_row_family'], 'Mutation row family differs')
-                                if 'reason_code' in expected: require(rows[0]['reason'] == expected['reason_code'], 'Mutation boundary reason differs')
-                                if expected.get('partial'):
-                                    require(rows[0]['partial'] and rows[0]['partial_source_role'] == expected['partial_source_role'], 'Partial callback boundary provenance missing')
-                                if expected['target_cardinality']:
-                                    target = next(row for row in updated['definitions'] if row['id'] == rows[0]['targets'][0])
-                                    before = baseline['expected']['targets']
-                                    require(target['path'] == expected.get('target_path', before[0]['path'] if before else None) and
-                                        target['name'] == expected.get('target_name', before[0]['name'] if before else None), 'Mutation target declaration differs')
-                            check(mode + ':' + mutation['id'] + ':' + case_id, grade_mutation)
+                    with ExitStack() as held_context:
+                        held = {}
+                        request = {'operation': 'framework', 'limits': {'max_edges': 1}}
+                        for mode in ('serial', 'queued'):
+                            queries = held_context.enter_context(Queries(scratch / (source_kind + '-' + mode)))
+                            held[mode] = queries, queries.run(request)
+                        _adapter_materialize(source, changed, removed=set(original) - set(changed))
+                        for mode in ('serial', 'queued'):
+                            output = scratch / (source_kind + '-' + mode)
+                            updated_index, updated = produce(source, output, changed, mutated_context, mode)
+                            _, clean = produce(source, scratch / f'clean-{number}-{mode}', changed, mutated_context, mode)
+                            check(mode + ':' + mutation['id'] + ':clean-parity', lambda: require(updated == clean, 'Incremental facts/dependencies/captured slices differ from clean rebuild'))
+                            def continuation(mode=mode):
+                                queries, first = held[mode]
+                                try:
+                                    require(first['cursor'] is not None, 'Named mutation did not exercise a continuation')
+                                    with Queries(output) as fresh:
+                                        try: fresh.run(request | {'cursor': first['cursor']})
+                                        except ValueError: pass
+                                        else: raise AssertionError('Fresh session accepted a prior snapshot cursor')
+                                    rows, pages = query_rows(queries, request, first)
+                                    require(rows == mode_facts[mode]['framework_query_rows'], 'Held snapshot rows changed after refresh')
+                                    require(all(page['generation'] == first['generation'] for page in pages) and
+                                        first['generation'] != updated_index.last_attempt['generation'], 'Held/fresh generation identity differs incorrectly')
+                                    return {'held_generation': first['generation'], 'fresh_generation': updated_index.last_attempt['generation'],
+                                        'held_row_count': len(rows), 'held_rows_sha256': hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest(),
+                                        'pages': pages, 'fresh_session_rejected_prior_cursor': True}
+                                finally: queries.close()
+                            check(mode + ':' + mutation['id'] + ':held-generation-continuation', continuation)
+                            judgments = {key: value for key, value in mutation['expected'].items() if key.startswith('DJ-')}
+                            for group in ('listed_cases', 'facade_cases'):
+                                if group in mutation['expected']:
+                                    for case_id in mutation['affected_cases']:
+                                        if case_id not in judgments: judgments[case_id] = mutation['expected'][group]
+                            if mutation['expected'].get('all_framework_judgments') == 'unchanged':
+                                check(mode + ':' + mutation['id'] + ':unchanged-judgments', lambda: require(
+                                    updated['sites'] == mode_facts[mode]['sites'], 'Configuration changed framework or lexical judgments'))
+                            if 'source_parses_for_unchanged_files' in mutation['expected']:
+                                check(mode + ':' + mutation['id'] + ':unchanged-collections', lambda: require(
+                                    updated_index.last_attempt['resources']['changed_files_collected'] == 0, 'Configuration update recollected unchanged source'))
+                            for case_id, expected in judgments.items():
+                                def grade_mutation(case_id=case_id, expected=expected):
+                                    baseline = next(case for case in manifest['cases'] if case['id'] == case_id)
+                                    origin = origins[case_id]
+                                    rows = [row for row in updated['sites'] if row['role'].startswith('framework') and row['path'] == origin['path']
+                                            and row['range']['start_byte'] == origin['start']]
+                                    require(len(rows) == 1 and rows[0]['certainty'] == expected['certainty'] and len(rows[0]['targets']) == expected['target_cardinality'], 'Mutation certainty/target count differs')
+                                    if 'required_row_family' in expected: require(rows[0]['family'] == expected['required_row_family'], 'Mutation row family differs')
+                                    if 'reason_code' in expected: require(rows[0]['reason'] == expected['reason_code'], 'Mutation boundary reason differs')
+                                    if expected.get('partial'):
+                                        require(rows[0]['partial'] and rows[0]['partial_source_role'] == expected['partial_source_role'], 'Partial callback boundary provenance missing')
+                                    if expected['target_cardinality']:
+                                        target = next(row for row in updated['definitions'] if row['id'] == rows[0]['targets'][0])
+                                        before = baseline['expected']['targets']
+                                        require(target['path'] == expected.get('target_path', before[0]['path'] if before else None) and
+                                            target['name'] == expected.get('target_name', before[0]['name'] if before else None), 'Mutation target declaration differs')
+                                check(mode + ':' + mutation['id'] + ':' + case_id, grade_mutation)
                     _adapter_materialize(source, original, removed=set(changed) - set(original))
                     for mode in ('serial', 'queued'):
                         _, restored = produce(source, scratch / (source_kind + '-' + mode), original, context, mode)
@@ -3208,7 +3242,7 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
     return dict(schema_version=1, suite='django-framework', status='failed' if failures else 'passed',
         source_identity=identity, source_map_sha256=map_sha, case_results=checks, failures=failures, coverage_failures=[],
         counts=dict(frozen_cases=len(manifest['cases']), mutation_phases=len(manifest['incremental_mutations']),
-                    checks=len(checks), passed=len(checks) - len(failures)), receipts=receipts, environment=environment(),
+                    checks=len(checks), passed=len(checks) - len(failures)), receipts=receipts, query_traces=query_traces, environment=environment(),
         qualification_complete=False, limits_qualified=False, scope='Finite opt-in Django source registrations and explicit unknown boundaries; '
         'shared serial/queued facts, clean/update/restore and captured source/query parity. Runtime order, full business paths, scale and human UX unqualified.')
 

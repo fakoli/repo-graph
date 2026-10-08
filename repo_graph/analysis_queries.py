@@ -16,7 +16,7 @@ from pathlib import Path
 from pathlib import PurePosixPath
 from threading import Lock
 
-from .search import connect, SNAPSHOT_LOCK, _artifact_token
+from .search import connect, SNAPSHOT_LOCK, _artifact_token, _json_record
 from .source import SourceRoot
 
 QUERY_RULE_VERSION = 'physical-occurrence-v2'
@@ -446,6 +446,15 @@ class SQLSnapshot(Snapshot):
             self.config_identity = metadata['structural_config']
             self._source_identity, self._analyzer_identity = metadata['structural_source'], metadata['structural_analyzer']
             self._generation, self.schema = metadata['structural_generation'], metadata['structural_schema']
+            framework = self._read("SELECT substr(json_extract(value,'$.framework_enrollment'),1,16385) FROM meta WHERE key='structural_receipt'")
+            self.framework_enrollment = None
+            if framework is not None and framework[0] is not None:
+                if len(framework[0].encode('utf-8')) > 16384:
+                    raise ValueError('Captured framework enrollment exceeds its ceiling')
+                from .analysis_native import Budget, Work, django_registration_context
+                self.framework_enrollment = django_registration_context(_json_record(framework[0]),
+                    Work(Budget(timeout_seconds=limits.timeout_seconds), cancel))
+                setup_check()
             impact = self._read("SELECT substr(value,1,32769) FROM meta WHERE key='structural_impact_receipt'")
             self.impact_receipt = None
             if impact is not None:
@@ -966,6 +975,7 @@ class SQLSnapshot(Snapshot):
             return 1 if stopped() else 0
 
         def response(continuation=None, stop=None, *, reserved=False):
+            unavailable = operation == 'framework' and self.framework_enrollment is None
             return {'generation': self.generation, 'repository_identity': self.repository_identity,
                 'source_identity': self.source_identity, 'analyzer_identity': self.analyzer_identity,
                 'config_identity': self.config_identity,
@@ -976,8 +986,13 @@ class SQLSnapshot(Snapshot):
                 'storage_progress_callbacks': 2 ** 64 if reserved else storage_callbacks,
                 'storage_setup_seconds': self.storage_setup_seconds if _setup is None else _setup[0],
                 'snapshot_copy_seconds': self.snapshot_copy_seconds if _setup is None else _setup[1],
-                'total_count': {'value': state['matched'], 'kind': 'lower_bound' if frontier else 'exact'},
-                'cursor': continuation, 'truncated': bool(frontier), 'stop_reason': stop}
+                'total_count': {'value': None if unavailable else state['matched'],
+                    'kind': 'unavailable' if unavailable else 'lower_bound' if frontier else 'exact'},
+                'cursor': continuation, 'truncated': bool(frontier), 'stop_reason': stop,
+                **({'coverage': {'status': 'unavailable' if unavailable else 'enabled',
+                    'reason': 'framework_not_enrolled' if unavailable else None,
+                    'scope': 'finite Django registration subset', 'runtime_qualified': False}}
+                   if operation == 'framework' else {})}
 
         if len(encoded(response('0' * 64, 'continuation_state_budget_exceeded', reserved=True))) > limits.max_response_bytes:
             raise ValueError('Query byte limit cannot fit the minimum envelope')
@@ -985,6 +1000,9 @@ class SQLSnapshot(Snapshot):
         self.db.set_progress_handler(progress, 64)
         try:
             check()
+            if operation == 'framework' and self.framework_enrollment is None:
+                frontier.clear()
+                reason = 'framework_not_enrolled'
             if seed is not None:
                 if self._read('SELECT 1 FROM structural_symbols WHERE id=?', (seed,)) is None:
                     raise ValueError('Unknown structural seed')

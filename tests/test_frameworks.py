@@ -20,6 +20,86 @@ AVAILABLE = all(importlib.util.find_spec(name) is not None for name in (
 
 @unittest.skipUnless(AVAILABLE, 'Optional analysis backend')
 class FrameworkSyntaxTests(unittest.TestCase):
+    def test_identity_mutation_and_excluded_callback_boundaries(self):
+        root = Path(__file__).resolve().parents[1]
+        manifest = json.loads((root / 'evaluations/code-understanding/django-framework-inputs.json').read_text())
+        original = {record['path']: (root / manifest['fixture_root'] / record['path']).read_bytes()
+                    for record in manifest['synthetic_inventory'] if record['path'].endswith('.py')}
+        route = b'from django.urls import path\nfrom .views import homepage\nurlpatterns = [path("x/", homepage)]\n'
+        mutations = {
+            'importer_wildcard': {'urls.py': route.replace(b'urlpatterns =', b'from .evil import *\nurlpatterns =')},
+            'api_wildcard': {'django/urls/conf.py': original['django/urls/conf.py'] + b'\nfrom .evil import *\n'},
+            'callback_wildcard': {'views.py': original['views.py'] + b'\nfrom .evil import *\n'},
+            'subscript_write': {'urls.py': route + b'urlpatterns[0] = None\n'},
+            'subscript_delete': {'urls.py': route + b'del urlpatterns[0]\n'},
+            'binding_delete': {'urls.py': route + b'del urlpatterns\n'},
+            'alias_mutation': {'urls.py': route + b'other = urlpatterns\nother.clear()\n'},
+            'argument_escape': {'urls.py': route + b'mutate(urlpatterns)\n'},
+            'package_attribute': {'urls.py': b'from django.urls import path\nfrom . import views\nurlpatterns = [path("x/", views.homepage)]\n'},
+        }
+        for label, changed in mutations.items():
+            with self.subTest(boundary=label):
+                blobs = original | {'urls.py': route, 'evil.py': b'def path(*args): pass\n'} | changed
+                files = [native.collect_file(dict(path=path, language='python', content=raw)) for path, raw in blobs.items()]
+                ordinary = native.resolve_collected(files)['facts']
+                facts = native.resolve_collected(files, framework_context=manifest['source_admission']['frozen_contexts']['synthetic'])['facts']
+                rows = [row for row in facts['sites'] if row['path'] == 'urls.py' and row['role'].startswith('framework')]
+                self.assertEqual(len(rows), 1, rows)
+                self.assertEqual((rows[0]['family'], rows[0]['targets'], rows[0]['certainty']),
+                                 ('framework_boundary', [], 'unresolved'))
+                self.assertEqual([row for row in facts['sites'] if not row['role'].startswith('framework')], ordinary['sites'])
+        # The reviewed finite export exception permits earlier wildcard imports,
+        # followed by the final explicit Manager import; it does not resolve '*'.
+        files = [native.collect_file(dict(path=path, language='python', content=raw)) for path, raw in original.items()]
+        facts = native.resolve_collected(files, framework_context=manifest['source_admission']['frozen_contexts']['synthetic'])['facts']
+        self.assertTrue(any(row['role'] == 'framework' and row['relation_kind'] == 'django_orm_get_queryset' for row in facts['sites']))
+
+    def test_framework_availability_is_captured_per_generation(self):
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph.analysis_queries import SQLSnapshot
+        root = Path(__file__).resolve().parents[1]
+        manifest = json.loads((root / 'evaluations/code-understanding/django-framework-inputs.json').read_text())
+        context = manifest['source_admission']['frozen_contexts']['synthetic']
+        with tempfile.TemporaryDirectory() as scratch:
+            source, output = Path(scratch) / 'source', Path(scratch) / 'out'; source.mkdir()
+            (source / 'plain.py').write_text('def plain(): pass\n')
+            for enrollment in (None, context):
+                index = StructuralIndex(source, output, framework_context=enrollment)
+                self.assertEqual(index.refresh(['plain.py'])['status'], 'ready')
+                with SQLSnapshot(output) as snapshot:
+                    page = snapshot.query(operation='framework')
+                self.assertEqual(page['rows'], [])
+                self.assertEqual(page['coverage']['status'], 'unavailable' if enrollment is None else 'enabled')
+                self.assertEqual(page['total_count'], {'value': None, 'kind': 'unavailable'} if enrollment is None else {'value': 0, 'kind': 'exact'})
+                self.assertEqual(page['stop_reason'], 'framework_not_enrolled' if enrollment is None else None)
+
+    def test_inheritance_discovery_charges_work_and_observes_deadline_and_cancel(self):
+        import time
+        root = Path(__file__).resolve().parents[1]
+        manifest = json.loads((root / 'evaluations/code-understanding/django-framework-inputs.json').read_text())
+        context = manifest['source_admission']['frozen_contexts']['synthetic']
+        raw = ('class C0: pass\n' + ''.join(f'class C{i}(C{i-1}, C{i-1}): pass\n' for i in range(1, 17))).encode()
+        def collected():
+            return native.collect_file(dict(path='app.py', language='python', content=raw))
+        file = collected()
+        limit = file.counts['nodes'] + 8
+        result = native.resolve_collected([file], framework_context=context, budget=native.Budget(max_nodes=limit))
+        self.assertNotEqual(result['status'], 'complete')
+        self.assertEqual(result['stop_reason'], 'node_budget_exceeded')
+        node = native.Work.node
+        for reason in ('deadline_exceeded', 'cancelled'):
+            cancelled = [False]
+            def controlled(work):
+                if work.nodes >= limit:
+                    if reason == 'cancelled': cancelled[0] = True
+                    else: work.started = time.perf_counter() - 1
+                return node(work)
+            with self.subTest(reason=reason), patch.object(native.Work, 'node', controlled):
+                result = native.resolve_collected([collected()], framework_context=context,
+                    budget=native.Budget(timeout_seconds=0.5), cancel=lambda: cancelled[0])
+            self.assertNotEqual(result['status'], 'complete')
+            self.assertEqual(result['stop_reason'], reason)
+
     def test_registration_context_rebinds_without_recollecting_and_is_opt_in(self):
         from repo_graph.analysis import StructuralIndex
         root = Path(__file__).resolve().parents[1]

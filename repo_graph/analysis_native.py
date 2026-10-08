@@ -1186,11 +1186,12 @@ class FileFacts:
         typ = node.type
         if typ not in ('assignment', 'augmented_assignment', 'assignment_expression',
                        'augmented_assignment_expression', 'short_var_declaration',
-                       'assignment_statement', 'variable_declarator', 'var_spec', 'update_expression'):
+                       'assignment_statement', 'variable_declarator', 'var_spec', 'update_expression',
+                       'delete_statement'):
             return
         left = node.child_by_field_name('left') or node.child_by_field_name('name') or node.child_by_field_name('argument')
         right = unwrap(node.child_by_field_name('right') or node.child_by_field_name('value'))
-        names = identifiers(left)
+        names = identifiers(node if typ == 'delete_statement' else left)
         if (self.language == 'python' and scope.kind == 'module' and right is not None
                 and typ in ('assignment', 'augmented_assignment')):
             self.work.fact()
@@ -1705,7 +1706,18 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
         return {'id': identifier, 'path': file.path, 'range': row['range'],
                 'source_sha256': file.record['sha256'], 'source_role': role}
 
-    def import_hint(file, expression, scope, seen=()):
+    def later_wildcard(file, binding, work, evidence):
+        for item, context in zip(file.imports, file.syntax_metadata['import_contexts']):
+            work.check()
+            if (item['symbol'] == '*' and context['scope'] == binding.scope.ordinal and
+                    item['range']['start_byte'] > binding.node.start_byte):
+                evidence.append(witness(file, item, 'wildcard_identity_boundary'))
+                return True
+        return False
+
+    def import_hint(file, expression, scope, work, seen=None, depth=0):
+        work.node()
+        seen = set() if seen is None else seen
         name = expression.spelling if expression.type == 'identifier' else expression.base if expression.base_identifier else ''
         if not name:
             return None
@@ -1714,14 +1726,16 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
             return None
         if len(bindings) == 1 and bindings[0].kind == 'definition':
             definition = definitions[bindings[0].value]
-            if definition['kind'] == 'class' and definition['id'] not in seen and len(seen) < 32:
+            if definition['kind'] == 'class' and definition['id'] not in seen and depth < 32:
+                seen.add(definition['id'])
                 declaration = next(row for row in file.syntax_metadata['python_declarations'] if row['id'] == definition['id'])
                 for base in declaration['bases']:
-                    hint = import_hint(file, Expression(**base), file.scopes[declaration['scope']], seen + (definition['id'],))
+                    hint = import_hint(file, Expression(**base), file.scopes[declaration['scope']], work, seen, depth + 1)
                     if hint:
                         return (*hint[:4], 'transitive_framework_base_is_unqualified')
         owner = bindings[0].scope.ordinal
         for item, context in zip(file.imports, file.syntax_metadata['import_contexts']):
+            work.check()
             if context['scope'] != owner or item['name'] != name:
                 continue
             module, symbol = item['module'], item['symbol']
@@ -1742,12 +1756,14 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                 reason = ''
                 if len(bindings) != 1 or context['conditional'] or owner != 0:
                     reason = 'shadowed_ambiguous_conditional_or_local_framework_import'
+                elif later_wildcard(file, bindings[0], work, []):
+                    reason = 'later_wildcard_framework_import'
                 elif expression.type != 'identifier' and item['symbol'] not in (None, 'models'):
                     reason = 'computed_framework_factory_or_member'
                 return module, symbol, kind, item, reason
         return None
 
-    def module_file(module, work, witnesses):
+    def module_file(module, work, witnesses, finite_parent=None):
         parts = module.split('.')
         if not parts or parts[0] != dependency['module_prefix']:
             return None, 'unenrolled_framework_module'
@@ -1766,7 +1782,10 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
             if other.language != 'python' or other.partial or not owned(other.path, dependency):
                 return None, 'partial_or_unowned_framework_dependency'
             if count < len(parts):
-                if other.path != candidates[1] or other.module.bindings.get(parts[count]):
+                if (other.path != candidates[1] or other.module.bindings.get(parts[count]) or
+                        any(item['symbol'] == '*' and (finite_parent is None or
+                            other.path != finite_parent[0] or item['range']['start_byte'] > finite_parent[1])
+                            for item in other.imports)):
                     return None, 'package_initializer_namespace_rebinding_or_missing_package'
         return other, ''
 
@@ -1782,6 +1801,8 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
             bindings = other.module.bindings.get(symbol, [])
             if len(bindings) != 1 or bindings[0].kind != 'import':
                 return 'missing_or_shadowed_finite_framework_facade'
+            if later_wildcard(other, bindings[0], work, witnesses):
+                return 'conditional_or_later_wildcard_framework_export'
             spec = bindings[0].value
             stem = target_module.rsplit('.', 1)[-1]
             if spec['module'] not in (target_module, '.' + stem) or spec['symbol'] != target_symbol:
@@ -1792,8 +1813,11 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                     for item in other.imports):
                 return 'conditional_or_later_wildcard_framework_export'
             witnesses.append(witness(other, spec, 'framework_export'))
+            # Only the already validated final explicit facade export may
+            # supersede earlier wildcards in this parent package.
+            finite_parent = other.path, spec['range']['end_byte']
             module, symbol = target_module, target_symbol
-            other, reason = module_file(module, work, witnesses)
+            other, reason = module_file(module, work, witnesses, finite_parent)
             if reason:
                 return reason
         bindings = other.module.bindings.get(symbol, [])
@@ -1801,6 +1825,8 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
             return 'unsupported_framework_api_module'
         if len(bindings) != 1:
             return 'missing_or_ambiguous_framework_api_binding'
+        if later_wildcard(other, bindings[0], work, witnesses):
+            return 'later_wildcard_framework_api'
         if bindings[0].kind == 'definition':
             definition = definitions[bindings[0].value]
             expected = 'function' if symbol in ('path', 're_path') else 'class'
@@ -1830,6 +1856,9 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
             pattern = other.module.bindings.get(arguments[1]['expression']['spelling'], [])
             if len(callback) != 1 or callback[0].kind != 'definition' or len(pattern) != 1 or pattern[0].kind != 'import':
                 return 'missing_framework_partial_witness'
+            if any(later_wildcard(other, binding, work, witnesses)
+                   for binding in (partial[0], callback[0], pattern[0])):
+                return 'later_wildcard_framework_partial_witness'
             if pattern[0].value['module'] != '.resolvers' or pattern[0].value['symbol'] != arguments[1]['expression']['spelling']:
                 return 'unsupported_framework_pattern_witness'
             witnesses.extend([witness(other, row, 'framework_api_assignment'),
@@ -1838,6 +1867,34 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                               witness(other, pattern[0].value, 'framework_pattern_import')])
             return ''
         return 'shadowed_or_unsupported_framework_api'
+
+    def callback_guard(file, expression, scope, work, evidence, seen=None, imported=False):
+        work.node()
+        seen = set() if seen is None else seen
+        if expression.type != 'identifier':
+            return 'unsupported_framework_callback_form'
+        bindings = scope.lookup(expression.spelling)
+        if len(bindings) != 1:
+            return 'ambiguous_framework_callback_binding'
+        binding = bindings[0]
+        key = file.path, binding.scope.ordinal, expression.spelling
+        if key in seen:
+            return 'framework_callback_alias_cycle'
+        seen.add(key)
+        if later_wildcard(file, binding, work, evidence):
+            return 'later_wildcard_framework_callback'
+        if binding.kind == 'alias':
+            return callback_guard(file, binding.value, binding.scope, work, evidence, seen, imported)
+        if binding.kind == 'import':
+            spec = binding.value
+            if imported or not spec['module'].startswith('.') or not spec['module'].strip('.') or not spec['symbol'] or spec['symbol'] == '*':
+                return 'unsupported_framework_callback_import'
+            paths, _, _ = module_paths(file, spec, files, {})
+            if len(paths) == 1 and not files[paths[0]].partial:
+                other = files[paths[0]]
+                return callback_guard(other, Expression('identifier', 0, 0, spec['symbol']), other.module,
+                                      work, evidence, seen, True)
+        return ''
 
     def framework_sites(file, work):
         if not owned(file.path, consumer):
@@ -1874,8 +1931,15 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
             return result
 
         patterns = [assignment for assignment in file.syntax_metadata['python_assignments'] if assignment['name'] == 'urlpatterns']
-        mutation = any(expression is not None and expression.base_identifier and expression.base == 'urlpatterns'
-                       for _, expression, _ in candidates.values())
+        mutation = len(file.module.bindings.get('urlpatterns', [])) != 1 or any(
+            assignment['name'] != 'urlpatterns' and any(
+                value['type'] == 'identifier' and value['spelling'] == 'urlpatterns'
+                for value in (assignment['right'], *assignment['elements']))
+            for assignment in file.syntax_metadata['python_assignments'])
+        mutation = mutation or any(expression is not None and expression.base_identifier and expression.base == 'urlpatterns'
+                                  for _, expression, _ in candidates.values()) or any(
+            argument['expression']['type'] == 'identifier' and argument['expression']['spelling'] == 'urlpatterns'
+            for arguments in calls.values() for argument in arguments)
         for assignment in patterns:
             elements = assignment['elements'] if assignment['right']['type'] in ('list', 'tuple') else [assignment['right']]
             for element in elements:
@@ -1884,7 +1948,7 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                 if candidate is None or candidate[1] is None:
                     continue
                 origin, expression, scope = candidate
-                hint = import_hint(file, expression, scope)
+                hint = import_hint(file, expression, scope, work)
                 if hint is None or hint[2] != 'django_route':
                     continue
                 evidence = [witness(file, hint[3], 'candidate_import')]
@@ -1904,8 +1968,11 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                         reason = 'computed_route_or_keyword_only_registration'
                     else:
                         callback = Expression(**positional[1])
-                        targets, reason, _ = lexical(file, callback, scope, origin['range']['start_byte'])
+                        targets, lexical_reason, _ = lexical(file, callback, scope, origin['range']['start_byte'])
+                        guard = callback_guard(file, callback, scope, work, evidence)
+                        reason = guard or lexical_reason
                         if (len(targets) == 1 and definitions[targets[0]]['kind'] == 'function'
+                                and not guard
                                 and owned(definitions[targets[0]]['path'], consumer)):
                             reason = ''
                             evidence.append(witness(files[definitions[targets[0]]['path']], definitions[targets[0]], 'callback_definition'))
@@ -1923,16 +1990,17 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                 yield row(origin, hint, reason, targets, evidence, source_role)
 
         for definition in file.definitions:
+            work.check()
             declaration = declarations.get(definition['id'])
             if definition['kind'] != 'class' or declaration is None or declaration['scope'] != 0:
                 continue
             hints = []
             for base in declaration['bases']:
                 expression = Expression(**base)
-                hint = import_hint(file, expression, file.module)
+                hint = import_hint(file, expression, file.module, work)
                 if hint is None and expression.type == 'call':
                     candidate = candidates.get((expression.start_byte, expression.end_byte))
-                    hint = import_hint(file, candidate[1], file.module) if candidate and candidate[1] else None
+                    hint = import_hint(file, candidate[1], file.module, work) if candidate and candidate[1] else None
                     if hint: hint = (*hint[:4], 'computed_framework_factory_or_member')
                 if hint: hints.append(hint)
             if not hints:
@@ -1962,6 +2030,7 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                 evidence.append(witness(file, target, 'hook_definition'))
             origin = dict(definition, caller=definition['id'])
             yield row(origin, hint, reason, [target['id']] if target and not reason else [], evidence)
+        work.check()
     return framework_sites
 
 

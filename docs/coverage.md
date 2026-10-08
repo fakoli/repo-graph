@@ -112,6 +112,9 @@ repo-graph query ../repo-index --operation framework
 repo-graph query ../repo-index --operation framework --family framework --relation-kind django_route
 ```
 
+Without captured enrollment, framework queries report unavailable coverage and
+a null count; an enabled empty scan reports an exact zero within its finite scope.
+
 The default framework page includes qualified occurrences and empty-target
 boundaries. Physical occurrences are retained even when several registrations
 share a callback. Queries, continuations, inspection and search use the same
