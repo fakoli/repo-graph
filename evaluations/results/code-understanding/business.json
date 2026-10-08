@@ -1,0 +1,107 @@
+{
+  "schema_version": 1,
+  "tasks": {
+    "T046": {
+      "case_results": [
+        {
+          "id": "test_rerank.RerankTests.test_api_contract_limits_and_redirect_protection",
+          "method": "test_api_contract_limits_and_redirect_protection",
+          "status": "passed"
+        },
+        {
+          "id": "test_rerank.RerankTests.test_bad_judgments_preserve_default_order_and_do_not_cache",
+          "method": "test_bad_judgments_preserve_default_order_and_do_not_cache",
+          "status": "passed"
+        },
+        {
+          "id": "test_rerank.RerankTests.test_batched_export_validation_cache_and_invalidation",
+          "method": "test_batched_export_validation_cache_and_invalidation",
+          "status": "passed"
+        },
+        {
+          "id": "test_rerank.RerankTests.test_function_corrupt_rankings_and_cache_preserve_targets_provenance_and_identity",
+          "method": "test_function_corrupt_rankings_and_cache_preserve_targets_provenance_and_identity",
+          "status": "passed"
+        },
+        {
+          "id": "test_rerank.RerankTests.test_function_rankings_export_bounded_captured_evidence_without_mutating_facts",
+          "method": "test_function_rankings_export_bounded_captured_evidence_without_mutating_facts",
+          "status": "passed"
+        },
+        {
+          "id": "test_rerank.RerankTests.test_loopback_jev_requires_explicit_startup_permission",
+          "method": "test_loopback_jev_requires_explicit_startup_permission",
+          "status": "passed"
+        },
+        {
+          "id": "test_rerank.RerankTests.test_slow_judgment_keeps_status_and_keywords_responsive_and_bounds_inference",
+          "method": "test_slow_judgment_keeps_status_and_keywords_responsive_and_bounds_inference",
+          "status": "passed"
+        }
+      ],
+      "command": "uv run python -m unittest discover -s tests -p test_rerank.py -v",
+      "execution": {
+        "elapsed_seconds": 1.5163950549904257,
+        "ended_at": "2026-10-08T00:13:10.989480+00:00",
+        "returncode": 0,
+        "source_unchanged": true,
+        "started_at": "2026-10-08T00:13:09.473091+00:00",
+        "subprocess_reaped": true,
+        "summary": [
+          "Ran 7 tests in 1.299s",
+          "OK"
+        ],
+        "timed_out": false
+      },
+      "qualification_complete": false,
+      "ranking_boundary": {
+        "api_network_calls": 0,
+        "default_inference_initializations": 0,
+        "jev": "mocked",
+        "local_encoder": "stubbed",
+        "quality_or_token_savings_measured": false,
+        "source_evidence_export_max_bytes": 900,
+        "structural_function_rows_and_nonjev_metadata_unchanged": true
+      },
+      "resource_measurements": {
+        "cpu_seconds": null,
+        "elapsed_seconds": 1.5163950549904257,
+        "model_tokens": null,
+        "peak_rss_bytes": null
+      },
+      "schema_version": 1,
+      "scope": "Functional boundary qualification of optional rankings only. Actual models, quality comparisons, representative scale, agent/human UX, installation, CI and publication remain unqualified.",
+      "source_identity": {
+        "actual_command_receipt_sha256": "8bf6459c8641a1355c94bedb3d5e57ee8b5cc143f0e9fa13dbf2629da4349356",
+        "fixture_source": "Synthetic native fixture defined in tests/test_rerank.py; temporary source removed after capture",
+        "implementation": {
+          "captured_git_base_commit": "78858d614b22ef93a75086cffdeb87b7ad4a8b83",
+          "commit": "b44128664ec2f14c3c59ee84e0f67d63e9c61004",
+          "sha256": {
+            "pyproject.toml": "5c11057fc766142b82a7d975262c033b43ddaddd441fa4c1d93edf99778950e0",
+            "repo_graph/__init__.py": "5acf9fccd7863c22a489f7d927c4c004e17d28f587afb886040d00b6c660171d",
+            "repo_graph/analysis.py": "26d216c9c9e4b9c9bbebab1b4369a768dca1a3bbbcea8ccc82a7341f2a451173",
+            "repo_graph/analysis_native.py": "a1a7696dea5e8f19ccd43622ce5b04403066b81cbf78162f5f011a52078ec70d",
+            "repo_graph/analysis_queries.py": "34da96a46234cb3b98054fb3eeaec903526ff948e69fa3716a04dbe303e8bcd7",
+            "repo_graph/analysis_queue.py": "ca4d74ec173a782cd8cc75bc48dbc7f322f48ac596b762c1c44f3beeda16afca",
+            "repo_graph/builder.py": "58ee66b814b350832b3507fb89e752951c5ce146cc4b697e6cd3741a35622573",
+            "repo_graph/cli.py": "c1501ce896dd479474cc7117a0c1631cb558e7e6d752d0ee4711dd18a374cf05",
+            "repo_graph/installer.py": "87f863d3a820ba0373546a3723de3eee2ecee9eeb3159bca088306ce128683f6",
+            "repo_graph/jev.py": "a8f27d62c381948ab248ee477cc3e353b8af240f8daf67c63947025849857243",
+            "repo_graph/rerank.py": "1c682aae730fc860da8fd95b14eea6fa6c37caaf815e57e254d987a76a4e57cf",
+            "repo_graph/search.py": "e2955152ae0495c305e33d2bc7247ce054a145d966ccc77d4d080e6ef97e51f9",
+            "repo_graph/server.py": "e5aae0211c42e1f75d2dd72c66084ff40a52b3cde5df3b675eca76d2e240c1d9",
+            "repo_graph/source.py": "b4459e73a611d5fd807d84789f2f4d438e2bf78a756093626a0f227e465a4dbc",
+            "tests/test_analysis.py": "083a20e40d9eefff9a6513f1aac523a6fa5b4efbef27a06929c2afb2c0cf151e",
+            "tests/test_rerank.py": "c10e7d69fd7378dc80fa06b907bfad8230c11a2460411d59ae1154d544179f34",
+            "uv.lock": "2070aae111fd848c56247bc0ccf82060f3e24164f0700855f05b0225e59cb7d4"
+          },
+          "tested_working_tree": true
+        },
+        "index_identity_observation": "All five structural identities plus evidence_generation asserted in execution; actual values not emitted by unittest, not reconstructed"
+      },
+      "status": "passed",
+      "task_accepted": false
+    }
+  }
+}
