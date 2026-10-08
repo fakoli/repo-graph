@@ -164,12 +164,13 @@ class FreezeInputs(unittest.TestCase):
             first = {'status': 'blocked', 'source_identity': {'revision': 'first'},
                      'case_results': [{'id': 'input-refusal', 'status': 'failed'}],
                      'prior_failed_attempts': [{'status': 'blocked', 'error_kind': 'FileNotFoundError'}]}
-            report.write_text(json.dumps({'tasks': {'T047': first, 'T020': {'task_accepted': True}}}))
+            unrelated = {'task_accepted': True, 'retained_evidence': 'x' * (3 * 1024 * 1024)}
+            report.write_text(json.dumps({'tasks': {'T047': first, 'T020': unrelated}}))
             for revision in ('corrected', 'repeated'):
                 gate._record_ranking_boundary(root, {'status': 'passed', 'source_identity': {'revision': revision},
                                                      'case_results': [{'id': 'input-refusal', 'status': 'passed'}]})
                 current = json.loads(report.read_text())
-                self.assertEqual(current['tasks']['T020'], {'task_accepted': True})
+                self.assertEqual(current['tasks']['T020'], unrelated)
                 result = current['tasks']['T047']
                 self.assertEqual(result['source_identity'], {'revision': revision})
                 self.assertEqual(result['prior_failed_attempts'], [first['prior_failed_attempts'][0],

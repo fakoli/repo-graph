@@ -40,6 +40,7 @@ DEFAULT_OUTPUT = 'evaluations/results/code-understanding/native-component.json'
 FACTS_OUTPUT = 'evaluations/results/code-understanding/facts.json'
 VIEWS_OUTPUT = 'evaluations/results/code-understanding/views.json'
 BUSINESS_OUTPUT = 'evaluations/results/code-understanding/business.json'
+BUSINESS_RESULT_BYTES = 8 * 1024 * 1024
 
 # Separately identified state/storage controls, frozen before producer execution.
 # They do not extend the original construct oracle or its coverage denominator.
@@ -3223,6 +3224,7 @@ def odoo_case_grade(facts, expected):
         true_positive=matches, false_positive=len(actual) - matches, false_negative=len(gold) - matches,
         target_precision=matches / len(actual) if actual else None, target_recall=matches / len(gold) if gold else None,
         metric_scope='Frozen exact physical source/type/consumer/service pairs only; runtime callable targets never inferred',
+        **({'mutation_evidence_kind': expected['mutation_evidence_kind']} if 'mutation_evidence_kind' in expected else {}),
         actual=found)
 
 
@@ -3256,7 +3258,15 @@ def odoo_mutation_cases(manifest, original, changed, mutation):
             label.update(row_family='framework_boundary', row_kind='unknown_framework_candidate', certainty='unresolved',
                 targets=[], target_cardinality=0, targets_exhaustive_for_declared_source_scope=False,
                 framework_identity_asserted=False, unknown_boundary_required=True)
-        if identifier == 'OD-INC-PARTIAL-MODEL' and case['origin']['path'] == 'models.py': label['partial'] = True
+        if identifier == 'OD-INC-PARTIAL-MODEL' and case['origin']['path'] == 'models.py':
+            label['partial'] = True
+            control = mutation['malformed_control']
+            odoo_source_key(control, changed)
+            span = case['origin']['range']; malformed = control['range']
+            if malformed['start_byte'] <= span['start_byte'] and span['end_byte'] <= malformed['end_byte']:
+                # The frozen postimage admits a parser-error region, not recovered callable syntax.
+                case['origin'] = {key: value for key, value in control.items() if key != 'exact_content_utf8'}
+                case['mutation_evidence_kind'] = 'malformed_source_control'
         if verb == 'delete' and case['origin']['path'] == path:
             label.update(row_family=None, row_kind=None, targets=[], target_cardinality=0)
     return cases
@@ -4281,7 +4291,7 @@ def main(argv=None):
     parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact', 'impact-interface', 'django-framework', 'odoo-framework', 'contracts', 'contract-impact'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
-                        help='finite report cap: 2 MiB for comparison/structural suites, 1 MiB otherwise')
+                        help='finite report cap: 8 MiB for business evidence, 2 MiB for comparison/structural suites, 1 MiB otherwise')
     parser.add_argument('--max-files', type=int, default=128)
     parser.add_argument('--max-source-bytes', type=int, default=4 * 1024 * 1024)
     parser.add_argument('--max-nodes', type=int, help='node ceiling; frozen Odoo suite defaults to 500000, other suites to 200000')
@@ -4301,7 +4311,7 @@ def main(argv=None):
     if (structural_task or view_task or business_task) and (args.screen_engines or args.compare or args.profile or args.profile_pilot):
         parser.error(args.suite + ' uses the shared structural owner directly')
     if args.max_result_bytes is None:
-        args.max_result_bytes = (2 if args.compare or structural_task or view_task or business_task or args.protocol else 1) * 1024 * 1024
+        args.max_result_bytes = BUSINESS_RESULT_BYTES if business_task else (2 if args.compare or structural_task or view_task or args.protocol else 1) * 1024 * 1024
     if args.protocol and (not args.profile_pilot or args.source_map is None):
         parser.error('--protocol requires --profile-pilot and a pinned --source-map')
     if args.protocol and not 0 < args.max_result_bytes <= 2 * 1024 * 1024:

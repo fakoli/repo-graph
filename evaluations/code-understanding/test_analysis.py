@@ -539,6 +539,15 @@ class FrameworkEvaluatorTests(unittest.TestCase):
                 self.assertEqual(analysis.framework_inventory(changed, mutation['result_inventory_commitment']), mutation['result_inventory_sha256'])
                 self.assertEqual(original, saved)
                 cases = analysis.odoo_mutation_cases(manifest, original, changed, mutation)
+                if mutation['id'] == 'OD-INC-PARTIAL-MODEL':
+                    for identifier in ('OD-SYN-ORM-SALES', 'OD-SYN-RECORDSET-DISPATCH'):
+                        case = next(row for row in cases if row['id'] == identifier)
+                        self.assertEqual(case['origin']['range'], mutation['malformed_control']['range'])
+                        self.assertEqual(case['origin']['source_sha256'], mutation['malformed_control']['source_sha256'])
+                        self.assertEqual(case['mutation_evidence_kind'], 'malformed_source_control')
+                        self.assertEqual(case['expected']['targets'], [])
+                    bad = json.loads(json.dumps(mutation)); bad['malformed_control']['slice_sha256'] = '0' * 64
+                    with self.assertRaises(ValueError): analysis.odoo_mutation_cases(manifest, original, changed, bad)
                 for identifier in ('OD-SYN-ROUTE-STACKED-DECORATOR', 'OD-SYN-ORM-UNSUPPORTED-DECORATOR'):
                     row = next(row for row in cases if row['id'] == identifier)
                     self.assertEqual(row['expected']['targets'], [])

@@ -2446,6 +2446,7 @@ _RANKING_CASES = (
 
 def ranking_gate(root=None):
     """Retain accepted child observations and verify the affected current boundary."""
+    from evaluations.analysis import BUSINESS_RESULT_BYTES
     root = Path(root or ROOT)
     checks, identity = [], None
     result = {'schema_version': 1, 'task': 'T022', 'gate': 'ranking-boundary',
@@ -2459,7 +2460,7 @@ def ranking_gate(root=None):
     try:
         manifest, _, _, frozen = _ranking_inputs(root)
         with SourceRoot(root) as source:
-            business, _ = read_json(source, 'evaluations/results/code-understanding/business.json', 2 * 1024 * 1024)
+            business, _ = read_json(source, 'evaluations/results/code-understanding/business.json', BUSINESS_RESULT_BYTES)
         expected = ['committed_reviewed_inputs', 'input_refusal_before_extraction',
             'captured_foundation_ready', 'shared_repository_affinity', 'physical_definition_inventory']
         expected += ['physical_source:' + row['label'] for row in manifest['functions']]
@@ -2542,10 +2543,10 @@ def ranking_gate(root=None):
 
 
 def _record_ranking_boundary(root, result, task='T047'):
-    from evaluations.analysis import write_result
+    from evaluations.analysis import BUSINESS_RESULT_BYTES, write_result
     path = 'evaluations/results/code-understanding/business.json'
     with SourceRoot(root) as source:
-        existing, _ = read_json(source, path, 2 * 1024 * 1024)
+        existing, _ = read_json(source, path, BUSINESS_RESULT_BYTES)
     if type(existing) is not dict or type(existing.get('tasks')) is not dict:
         raise ValueError('Existing business evidence required')
     if task not in ('T022', 'T047'):
@@ -2558,7 +2559,7 @@ def _record_ranking_boundary(root, result, task='T047'):
         failure = {key: value for key, value in previous.items() if not key.startswith('prior_')}
         result['prior_failed_attempts'] = [*result.get('prior_failed_attempts', []), failure]
     existing['tasks'][task] = result
-    write_result(root, path, existing, 2 * 1024 * 1024)
+    write_result(root, path, existing, BUSINESS_RESULT_BYTES)
 
 
 def main(argv=None):
