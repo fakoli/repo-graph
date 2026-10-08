@@ -145,6 +145,58 @@ workflows do not establish that people find or understand answers faster.
 
 ## Scale priorities and recommendation
 
+### Frozen function retrieval comparison
+
+The T047 gate compares existing file synopsis and captured function keyword
+evidence on four original synthetic files, using eight questions reviewed by an
+independent Astra AI source reviewer. Run the supported command:
+
+```sh
+uv run python evaluations/acceptance.py --gate task-preflight --task T047 --checks ranking-boundary
+```
+
+The [frozen inputs](../evaluations/code-understanding/function-relevance-inputs.json)
+and [source review](../evaluations/code-understanding/function-relevance-review.json)
+are checked against their committed bytes before extraction. Both arms use the
+same source inventory and captured output with no embedder or reranker. File
+presence is a proxy; function recall counts physical member IDs over twelve
+question/function pairs. Evidence coverage separately requires the reviewed
+declaration and supporting body statements. Overlapping parent/child members
+share one context family, and unjudged functions are excluded from precision
+claims.
+
+The [business report](../evaluations/results/code-understanding/business.json)
+retains every actual response, exact-identifier check, hit, miss and source
+identity. File search does not expose the function arm's byte/entity/deadline
+receipt, so those file fields are unavailable. Equal top ten limits count
+different units and do not establish equal work or latency budgets. CPU timings
+exclude child processes. A reported process memory high-water covers its whole
+lifetime; benchmark peak RSS remains unmeasured. Byte
+caps do not establish token savings. This small comparison does not qualify
+model quality, large corpora, agent performance or human comprehension.
+
+The corrected execution on 2026-10-08 used Linux x86_64 and Python 3.12.14.
+All fifteen physical source checks and four exact-identifier checks passed.
+The measured outcomes were:
+
+| Native keyword arm | Retrieved relevant pairs | Complete reviewed statement coverage |
+|---|---|---|
+| File synopsis | 10/12 file-presence proxy | 0/12 |
+| Captured functions | 11/12 physical members | 11/12 |
+
+The body-only `tombstone` query retrieved its function while file synopsis
+missed it. Both arms missed the deliberately lexical-absent `reverse remittance`
+control. The function diversity query covered all four language/context
+families; the nested query retained two relevant IDs in one context family.
+No function response truncated or exhausted its deadline, and no inference or
+credential-reader guard was invoked. These observations retain the misses and
+different metric units; they do not establish full retrieval precision or a
+semantic-model benefit. An initial evaluator setup attempt failed before
+extraction and is retained separately from the corrected observation.
+
+Richer evidence, package routing, diversification, cached models and ANN remain
+deferred until measured limitations justify a separately reviewed comparison.
+
 Ship both choices as opt-in, retaining the zero-API default. Jev is useful for
 this measured shortlist ranking task at low API cost, but the older Kubernetes
 failures prevent making it the universal default. MiniLM offers a measured local

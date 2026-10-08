@@ -102,6 +102,3318 @@
       },
       "status": "passed",
       "task_accepted": false
+    },
+    "T047": {
+      "aggregate": {
+        "files": {
+          "denominator": 12,
+          "evidence_covered_pairs": 0,
+          "metric": "file_presence_proxy_at_10",
+          "numerator": 10
+        },
+        "functions": {
+          "denominator": 12,
+          "evidence_covered_pairs": 11,
+          "metric": "physical_member_recall_at_10",
+          "numerator": 11
+        }
+      },
+      "capture_receipts": {
+        "catalog": {
+          "deleted": 0,
+          "documents": 4,
+          "failed": 0,
+          "failures": [],
+          "failures_truncated": false,
+          "generation": "da97539023c7460c88b3b5fb62b00e78",
+          "identity": {
+            "analyzer": "synopsis-v2",
+            "config": "3ad1d1b1e094940457d838a84c2b86313771c91bb098bc3d7c91a61e7630d2da",
+            "repository": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+            "schema": "2"
+          },
+          "reused": 0,
+          "scanned": 4,
+          "seconds": 0.003,
+          "secure_reads": true,
+          "semantic_index": {
+            "analyzer": "synopsis-v2",
+            "config": "3ad1d1b1e094940457d838a84c2b86313771c91bb098bc3d7c91a61e7630d2da",
+            "documents": 4,
+            "generation": "da97539023c7460c88b3b5fb62b00e78",
+            "generation_basis": "keyword-docs-v2",
+            "missing_vectors": 4,
+            "model": null,
+            "repository": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+            "schema": "2",
+            "status": "not_indexed",
+            "vectors": 0
+          },
+          "truncated": 0
+        },
+        "structural": {
+          "analyzer_identity": "207350cdc5694154a12bf44bb7c30a8a570a069b517716e5593c2f87cd4461e0",
+          "config_identity": "8b0d3a9f14b9978ec71fab9576f1b2bd83b2d826d674bdda13023c362fa54f4d",
+          "coverage": {
+            "by_language": {
+              "go": {
+                "file_status": {
+                  "parsed": 1
+                },
+                "files_total": 1
+              },
+              "javascript": {
+                "file_status": {
+                  "parsed": 1
+                },
+                "files_total": 1
+              },
+              "python": {
+                "file_status": {
+                  "parsed": 1
+                },
+                "files_total": 1
+              },
+              "typescript": {
+                "file_status": {
+                  "parsed": 1
+                },
+                "files_total": 1
+              }
+            },
+            "discovery_skip_knowledge": "outside_admitted_inventory_not_measured",
+            "discovery_skipped_files": null,
+            "file_status": {
+              "parsed": 4
+            },
+            "files_supported": 4,
+            "files_total": 4,
+            "files_unsupported": 0,
+            "inventory_scope": "caller_admitted_inventory",
+            "language_overflow": {
+              "file_status": {},
+              "files_total": 0,
+              "languages": 0
+            },
+            "parser_error_count": 0,
+            "parser_error_samples": [],
+            "parser_error_samples_truncated": false,
+            "sites_by_role_certainty": {
+              "call": {
+                "resolved": 1,
+                "unresolved": 3
+              },
+              "reference": {
+                "unresolved": 2
+              }
+            },
+            "status_counts": {
+              "parsed": 4
+            }
+          },
+          "generation": "27eb187d45446f40241cada92d79dc9e135cc95a2047fbc7556f5f514a729b3e",
+          "impact_identity": "6f8224fab0ef867f30db95e61a385b15370c47bfd460bb86b42b097c1a3e9d16",
+          "published": true,
+          "repository_identity": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+          "resources": {
+            "batches": 1,
+            "bindings_files_resolved": 4,
+            "bindings_files_reused": 0,
+            "changed_files_collected": 4,
+            "dependency_lookups_checked": 0,
+            "elapsed_seconds": 0.13423818198498338,
+            "invalidation_reason": "analyzer_or_limits_changed_or_initial_index",
+            "inventory_entries_consumed": 4,
+            "owned_workers_reaped": 1,
+            "peak_batch_files": 4,
+            "peak_batch_handoff_bytes": 27206,
+            "peak_batch_source_bytes": 1772,
+            "source_bytes": 1772,
+            "unchanged_source_collections_reused": 0,
+            "unknown_closure_files_rebuilt": 3,
+            "workers_started": 1
+          },
+          "revision_dirty": {
+            "content_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657",
+            "dirty": null,
+            "knowledge": "unknown",
+            "reason": "git_revision_unavailable",
+            "revision": null
+          },
+          "scope": "Persistent bounded structural foundation; scale and query defaults unqualified",
+          "source_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657",
+          "status": "ready",
+          "versions": {
+            "grammars": {
+              "tree-sitter": "0.26.0",
+              "tree-sitter-go": "0.25.0",
+              "tree-sitter-javascript": "0.25.0",
+              "tree-sitter-python": "0.25.0",
+              "tree-sitter-typescript": "0.23.2"
+            },
+            "rules": "syntax-direct-v1",
+            "schema": "structural-v2"
+          }
+        }
+      },
+      "case_results": [
+        {
+          "detail": "Six exact input Git blobs admitted before extraction",
+          "id": "committed_reviewed_inputs",
+          "status": "passed"
+        },
+        {
+          "detail": "Uncommitted inputs, changed source and malformed review refused",
+          "id": "input_refusal_before_extraction",
+          "status": "passed"
+        },
+        {
+          "detail": "Existing file catalog and native structural owner captured the identical four files",
+          "id": "captured_foundation_ready",
+          "status": "passed"
+        },
+        {
+          "detail": "Catalog and structural generations have distinct domains; repository identity agrees",
+          "id": "shared_repository_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "No frozen ID is silently replaced or omitted",
+          "id": "physical_definition_inventory",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:PY.checkout_total",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:PY.caf\u00e9_total",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:PY.checkout_preview",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:PY.refund_balance",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:PY.invalidate_cache",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:GO.EvictWorkspace",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:GO.EvictWorkspacePreview",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:GO.ArchiveCache",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:JS.decodeLedger",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:JS.readAmount",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:JS.decodeLedgerGuide",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:JS.invalidateTenantCache",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:TS.lookupProfileById",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:TS.lookupProfileExample",
+          "status": "passed"
+        },
+        {
+          "detail": "Exact captured physical range, source digest and reviewed definition",
+          "id": "physical_source:TS.invalidateProfileCache",
+          "status": "passed"
+        },
+        {
+          "detail": "File synopsis shares the exact raw inventory",
+          "id": "file_content_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR001:files:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR001:functions:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "One captured function generation/config/analyzer",
+          "id": "FR001:snapshot",
+          "status": "passed"
+        },
+        {
+          "detail": "Actual deadline/cancellation retained without retry",
+          "id": "FR001:deadline",
+          "status": "passed"
+        },
+        {
+          "detail": "Frozen exact physical identifier must remain in the returned members",
+          "id": "FR001:exact_identifier",
+          "status": "passed"
+        },
+        {
+          "detail": "Both native keyword responses retained; relevance misses are experimental findings",
+          "id": "FR001:measured",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR002:files:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR002:functions:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "One captured function generation/config/analyzer",
+          "id": "FR002:snapshot",
+          "status": "passed"
+        },
+        {
+          "detail": "Actual deadline/cancellation retained without retry",
+          "id": "FR002:deadline",
+          "status": "passed"
+        },
+        {
+          "detail": "Both native keyword responses retained; relevance misses are experimental findings",
+          "id": "FR002:measured",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR003:files:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR003:functions:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "One captured function generation/config/analyzer",
+          "id": "FR003:snapshot",
+          "status": "passed"
+        },
+        {
+          "detail": "Actual deadline/cancellation retained without retry",
+          "id": "FR003:deadline",
+          "status": "passed"
+        },
+        {
+          "detail": "Frozen exact physical identifier must remain in the returned members",
+          "id": "FR003:exact_identifier",
+          "status": "passed"
+        },
+        {
+          "detail": "Both native keyword responses retained; relevance misses are experimental findings",
+          "id": "FR003:measured",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR004:files:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR004:functions:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "One captured function generation/config/analyzer",
+          "id": "FR004:snapshot",
+          "status": "passed"
+        },
+        {
+          "detail": "Actual deadline/cancellation retained without retry",
+          "id": "FR004:deadline",
+          "status": "passed"
+        },
+        {
+          "detail": "Both native keyword responses retained; relevance misses are experimental findings",
+          "id": "FR004:measured",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR005:files:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR005:functions:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "One captured function generation/config/analyzer",
+          "id": "FR005:snapshot",
+          "status": "passed"
+        },
+        {
+          "detail": "Actual deadline/cancellation retained without retry",
+          "id": "FR005:deadline",
+          "status": "passed"
+        },
+        {
+          "detail": "Frozen exact physical identifier must remain in the returned members",
+          "id": "FR005:exact_identifier",
+          "status": "passed"
+        },
+        {
+          "detail": "Both native keyword responses retained; relevance misses are experimental findings",
+          "id": "FR005:measured",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR006:files:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR006:functions:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "One captured function generation/config/analyzer",
+          "id": "FR006:snapshot",
+          "status": "passed"
+        },
+        {
+          "detail": "Actual deadline/cancellation retained without retry",
+          "id": "FR006:deadline",
+          "status": "passed"
+        },
+        {
+          "detail": "Both native keyword responses retained; relevance misses are experimental findings",
+          "id": "FR006:measured",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR007:files:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR007:functions:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "One captured function generation/config/analyzer",
+          "id": "FR007:snapshot",
+          "status": "passed"
+        },
+        {
+          "detail": "Actual deadline/cancellation retained without retry",
+          "id": "FR007:deadline",
+          "status": "passed"
+        },
+        {
+          "detail": "Frozen exact physical identifier must remain in the returned members",
+          "id": "FR007:exact_identifier",
+          "status": "passed"
+        },
+        {
+          "detail": "Both native keyword responses retained; relevance misses are experimental findings",
+          "id": "FR007:measured",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR008:files:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "Returned evidence agrees with this captured source",
+          "id": "FR008:functions:source_affinity",
+          "status": "passed"
+        },
+        {
+          "detail": "One captured function generation/config/analyzer",
+          "id": "FR008:snapshot",
+          "status": "passed"
+        },
+        {
+          "detail": "Actual deadline/cancellation retained without retry",
+          "id": "FR008:deadline",
+          "status": "passed"
+        },
+        {
+          "detail": "Both native keyword responses retained; relevance misses are experimental findings",
+          "id": "FR008:measured",
+          "status": "passed"
+        },
+        {
+          "detail": "Keyword observations do not change captured structural/function evidence",
+          "id": "captured_snapshot_unchanged",
+          "status": "passed"
+        },
+        {
+          "detail": "No model initialization, key read or inference API attempt",
+          "id": "zero_inference",
+          "status": "passed"
+        },
+        {
+          "detail": "Shared native/search bytes held throughout observation",
+          "id": "implementation_stable",
+          "status": "passed"
+        },
+        {
+          "detail": "Frozen source judgments and source bytes unchanged during observation",
+          "id": "inputs_stable",
+          "status": "passed"
+        }
+      ],
+      "checks": "ranking-boundary",
+      "denominators": {
+        "candidate_miss_questions": 2,
+        "distractor_question_function_pairs": 11,
+        "diversity_questions": 1,
+        "exact_identifier_questions": 4,
+        "full_precision_denominator_available": false,
+        "languages": 4,
+        "nested_overlap_questions": 1,
+        "physical_functions": 15,
+        "questions": 8,
+        "relevant_question_function_pairs": 12,
+        "source_files": 4,
+        "supporting_question_function_pairs": 1,
+        "unique_relevant_function_ids": 10,
+        "unjudged_question_function_pairs": 96
+      },
+      "environment": {
+        "architecture": "x86_64",
+        "memory": {
+          "process_peak_rss": 43808,
+          "scope": "entire component process, not a stage-isolated benchmark",
+          "unit": "KiB"
+        },
+        "platform": "Linux",
+        "python": "3.12.14"
+      },
+      "gate": "task-preflight",
+      "human_evaluation": false,
+      "inference_guard_attempts": {
+        "Embeddings.__init__": 0,
+        "LocalReranker.__init__": 0,
+        "repo_graph.jev.OPEN": 0,
+        "repo_graph.jev.evaluate": 0,
+        "repo_graph.jev.typesafe_key": 0
+      },
+      "input_refusal_controls": [
+        {
+          "expected_status": "blocked",
+          "id": "uncommitted_inputs",
+          "observation": {
+            "case_results": [
+              {
+                "detail": "Input, capture or query boundary failed; no retry or source-key retuning",
+                "id": "observation_available",
+                "status": "failed"
+              }
+            ],
+            "checks": "ranking-boundary",
+            "error_kind": "ValueError",
+            "gate": "task-preflight",
+            "human_evaluation": false,
+            "model_quality_measured": false,
+            "qualification_complete": false,
+            "questions": [],
+            "resources": {
+              "benchmark_peak_rss_bytes": null,
+              "child_process_cpu_seconds": null,
+              "elapsed_seconds": 0.0019244150025770068,
+              "model_tokens": null,
+              "process_cpu_seconds": 0.0009792040000000113,
+              "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+            },
+            "schema_version": 1,
+            "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+            "source_identity": {},
+            "status": "blocked",
+            "stopped_phase": "inputs",
+            "task": "T047",
+            "task_accepted": false,
+            "token_savings_measured": false
+          }
+        },
+        {
+          "expected_status": "blocked",
+          "id": "changed_source",
+          "observation": {
+            "case_results": [
+              {
+                "detail": "Input, capture or query boundary failed; no retry or source-key retuning",
+                "id": "observation_available",
+                "status": "failed"
+              }
+            ],
+            "checks": "ranking-boundary",
+            "error_kind": "ValueError",
+            "gate": "task-preflight",
+            "human_evaluation": false,
+            "model_quality_measured": false,
+            "qualification_complete": false,
+            "questions": [],
+            "resources": {
+              "benchmark_peak_rss_bytes": null,
+              "child_process_cpu_seconds": null,
+              "elapsed_seconds": 0.00043156498577445745,
+              "model_tokens": null,
+              "process_cpu_seconds": 0.000431835999999991,
+              "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+            },
+            "schema_version": 1,
+            "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+            "source_identity": {},
+            "status": "blocked",
+            "stopped_phase": "inputs",
+            "task": "T047",
+            "task_accepted": false,
+            "token_savings_measured": false
+          }
+        },
+        {
+          "expected_status": "blocked",
+          "id": "malformed_review",
+          "observation": {
+            "case_results": [
+              {
+                "detail": "Input, capture or query boundary failed; no retry or source-key retuning",
+                "id": "observation_available",
+                "status": "failed"
+              }
+            ],
+            "checks": "ranking-boundary",
+            "error_kind": "JSONDecodeError",
+            "gate": "task-preflight",
+            "human_evaluation": false,
+            "model_quality_measured": false,
+            "qualification_complete": false,
+            "questions": [],
+            "resources": {
+              "benchmark_peak_rss_bytes": null,
+              "child_process_cpu_seconds": null,
+              "elapsed_seconds": 0.00019075494492426515,
+              "model_tokens": null,
+              "process_cpu_seconds": 0.00019081099999999906,
+              "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+            },
+            "schema_version": 1,
+            "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+            "source_identity": {},
+            "status": "blocked",
+            "stopped_phase": "inputs",
+            "task": "T047",
+            "task_accepted": false,
+            "token_savings_measured": false
+          }
+        }
+      ],
+      "measured_source": {
+        "captured_git_base_commit": "b19ef39",
+        "command_receipt_sha256": "2f4a025bb86aa6efa5549900c7339768ceb780d448fc843b148caba2e3cd7f17",
+        "comparison_source_unchanged": true,
+        "source_identity": "See exact source/input/runtime bindings captured in source_identity and command receipt; this is not a new execution on the final commit.",
+        "tested_working_tree": true
+      },
+      "model_quality_measured": false,
+      "optional_decisions": [
+        {
+          "alternative": "richer source/context evidence",
+          "decision": "defer implementation",
+          "trigger": "Compare captured body evidence against existing synopsis first; require a measured, source-reviewed missed context before widening export."
+        },
+        {
+          "alternative": "diversity or package routing",
+          "decision": "defer implementation",
+          "trigger": "Measure relevant context-family coverage after existing overlap deduplication; preserve exact-identifier regressions and candidate misses."
+        },
+        {
+          "alternative": "cached local encoder or local reranking",
+          "availability": "unobserved",
+          "decision": "not admitted for this freeze",
+          "trigger": "A later authorized comparison must prove the exact cached model and package available offline without provider changes or downloads."
+        },
+        {
+          "alternative": "ANN/vector backend",
+          "decision": "defer implementation",
+          "trigger": "No vector/scale measurement in this fixture freeze; require measured current-search limitation and independent review."
+        }
+      ],
+      "prior_failed_attempts": [
+        {
+          "command": "uv run python evaluations/acceptance.py --gate task-preflight --task T047 --checks ranking-boundary",
+          "command_receipt_sha256": "9939476165632314c81b49bc6cf78d56b93210c964a29940cd5e246e20fa7549",
+          "diagnosis_sha256": "6892a1098ca1f20ebf248abb1347c8e57596ab72652b3da07217344d5bc41aa8",
+          "elapsed_seconds": 0.31499204703141004,
+          "ended_at": "2026-10-08T00:38:02.958130+00:00",
+          "exit_code": 1,
+          "label": "run-1_evaluator_output_directory_setup",
+          "result": {
+            "case_results": [
+              {
+                "detail": "Six exact input Git blobs admitted before extraction",
+                "id": "committed_reviewed_inputs",
+                "status": "passed"
+              },
+              {
+                "detail": "Uncommitted inputs, changed source and malformed review refused",
+                "id": "input_refusal_before_extraction",
+                "status": "passed"
+              },
+              {
+                "detail": "Input, capture or query boundary failed; no retry or source-key retuning",
+                "id": "observation_available",
+                "status": "failed"
+              }
+            ],
+            "checks": "ranking-boundary",
+            "error_kind": "FileNotFoundError",
+            "gate": "task-preflight",
+            "human_evaluation": false,
+            "input_refusal_controls": [
+              {
+                "expected_status": "blocked",
+                "id": "uncommitted_inputs",
+                "observation": {
+                  "case_results": [
+                    {
+                      "detail": "Input, capture or query boundary failed; no retry or source-key retuning",
+                      "id": "observation_available",
+                      "status": "failed"
+                    }
+                  ],
+                  "checks": "ranking-boundary",
+                  "error_kind": "ValueError",
+                  "gate": "task-preflight",
+                  "human_evaluation": false,
+                  "model_quality_measured": false,
+                  "qualification_complete": false,
+                  "questions": [],
+                  "resources": {
+                    "benchmark_peak_rss_bytes": null,
+                    "child_process_cpu_seconds": null,
+                    "elapsed_seconds": 0.002514649007935077,
+                    "model_tokens": null,
+                    "process_cpu_seconds": 0.0015135159999999925,
+                    "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+                  },
+                  "schema_version": 1,
+                  "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+                  "source_identity": {},
+                  "status": "blocked",
+                  "stopped_phase": "inputs",
+                  "task": "T047",
+                  "task_accepted": false,
+                  "token_savings_measured": false
+                }
+              },
+              {
+                "expected_status": "blocked",
+                "id": "changed_source",
+                "observation": {
+                  "case_results": [
+                    {
+                      "detail": "Input, capture or query boundary failed; no retry or source-key retuning",
+                      "id": "observation_available",
+                      "status": "failed"
+                    }
+                  ],
+                  "checks": "ranking-boundary",
+                  "error_kind": "ValueError",
+                  "gate": "task-preflight",
+                  "human_evaluation": false,
+                  "model_quality_measured": false,
+                  "qualification_complete": false,
+                  "questions": [],
+                  "resources": {
+                    "benchmark_peak_rss_bytes": null,
+                    "child_process_cpu_seconds": null,
+                    "elapsed_seconds": 0.0014753899886272848,
+                    "model_tokens": null,
+                    "process_cpu_seconds": 0.0014761870000000038,
+                    "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+                  },
+                  "schema_version": 1,
+                  "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+                  "source_identity": {},
+                  "status": "blocked",
+                  "stopped_phase": "inputs",
+                  "task": "T047",
+                  "task_accepted": false,
+                  "token_savings_measured": false
+                }
+              },
+              {
+                "expected_status": "blocked",
+                "id": "malformed_review",
+                "observation": {
+                  "case_results": [
+                    {
+                      "detail": "Input, capture or query boundary failed; no retry or source-key retuning",
+                      "id": "observation_available",
+                      "status": "failed"
+                    }
+                  ],
+                  "checks": "ranking-boundary",
+                  "error_kind": "JSONDecodeError",
+                  "gate": "task-preflight",
+                  "human_evaluation": false,
+                  "model_quality_measured": false,
+                  "qualification_complete": false,
+                  "questions": [],
+                  "resources": {
+                    "benchmark_peak_rss_bytes": null,
+                    "child_process_cpu_seconds": null,
+                    "elapsed_seconds": 0.0005905599682591856,
+                    "model_tokens": null,
+                    "process_cpu_seconds": 0.000590927000000005,
+                    "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+                  },
+                  "schema_version": 1,
+                  "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+                  "source_identity": {},
+                  "status": "blocked",
+                  "stopped_phase": "inputs",
+                  "task": "T047",
+                  "task_accepted": false,
+                  "token_savings_measured": false
+                }
+              }
+            ],
+            "model_quality_measured": false,
+            "qualification_complete": false,
+            "questions": [],
+            "resources": {
+              "benchmark_peak_rss_bytes": null,
+              "child_process_cpu_seconds": null,
+              "elapsed_seconds": 0.16259447700576857,
+              "model_tokens": null,
+              "process_cpu_seconds": 0.143773496,
+              "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+            },
+            "schema_version": 1,
+            "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+            "source_identity": {
+              "implementation": {
+                "sha256": {
+                  "evaluations/acceptance.py": "da5cc7c4260aefa8201d005a13298f1b46a1d76d34b18c4854412e65b83f7319",
+                  "pyproject.toml": "5c11057fc766142b82a7d975262c033b43ddaddd441fa4c1d93edf99778950e0",
+                  "repo_graph/analysis.py": "26d216c9c9e4b9c9bbebab1b4369a768dca1a3bbbcea8ccc82a7341f2a451173",
+                  "repo_graph/analysis_native.py": "a1a7696dea5e8f19ccd43622ce5b04403066b81cbf78162f5f011a52078ec70d",
+                  "repo_graph/analysis_queue.py": "ca4d74ec173a782cd8cc75bc48dbc7f322f48ac596b762c1c44f3beeda16afca",
+                  "repo_graph/jev.py": "a8f27d62c381948ab248ee477cc3e353b8af240f8daf67c63947025849857243",
+                  "repo_graph/rerank.py": "1c682aae730fc860da8fd95b14eea6fa6c37caaf815e57e254d987a76a4e57cf",
+                  "repo_graph/search.py": "e2955152ae0495c305e33d2bc7247ce054a145d966ccc77d4d080e6ef97e51f9",
+                  "repo_graph/source.py": "b4459e73a611d5fd807d84789f2f4d438e2bf78a756093626a0f227e465a4dbc",
+                  "uv.lock": "2070aae111fd848c56247bc0ccf82060f3e24164f0700855f05b0225e59cb7d4"
+                }
+              },
+              "inputs": {
+                "evaluations/code-understanding/function-relevance-inputs.json": "bd2291fd403411a276e268564145844f0be4bc68b0632597784dc8cba9befe00",
+                "evaluations/code-understanding/function-relevance-review.json": "d4cc1bb4b7400e4f3f7620b43ffb633462796a82481a8f71838286a81eac1e68",
+                "tests/fixtures/code-understanding/retrieval/go.go": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b",
+                "tests/fixtures/code-understanding/retrieval/javascript.js": "8c23afc39757e66f8679ac473dca7b5ec792df7f90dce5ae3978c072038740f0",
+                "tests/fixtures/code-understanding/retrieval/python.py": "6ad715939587fd255cb9e6f5eeb491f95e09ce7fc01dfdb328a3d9b584becfcd",
+                "tests/fixtures/code-understanding/retrieval/typescript.ts": "af6e4caf3690f296f722f99f1d7afc61a0822b10043357f46cebdfbf6a8aee89"
+              },
+              "review_receipt_sha256": "388dcdc6616954d221d7a5deabaa8e34e57011980b9049f287fcc7a6b951c6d6"
+            },
+            "status": "blocked",
+            "stopped_phase": "capture",
+            "task": "T047",
+            "task_accepted": false,
+            "token_savings_measured": false
+          },
+          "started_at": "2026-10-08T00:38:02.643149+00:00",
+          "stdout_sha256": "f8216d2a13803a0f361ef345348c9c0242ae0e8e36f21309c54b52387ae3cbcb"
+        }
+      ],
+      "qualification_complete": false,
+      "questions": [
+        {
+          "arms": {
+            "files": {
+              "denominator": 1,
+              "evidence_context_families": [],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/python.py:95:227": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 119,
+                        "end_line": 3,
+                        "start_byte": 95,
+                        "start_line": 3
+                      },
+                      "raw_sha256": "24968e0388e1b1763cc1ffc8654d38a2cadae355aba04f8a47e5cb218a6fa6bf"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 227,
+                        "end_line": 5,
+                        "start_byte": 181,
+                        "start_line": 5
+                      },
+                      "raw_sha256": "763cff60ac2e60acf2d17d078d57adf34c3e4ef99dd85b15219207d66cbfa366"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [],
+              "metric": "file_presence_proxy_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": null,
+              "native_stop_reason": null,
+              "native_truncated": null,
+              "numerator": 1,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/python.py:0:257"
+              ],
+              "present_languages": [
+                "python"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+              ],
+              "process_cpu_seconds": 0.0006839260000000014,
+              "response": {
+                "documents": 4,
+                "mode": "keyword",
+                "query": "caf\u00e9_total",
+                "results": [
+                  {
+                    "evidence": "tests fixtures code understanding retrieval python py\nL1: def checkout_total(items):\nL2: \"\"\"Compute the cart subtotal with a nested money helper.\"\"\"\nL3: def caf\u00e9_total(values):\nL4: \"\"\"Sum unit prices for the cart subtotal.\"\"\"\nL9: def checkout_preview(items):\nL10: \"\"\"Describe cart subtotal fields without computing them.\"\"\"\nL14: def refund_balance(balance, amount):\nL15: \"\"\"Subtract a paid amount from a retained balance.\"\"\"\nL19: def invalidate_cache(cache, key):\nL20: \"\"\"Invalidate cache entry by key.\"\"\"",
+                    "path": "tests/fixtures/code-understanding/retrieval/python.py",
+                    "score": 0.016393,
+                    "similarity": null
+                  }
+                ],
+                "seconds": 0.0007
+              },
+              "returned_distractor_handles": null,
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.0006857699481770396
+            },
+            "functions": {
+              "denominator": 1,
+              "evidence_context_families": [
+                "tests/fixtures/code-understanding/retrieval/python.py:0:257"
+              ],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/python.py:95:227": {
+                  "covered": true,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 119,
+                        "end_line": 3,
+                        "start_byte": 95,
+                        "start_line": 3
+                      },
+                      "raw_sha256": "24968e0388e1b1763cc1ffc8654d38a2cadae355aba04f8a47e5cb218a6fa6bf"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 227,
+                        "end_line": 5,
+                        "start_byte": 181,
+                        "start_line": 5
+                      },
+                      "raw_sha256": "763cff60ac2e60acf2d17d078d57adf34c3e4ef99dd85b15219207d66cbfa366"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+              ],
+              "metric": "physical_member_recall_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": {
+                "max_entities": 50,
+                "max_excerpt_bytes": 8192,
+                "max_response_bytes": 32768,
+                "timeout_seconds": 0.5
+              },
+              "native_stop_reason": null,
+              "native_truncated": false,
+              "numerator": 1,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/python.py:0:257"
+              ],
+              "present_languages": [
+                "python"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+              ],
+              "process_cpu_seconds": 0.0011985139999999839,
+              "response": {
+                "budgets": {
+                  "max_entities": 50,
+                  "max_excerpt_bytes": 8192,
+                  "max_response_bytes": 32768,
+                  "timeout_seconds": 0.5
+                },
+                "counts": {
+                  "documents": {
+                    "knowledge": "exact",
+                    "value": 15
+                  },
+                  "examined_candidates": 2,
+                  "returned_passages": 1,
+                  "returned_symbol_handles": 2
+                },
+                "identities": {
+                  "analyzer_identity": "207350cdc5694154a12bf44bb7c30a8a570a069b517716e5593c2f87cd4461e0",
+                  "config_identity": "8b0d3a9f14b9978ec71fab9576f1b2bd83b2d826d674bdda13023c362fa54f4d",
+                  "evidence_generation": "ca9a5120cdee1aaa6296253256518c79805a0897f47b55a7df834a94275d2c87",
+                  "repository_identity": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+                  "source_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657",
+                  "structural_generation": "27eb187d45446f40241cada92d79dc9e135cc95a2047fbc7556f5f514a729b3e"
+                },
+                "kind": "functions",
+                "mode": "keyword",
+                "query": "caf\u00e9_total",
+                "results": [
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "6ad715939587fd255cb9e6f5eeb491f95e09ce7fc01dfdb328a3d9b584becfcd",
+                    "language": "python",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "checkout_total",
+                        "range": {
+                          "end_byte": 257,
+                          "end_line": 6,
+                          "start_byte": 0,
+                          "start_line": 1
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/python.py:0:257"
+                      },
+                      {
+                        "kind": "function",
+                        "name": "checkout_total.caf\u00e9_total",
+                        "range": {
+                          "end_byte": 227,
+                          "end_line": 5,
+                          "start_byte": 95,
+                          "start_line": 3
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/python.py",
+                    "range": {
+                      "end_byte": 257,
+                      "end_line": 6,
+                      "start_byte": 0,
+                      "start_line": 1
+                    },
+                    "raw_digest": "d03c556367f8faec827d29e79399bf4a418f40ca65c6e85e6245f595b84d6b8c",
+                    "redacted": false,
+                    "score": 0.032787,
+                    "text": "def checkout_total(items):\n    \"\"\"Compute the cart subtotal with a nested money helper.\"\"\"\n    def caf\u00e9_total(values):\n        \"\"\"Sum unit prices for the cart subtotal.\"\"\"\n        return sum(value[\"price\"] for value in values)\n    return caf\u00e9_total(items)"
+                  }
+                ],
+                "stop_reason": null,
+                "storage": {
+                  "elapsed_seconds": 0.001144,
+                  "hard_model_deadline": false,
+                  "model_encode_seconds": 0,
+                  "rerank_seconds": 0
+                },
+                "truncated": false
+              },
+              "returned_distractor_handles": [],
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.0011970589985139668
+            }
+          },
+          "distractor_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/python.py:260:371"
+          ],
+          "full_precision": null,
+          "id": "FR001",
+          "prediction": null,
+          "query": "caf\u00e9_total",
+          "relevant_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+          ],
+          "supporting_function_ids": []
+        },
+        {
+          "arms": {
+            "files": {
+              "denominator": 2,
+              "evidence_context_families": [],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/python.py:0:257": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 26,
+                        "end_line": 1,
+                        "start_byte": 0,
+                        "start_line": 1
+                      },
+                      "raw_sha256": "120e4bc2a12e4cbf3f884a8786453db596ac82ce90dee1e1e4a73fde4009a108"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 227,
+                        "end_line": 5,
+                        "start_byte": 181,
+                        "start_line": 5
+                      },
+                      "raw_sha256": "763cff60ac2e60acf2d17d078d57adf34c3e4ef99dd85b15219207d66cbfa366"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 257,
+                        "end_line": 6,
+                        "start_byte": 232,
+                        "start_line": 6
+                      },
+                      "raw_sha256": "e40431845f9960368032aa53ff481cbef7c66b9a4a0968edf0fd89370ffe0bcb"
+                    }
+                  ]
+                },
+                "tests/fixtures/code-understanding/retrieval/python.py:95:227": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 119,
+                        "end_line": 3,
+                        "start_byte": 95,
+                        "start_line": 3
+                      },
+                      "raw_sha256": "24968e0388e1b1763cc1ffc8654d38a2cadae355aba04f8a47e5cb218a6fa6bf"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 227,
+                        "end_line": 5,
+                        "start_byte": 181,
+                        "start_line": 5
+                      },
+                      "raw_sha256": "763cff60ac2e60acf2d17d078d57adf34c3e4ef99dd85b15219207d66cbfa366"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [],
+              "metric": "file_presence_proxy_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": null,
+              "native_stop_reason": null,
+              "native_truncated": null,
+              "numerator": 2,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/python.py:0:257"
+              ],
+              "present_languages": [
+                "python"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+                "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+              ],
+              "process_cpu_seconds": 0.0006464979999999954,
+              "response": {
+                "documents": 4,
+                "mode": "keyword",
+                "query": "cart subtotal",
+                "results": [
+                  {
+                    "evidence": "tests fixtures code understanding retrieval python py\nL1: def checkout_total(items):\nL2: \"\"\"Compute the cart subtotal with a nested money helper.\"\"\"\nL3: def caf\u00e9_total(values):\nL4: \"\"\"Sum unit prices for the cart subtotal.\"\"\"\nL9: def checkout_preview(items):\nL10: \"\"\"Describe cart subtotal fields without computing them.\"\"\"\nL14: def refund_balance(balance, amount):\nL15: \"\"\"Subtract a paid amount from a retained balance.\"\"\"\nL19: def invalidate_cache(cache, key):\nL20: \"\"\"Invalidate cache entry by key.\"\"\"",
+                    "path": "tests/fixtures/code-understanding/retrieval/python.py",
+                    "score": 0.016393,
+                    "similarity": null
+                  }
+                ],
+                "seconds": 0.0006
+              },
+              "returned_distractor_handles": null,
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.0006460279691964388
+            },
+            "functions": {
+              "denominator": 2,
+              "evidence_context_families": [
+                "tests/fixtures/code-understanding/retrieval/python.py:0:257"
+              ],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/python.py:0:257": {
+                  "covered": true,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 26,
+                        "end_line": 1,
+                        "start_byte": 0,
+                        "start_line": 1
+                      },
+                      "raw_sha256": "120e4bc2a12e4cbf3f884a8786453db596ac82ce90dee1e1e4a73fde4009a108"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 227,
+                        "end_line": 5,
+                        "start_byte": 181,
+                        "start_line": 5
+                      },
+                      "raw_sha256": "763cff60ac2e60acf2d17d078d57adf34c3e4ef99dd85b15219207d66cbfa366"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 257,
+                        "end_line": 6,
+                        "start_byte": 232,
+                        "start_line": 6
+                      },
+                      "raw_sha256": "e40431845f9960368032aa53ff481cbef7c66b9a4a0968edf0fd89370ffe0bcb"
+                    }
+                  ]
+                },
+                "tests/fixtures/code-understanding/retrieval/python.py:95:227": {
+                  "covered": true,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 119,
+                        "end_line": 3,
+                        "start_byte": 95,
+                        "start_line": 3
+                      },
+                      "raw_sha256": "24968e0388e1b1763cc1ffc8654d38a2cadae355aba04f8a47e5cb218a6fa6bf"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 227,
+                        "end_line": 5,
+                        "start_byte": 181,
+                        "start_line": 5
+                      },
+                      "raw_sha256": "763cff60ac2e60acf2d17d078d57adf34c3e4ef99dd85b15219207d66cbfa366"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+                "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+              ],
+              "metric": "physical_member_recall_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": {
+                "max_entities": 50,
+                "max_excerpt_bytes": 8192,
+                "max_response_bytes": 32768,
+                "timeout_seconds": 0.5
+              },
+              "native_stop_reason": null,
+              "native_truncated": false,
+              "numerator": 2,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/python.py:0:257"
+              ],
+              "present_languages": [
+                "python"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+                "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+              ],
+              "process_cpu_seconds": 0.0012849940000000115,
+              "response": {
+                "budgets": {
+                  "max_entities": 50,
+                  "max_excerpt_bytes": 8192,
+                  "max_response_bytes": 32768,
+                  "timeout_seconds": 0.5
+                },
+                "counts": {
+                  "documents": {
+                    "knowledge": "exact",
+                    "value": 15
+                  },
+                  "examined_candidates": 3,
+                  "returned_passages": 2,
+                  "returned_symbol_handles": 3
+                },
+                "identities": {
+                  "analyzer_identity": "207350cdc5694154a12bf44bb7c30a8a570a069b517716e5593c2f87cd4461e0",
+                  "config_identity": "8b0d3a9f14b9978ec71fab9576f1b2bd83b2d826d674bdda13023c362fa54f4d",
+                  "evidence_generation": "ca9a5120cdee1aaa6296253256518c79805a0897f47b55a7df834a94275d2c87",
+                  "repository_identity": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+                  "source_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657",
+                  "structural_generation": "27eb187d45446f40241cada92d79dc9e135cc95a2047fbc7556f5f514a729b3e"
+                },
+                "kind": "functions",
+                "mode": "keyword",
+                "query": "cart subtotal",
+                "results": [
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "6ad715939587fd255cb9e6f5eeb491f95e09ce7fc01dfdb328a3d9b584becfcd",
+                    "language": "python",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "checkout_total",
+                        "range": {
+                          "end_byte": 257,
+                          "end_line": 6,
+                          "start_byte": 0,
+                          "start_line": 1
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/python.py:0:257"
+                      },
+                      {
+                        "kind": "function",
+                        "name": "checkout_total.caf\u00e9_total",
+                        "range": {
+                          "end_byte": 227,
+                          "end_line": 5,
+                          "start_byte": 95,
+                          "start_line": 3
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/python.py",
+                    "range": {
+                      "end_byte": 257,
+                      "end_line": 6,
+                      "start_byte": 0,
+                      "start_line": 1
+                    },
+                    "raw_digest": "d03c556367f8faec827d29e79399bf4a418f40ca65c6e85e6245f595b84d6b8c",
+                    "redacted": false,
+                    "score": 0.016393,
+                    "text": "def checkout_total(items):\n    \"\"\"Compute the cart subtotal with a nested money helper.\"\"\"\n    def caf\u00e9_total(values):\n        \"\"\"Sum unit prices for the cart subtotal.\"\"\"\n        return sum(value[\"price\"] for value in values)\n    return caf\u00e9_total(items)"
+                  },
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "6ad715939587fd255cb9e6f5eeb491f95e09ce7fc01dfdb328a3d9b584becfcd",
+                    "language": "python",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "checkout_preview",
+                        "range": {
+                          "end_byte": 371,
+                          "end_line": 11,
+                          "start_byte": 260,
+                          "start_line": 9
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/python.py:260:371"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/python.py",
+                    "range": {
+                      "end_byte": 371,
+                      "end_line": 11,
+                      "start_byte": 260,
+                      "start_line": 9
+                    },
+                    "raw_digest": "2c9e600eec1c0fcd4980be7b91cc72716eae52aed1f4f2b369e11e86c251989c",
+                    "redacted": false,
+                    "score": 0.016129,
+                    "text": "def checkout_preview(items):\n    \"\"\"Describe cart subtotal fields without computing them.\"\"\"\n    return \"price\""
+                  }
+                ],
+                "stop_reason": null,
+                "storage": {
+                  "elapsed_seconds": 0.001226,
+                  "hard_model_deadline": false,
+                  "model_encode_seconds": 0,
+                  "rerank_seconds": 0
+                },
+                "truncated": false
+              },
+              "returned_distractor_handles": [
+                "tests/fixtures/code-understanding/retrieval/python.py:260:371"
+              ],
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.001283732010051608
+            }
+          },
+          "distractor_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/python.py:260:371"
+          ],
+          "full_precision": null,
+          "id": "FR002",
+          "prediction": null,
+          "query": "cart subtotal",
+          "relevant_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+            "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+          ],
+          "supporting_function_ids": []
+        },
+        {
+          "arms": {
+            "files": {
+              "denominator": 1,
+              "evidence_context_families": [],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 80,
+                        "end_line": 3,
+                        "start_byte": 19,
+                        "start_line": 3
+                      },
+                      "raw_sha256": "e9ccd70c7345ee49d5c45a231e928e28fca17de1bf4547fdf470ca7a52d54dd8"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 150,
+                        "end_line": 5,
+                        "start_byte": 126,
+                        "start_line": 5
+                      },
+                      "raw_sha256": "748bff4a51ae92de4f05763006e986f62df08ae26f36720a93d0b79a3375cbf2"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [],
+              "metric": "file_presence_proxy_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": null,
+              "native_stop_reason": null,
+              "native_truncated": null,
+              "numerator": 1,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+              ],
+              "present_languages": [
+                "go"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+              ],
+              "process_cpu_seconds": 0.0006301469999999976,
+              "response": {
+                "documents": 4,
+                "mode": "keyword",
+                "query": "EvictWorkspace",
+                "results": [
+                  {
+                    "evidence": "tests fixtures code understanding retrieval go go\nL3: func EvictWorkspace(cache map[string]int, workspace string) {\nL4: // Invalidate cache entry for a workspace.\nL8: func EvictWorkspacePreview(workspace string) string {\nL9: // Describe the workspace without invalidating its cache.\nL13: func ArchiveCache() string {",
+                    "path": "tests/fixtures/code-understanding/retrieval/go.go",
+                    "score": 0.016393,
+                    "similarity": null
+                  }
+                ],
+                "seconds": 0.0006
+              },
+              "returned_distractor_handles": null,
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.0006295240018516779
+            },
+            "functions": {
+              "denominator": 1,
+              "evidence_context_families": [
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+              ],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152": {
+                  "covered": true,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 80,
+                        "end_line": 3,
+                        "start_byte": 19,
+                        "start_line": 3
+                      },
+                      "raw_sha256": "e9ccd70c7345ee49d5c45a231e928e28fca17de1bf4547fdf470ca7a52d54dd8"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 150,
+                        "end_line": 5,
+                        "start_byte": 126,
+                        "start_line": 5
+                      },
+                      "raw_sha256": "748bff4a51ae92de4f05763006e986f62df08ae26f36720a93d0b79a3375cbf2"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+              ],
+              "metric": "physical_member_recall_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": {
+                "max_entities": 50,
+                "max_excerpt_bytes": 8192,
+                "max_response_bytes": 32768,
+                "timeout_seconds": 0.5
+              },
+              "native_stop_reason": null,
+              "native_truncated": false,
+              "numerator": 1,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+              ],
+              "present_languages": [
+                "go"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+              ],
+              "process_cpu_seconds": 0.0011520279999999994,
+              "response": {
+                "budgets": {
+                  "max_entities": 50,
+                  "max_excerpt_bytes": 8192,
+                  "max_response_bytes": 32768,
+                  "timeout_seconds": 0.5
+                },
+                "counts": {
+                  "documents": {
+                    "knowledge": "exact",
+                    "value": 15
+                  },
+                  "examined_candidates": 2,
+                  "returned_passages": 2,
+                  "returned_symbol_handles": 2
+                },
+                "identities": {
+                  "analyzer_identity": "207350cdc5694154a12bf44bb7c30a8a570a069b517716e5593c2f87cd4461e0",
+                  "config_identity": "8b0d3a9f14b9978ec71fab9576f1b2bd83b2d826d674bdda13023c362fa54f4d",
+                  "evidence_generation": "ca9a5120cdee1aaa6296253256518c79805a0897f47b55a7df834a94275d2c87",
+                  "repository_identity": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+                  "source_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657",
+                  "structural_generation": "27eb187d45446f40241cada92d79dc9e135cc95a2047fbc7556f5f514a729b3e"
+                },
+                "kind": "functions",
+                "mode": "keyword",
+                "query": "EvictWorkspace",
+                "results": [
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b",
+                    "language": "go",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "EvictWorkspace",
+                        "range": {
+                          "end_byte": 152,
+                          "end_line": 6,
+                          "start_byte": 19,
+                          "start_line": 3
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/go.go",
+                    "range": {
+                      "end_byte": 152,
+                      "end_line": 6,
+                      "start_byte": 19,
+                      "start_line": 3
+                    },
+                    "raw_digest": "c3bd0725c9ee2ea7121b8c03c67ae18156e05eeeef960fc3b5dd7d379e044346",
+                    "redacted": false,
+                    "score": 0.032522,
+                    "text": "func EvictWorkspace(cache map[string]int, workspace string) {\n\t// Invalidate cache entry for a workspace.\n\tdelete(cache, workspace)\n}"
+                  },
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b",
+                    "language": "go",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "EvictWorkspacePreview",
+                        "range": {
+                          "end_byte": 286,
+                          "end_line": 11,
+                          "start_byte": 154,
+                          "start_line": 8
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/go.go:154:286"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/go.go",
+                    "range": {
+                      "end_byte": 286,
+                      "end_line": 11,
+                      "start_byte": 154,
+                      "start_line": 8
+                    },
+                    "raw_digest": "eed4700b56b4e6fa0fe9cf27c0950393bc4881e9625683cc1b39012600c4e3a6",
+                    "redacted": false,
+                    "score": 0.016393,
+                    "text": "func EvictWorkspacePreview(workspace string) string {\n\t// Describe the workspace without invalidating its cache.\n\treturn workspace\n}"
+                  }
+                ],
+                "stop_reason": null,
+                "storage": {
+                  "elapsed_seconds": 0.001091,
+                  "hard_model_deadline": false,
+                  "model_encode_seconds": 0,
+                  "rerank_seconds": 0
+                },
+                "truncated": false
+              },
+              "returned_distractor_handles": [
+                "tests/fixtures/code-understanding/retrieval/go.go:154:286"
+              ],
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.001148951007053256
+            }
+          },
+          "distractor_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/go.go:154:286"
+          ],
+          "full_precision": null,
+          "id": "FR003",
+          "prediction": null,
+          "query": "EvictWorkspace",
+          "relevant_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+          ],
+          "supporting_function_ids": []
+        },
+        {
+          "arms": {
+            "files": {
+              "denominator": 1,
+              "evidence_context_families": [],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/go.go:288:364": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 316,
+                        "end_line": 13,
+                        "start_byte": 288,
+                        "start_line": 13
+                      },
+                      "raw_sha256": "eac65d90c1c7665ba608286cd6618424dc35e6d9260eeadbbfdb1deeebd292be"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 347,
+                        "end_line": 14,
+                        "start_byte": 318,
+                        "start_line": 14
+                      },
+                      "raw_sha256": "0c8cc88149357fa426ccf527641f5246f830737d17b74ce962bf0953ee8ac6b7"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 362,
+                        "end_line": 15,
+                        "start_byte": 349,
+                        "start_line": 15
+                      },
+                      "raw_sha256": "4ed491a6d4008b78573b74941e813e16009759f449f2d0e158bd75222e222234"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [],
+              "metric": "file_presence_proxy_at_10",
+              "missing_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/go.go:288:364"
+              ],
+              "model_tokens": null,
+              "native_bounds": null,
+              "native_stop_reason": null,
+              "native_truncated": null,
+              "numerator": 0,
+              "present_context_families": [],
+              "present_languages": [],
+              "present_relevant_ids": [],
+              "process_cpu_seconds": 0.0005505399999999883,
+              "response": {
+                "documents": 4,
+                "mode": "keyword",
+                "query": "tombstone",
+                "results": [],
+                "seconds": 0.0005
+              },
+              "returned_distractor_handles": null,
+              "source_affinity": true,
+              "value": 0.0,
+              "wall_seconds": 0.0005500380066223443
+            },
+            "functions": {
+              "denominator": 1,
+              "evidence_context_families": [
+                "tests/fixtures/code-understanding/retrieval/go.go:288:364"
+              ],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/go.go:288:364": {
+                  "covered": true,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 316,
+                        "end_line": 13,
+                        "start_byte": 288,
+                        "start_line": 13
+                      },
+                      "raw_sha256": "eac65d90c1c7665ba608286cd6618424dc35e6d9260eeadbbfdb1deeebd292be"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 347,
+                        "end_line": 14,
+                        "start_byte": 318,
+                        "start_line": 14
+                      },
+                      "raw_sha256": "0c8cc88149357fa426ccf527641f5246f830737d17b74ce962bf0953ee8ac6b7"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 362,
+                        "end_line": 15,
+                        "start_byte": 349,
+                        "start_line": 15
+                      },
+                      "raw_sha256": "4ed491a6d4008b78573b74941e813e16009759f449f2d0e158bd75222e222234"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/go.go:288:364"
+              ],
+              "metric": "physical_member_recall_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": {
+                "max_entities": 50,
+                "max_excerpt_bytes": 8192,
+                "max_response_bytes": 32768,
+                "timeout_seconds": 0.5
+              },
+              "native_stop_reason": null,
+              "native_truncated": false,
+              "numerator": 1,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/go.go:288:364"
+              ],
+              "present_languages": [
+                "go"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/go.go:288:364"
+              ],
+              "process_cpu_seconds": 0.0009466419999999975,
+              "response": {
+                "budgets": {
+                  "max_entities": 50,
+                  "max_excerpt_bytes": 8192,
+                  "max_response_bytes": 32768,
+                  "timeout_seconds": 0.5
+                },
+                "counts": {
+                  "documents": {
+                    "knowledge": "exact",
+                    "value": 15
+                  },
+                  "examined_candidates": 1,
+                  "returned_passages": 1,
+                  "returned_symbol_handles": 1
+                },
+                "identities": {
+                  "analyzer_identity": "207350cdc5694154a12bf44bb7c30a8a570a069b517716e5593c2f87cd4461e0",
+                  "config_identity": "8b0d3a9f14b9978ec71fab9576f1b2bd83b2d826d674bdda13023c362fa54f4d",
+                  "evidence_generation": "ca9a5120cdee1aaa6296253256518c79805a0897f47b55a7df834a94275d2c87",
+                  "repository_identity": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+                  "source_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657",
+                  "structural_generation": "27eb187d45446f40241cada92d79dc9e135cc95a2047fbc7556f5f514a729b3e"
+                },
+                "kind": "functions",
+                "mode": "keyword",
+                "query": "tombstone",
+                "results": [
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b",
+                    "language": "go",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "ArchiveCache",
+                        "range": {
+                          "end_byte": 364,
+                          "end_line": 16,
+                          "start_byte": 288,
+                          "start_line": 13
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/go.go:288:364"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/go.go",
+                    "range": {
+                      "end_byte": 364,
+                      "end_line": 16,
+                      "start_byte": 288,
+                      "start_line": 13
+                    },
+                    "raw_digest": "b2a2acb9a025d213300d57513ba0d1810d3f7170fb7657662dfb392dad6bec71",
+                    "redacted": false,
+                    "score": 0.016393,
+                    "text": "func ArchiveCache() string {\n\tmarker := \"archive tombstone\"\n\treturn marker\n}"
+                  }
+                ],
+                "stop_reason": null,
+                "storage": {
+                  "elapsed_seconds": 0.000908,
+                  "hard_model_deadline": false,
+                  "model_encode_seconds": 0,
+                  "rerank_seconds": 0
+                },
+                "truncated": false
+              },
+              "returned_distractor_handles": [],
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.000945681007578969
+            }
+          },
+          "distractor_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/go.go:154:286"
+          ],
+          "full_precision": null,
+          "id": "FR004",
+          "prediction": {
+            "basis": "tombstone appears only in a plain body assignment, outside the current synopsis declaration/comment selection; verify rather than rewrite this expectation.",
+            "expected_miss": "file_synopsis"
+          },
+          "query": "tombstone",
+          "relevant_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/go.go:288:364"
+          ],
+          "supporting_function_ids": []
+        },
+        {
+          "arms": {
+            "files": {
+              "denominator": 1,
+              "evidence_context_families": [],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/javascript.js:0:183": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 32,
+                        "end_line": 1,
+                        "start_byte": 0,
+                        "start_line": 1
+                      },
+                      "raw_sha256": "2487959403d0a62ae555cda9489ea9502ba114cd24a5c71275567af7082f6c8c"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 143,
+                        "end_line": 4,
+                        "start_byte": 123,
+                        "start_line": 4
+                      },
+                      "raw_sha256": "539193eb80d1f2d3d7a1a2f259c4302c10f45d2c87604d977bf14cf14768b8e2"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 181,
+                        "end_line": 6,
+                        "start_byte": 150,
+                        "start_line": 6
+                      },
+                      "raw_sha256": "71c2677144d97db00565479b90ce017989d9a217bb1ab1bc3013bef96d700960"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [],
+              "metric": "file_presence_proxy_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": null,
+              "native_stop_reason": null,
+              "native_truncated": null,
+              "numerator": 1,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+              ],
+              "present_languages": [
+                "javascript"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+              ],
+              "process_cpu_seconds": 0.0005391509999999877,
+              "response": {
+                "documents": 4,
+                "mode": "keyword",
+                "query": "decodeLedger",
+                "results": [
+                  {
+                    "evidence": "tests fixtures code understanding retrieval javascript js\nL2: // Decode ledger entries into their numeric amounts.\nL10: // Describe ledger fields without decoding entries.\nL15: // Invalidate cache entry for a tenant.",
+                    "path": "tests/fixtures/code-understanding/retrieval/javascript.js",
+                    "score": 0.016393,
+                    "similarity": null
+                  }
+                ],
+                "seconds": 0.0005
+              },
+              "returned_distractor_handles": null,
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.000538512016646564
+            },
+            "functions": {
+              "denominator": 1,
+              "evidence_context_families": [
+                "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+              ],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/javascript.js:0:183": {
+                  "covered": true,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 32,
+                        "end_line": 1,
+                        "start_byte": 0,
+                        "start_line": 1
+                      },
+                      "raw_sha256": "2487959403d0a62ae555cda9489ea9502ba114cd24a5c71275567af7082f6c8c"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 143,
+                        "end_line": 4,
+                        "start_byte": 123,
+                        "start_line": 4
+                      },
+                      "raw_sha256": "539193eb80d1f2d3d7a1a2f259c4302c10f45d2c87604d977bf14cf14768b8e2"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 181,
+                        "end_line": 6,
+                        "start_byte": 150,
+                        "start_line": 6
+                      },
+                      "raw_sha256": "71c2677144d97db00565479b90ce017989d9a217bb1ab1bc3013bef96d700960"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+              ],
+              "metric": "physical_member_recall_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": {
+                "max_entities": 50,
+                "max_excerpt_bytes": 8192,
+                "max_response_bytes": 32768,
+                "timeout_seconds": 0.5
+              },
+              "native_stop_reason": null,
+              "native_truncated": false,
+              "numerator": 1,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+              ],
+              "present_languages": [
+                "javascript"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+              ],
+              "process_cpu_seconds": 0.0011263039999999946,
+              "response": {
+                "budgets": {
+                  "max_entities": 50,
+                  "max_excerpt_bytes": 8192,
+                  "max_response_bytes": 32768,
+                  "timeout_seconds": 0.5
+                },
+                "counts": {
+                  "documents": {
+                    "knowledge": "exact",
+                    "value": 15
+                  },
+                  "examined_candidates": 3,
+                  "returned_passages": 2,
+                  "returned_symbol_handles": 3
+                },
+                "identities": {
+                  "analyzer_identity": "207350cdc5694154a12bf44bb7c30a8a570a069b517716e5593c2f87cd4461e0",
+                  "config_identity": "8b0d3a9f14b9978ec71fab9576f1b2bd83b2d826d674bdda13023c362fa54f4d",
+                  "evidence_generation": "ca9a5120cdee1aaa6296253256518c79805a0897f47b55a7df834a94275d2c87",
+                  "repository_identity": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+                  "source_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657",
+                  "structural_generation": "27eb187d45446f40241cada92d79dc9e135cc95a2047fbc7556f5f514a729b3e"
+                },
+                "kind": "functions",
+                "mode": "keyword",
+                "query": "decodeLedger",
+                "results": [
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "8c23afc39757e66f8679ac473dca7b5ec792df7f90dce5ae3978c072038740f0",
+                    "language": "javascript",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "decodeLedger",
+                        "range": {
+                          "end_byte": 183,
+                          "end_line": 7,
+                          "start_byte": 0,
+                          "start_line": 1
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+                      },
+                      {
+                        "kind": "function",
+                        "name": "decodeLedger.readAmount",
+                        "range": {
+                          "end_byte": 147,
+                          "end_line": 5,
+                          "start_byte": 90,
+                          "start_line": 3
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/javascript.js:90:147"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/javascript.js",
+                    "range": {
+                      "end_byte": 183,
+                      "end_line": 7,
+                      "start_byte": 0,
+                      "start_line": 1
+                    },
+                    "raw_digest": "783511fa0bd42a42d001306928cf1f1f62bc7a45a4165845fc353542ab223dba",
+                    "redacted": false,
+                    "score": 0.032522,
+                    "text": "function decodeLedger(entries) {\n  // Decode ledger entries into their numeric amounts.\n  function readAmount(entry) {\n    return entry.amount;\n  }\n  return entries.map(readAmount);\n}"
+                  },
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "8c23afc39757e66f8679ac473dca7b5ec792df7f90dce5ae3978c072038740f0",
+                    "language": "javascript",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "decodeLedgerGuide",
+                        "range": {
+                          "end_byte": 290,
+                          "end_line": 12,
+                          "start_byte": 185,
+                          "start_line": 9
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/javascript.js:185:290"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/javascript.js",
+                    "range": {
+                      "end_byte": 290,
+                      "end_line": 12,
+                      "start_byte": 185,
+                      "start_line": 9
+                    },
+                    "raw_digest": "3c568c5385eb80d2238c089e4e439b1f4f9c85dff972ee63a7da9d2784a09259",
+                    "redacted": false,
+                    "score": 0.016393,
+                    "text": "function decodeLedgerGuide() {\n  // Describe ledger fields without decoding entries.\n  return \"amount\";\n}"
+                  }
+                ],
+                "stop_reason": null,
+                "storage": {
+                  "elapsed_seconds": 0.001078,
+                  "hard_model_deadline": false,
+                  "model_encode_seconds": 0,
+                  "rerank_seconds": 0
+                },
+                "truncated": false
+              },
+              "returned_distractor_handles": [
+                "tests/fixtures/code-understanding/retrieval/javascript.js:185:290"
+              ],
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.0011253110133111477
+            }
+          },
+          "distractor_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/javascript.js:185:290"
+          ],
+          "full_precision": null,
+          "id": "FR005",
+          "prediction": null,
+          "query": "decodeLedger",
+          "relevant_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+          ],
+          "supporting_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/javascript.js:90:147"
+          ]
+        },
+        {
+          "arms": {
+            "files": {
+              "denominator": 4,
+              "evidence_context_families": [],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 80,
+                        "end_line": 3,
+                        "start_byte": 19,
+                        "start_line": 3
+                      },
+                      "raw_sha256": "e9ccd70c7345ee49d5c45a231e928e28fca17de1bf4547fdf470ca7a52d54dd8"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 150,
+                        "end_line": 5,
+                        "start_byte": 126,
+                        "start_line": 5
+                      },
+                      "raw_sha256": "748bff4a51ae92de4f05763006e986f62df08ae26f36720a93d0b79a3375cbf2"
+                    }
+                  ]
+                },
+                "tests/fixtures/code-understanding/retrieval/javascript.js:292:407": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 339,
+                        "end_line": 14,
+                        "start_byte": 292,
+                        "start_line": 14
+                      },
+                      "raw_sha256": "7fcb079c4d58d9024a7afc2feefd98e42a82002fbb984134e08dfb22743ba4de"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 405,
+                        "end_line": 16,
+                        "start_byte": 384,
+                        "start_line": 16
+                      },
+                      "raw_sha256": "ebf930adaf382dde3f222964ab8b2dd2653f535db07665bccf119eaf3ad8d25b"
+                    }
+                  ]
+                },
+                "tests/fixtures/code-understanding/retrieval/python.py:499:592": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 532,
+                        "end_line": 19,
+                        "start_byte": 499,
+                        "start_line": 19
+                      },
+                      "raw_sha256": "49b177583a56b064507dc49fad922b2ce2de094f7d1a6c73d1adb4f020d8cbca"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 592,
+                        "end_line": 21,
+                        "start_byte": 578,
+                        "start_line": 21
+                      },
+                      "raw_sha256": "d83d4a53cf05d83b250cef51b2a262bffcf204422b6887bcbcd00ed172fbe753"
+                    }
+                  ]
+                },
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 337,
+                        "end_line": 11,
+                        "start_byte": 251,
+                        "start_line": 11
+                      },
+                      "raw_sha256": "fe53405d4f779f854c8c09601e35fcaea190f9eda8fd2554ce30d1c4186a8743"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 403,
+                        "end_line": 13,
+                        "start_byte": 383,
+                        "start_line": 13
+                      },
+                      "raw_sha256": "6bdda38afbf8226b07ce54e0f71dde90416b48e634456d6d15cabcbd7f04bad7"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [],
+              "metric": "file_presence_proxy_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": null,
+              "native_stop_reason": null,
+              "native_truncated": null,
+              "numerator": 4,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+                "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+                "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+              ],
+              "present_languages": [
+                "go",
+                "javascript",
+                "python",
+                "typescript"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+                "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+              ],
+              "process_cpu_seconds": 0.000608140000000007,
+              "response": {
+                "documents": 4,
+                "mode": "keyword",
+                "query": "invalidate cache",
+                "results": [
+                  {
+                    "evidence": "tests fixtures code understanding retrieval go go\nL3: func EvictWorkspace(cache map[string]int, workspace string) {\nL4: // Invalidate cache entry for a workspace.\nL8: func EvictWorkspacePreview(workspace string) string {\nL9: // Describe the workspace without invalidating its cache.\nL13: func ArchiveCache() string {",
+                    "path": "tests/fixtures/code-understanding/retrieval/go.go",
+                    "score": 0.016393,
+                    "similarity": null
+                  },
+                  {
+                    "evidence": "tests fixtures code understanding retrieval typescript ts\nL1: type Profile = { id: string; label: string };\nL12: // Invalidate cache entry for a profile.",
+                    "path": "tests/fixtures/code-understanding/retrieval/typescript.ts",
+                    "score": 0.016129,
+                    "similarity": null
+                  },
+                  {
+                    "evidence": "tests fixtures code understanding retrieval python py\nL1: def checkout_total(items):\nL2: \"\"\"Compute the cart subtotal with a nested money helper.\"\"\"\nL3: def caf\u00e9_total(values):\nL4: \"\"\"Sum unit prices for the cart subtotal.\"\"\"\nL9: def checkout_preview(items):\nL10: \"\"\"Describe cart subtotal fields without computing them.\"\"\"\nL14: def refund_balance(balance, amount):\nL15: \"\"\"Subtract a paid amount from a retained balance.\"\"\"\nL19: def invalidate_cache(cache, key):\nL20: \"\"\"Invalidate cache entry by key.\"\"\"",
+                    "path": "tests/fixtures/code-understanding/retrieval/python.py",
+                    "score": 0.015873,
+                    "similarity": null
+                  },
+                  {
+                    "evidence": "tests fixtures code understanding retrieval javascript js\nL2: // Decode ledger entries into their numeric amounts.\nL10: // Describe ledger fields without decoding entries.\nL15: // Invalidate cache entry for a tenant.",
+                    "path": "tests/fixtures/code-understanding/retrieval/javascript.js",
+                    "score": 0.015625,
+                    "similarity": null
+                  }
+                ],
+                "seconds": 0.0006
+              },
+              "returned_distractor_handles": null,
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.0006074539851397276
+            },
+            "functions": {
+              "denominator": 4,
+              "evidence_context_families": [
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+                "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+                "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+              ],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152": {
+                  "covered": true,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 80,
+                        "end_line": 3,
+                        "start_byte": 19,
+                        "start_line": 3
+                      },
+                      "raw_sha256": "e9ccd70c7345ee49d5c45a231e928e28fca17de1bf4547fdf470ca7a52d54dd8"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 150,
+                        "end_line": 5,
+                        "start_byte": 126,
+                        "start_line": 5
+                      },
+                      "raw_sha256": "748bff4a51ae92de4f05763006e986f62df08ae26f36720a93d0b79a3375cbf2"
+                    }
+                  ]
+                },
+                "tests/fixtures/code-understanding/retrieval/javascript.js:292:407": {
+                  "covered": true,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 339,
+                        "end_line": 14,
+                        "start_byte": 292,
+                        "start_line": 14
+                      },
+                      "raw_sha256": "7fcb079c4d58d9024a7afc2feefd98e42a82002fbb984134e08dfb22743ba4de"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 405,
+                        "end_line": 16,
+                        "start_byte": 384,
+                        "start_line": 16
+                      },
+                      "raw_sha256": "ebf930adaf382dde3f222964ab8b2dd2653f535db07665bccf119eaf3ad8d25b"
+                    }
+                  ]
+                },
+                "tests/fixtures/code-understanding/retrieval/python.py:499:592": {
+                  "covered": true,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 532,
+                        "end_line": 19,
+                        "start_byte": 499,
+                        "start_line": 19
+                      },
+                      "raw_sha256": "49b177583a56b064507dc49fad922b2ce2de094f7d1a6c73d1adb4f020d8cbca"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 592,
+                        "end_line": 21,
+                        "start_byte": 578,
+                        "start_line": 21
+                      },
+                      "raw_sha256": "d83d4a53cf05d83b250cef51b2a262bffcf204422b6887bcbcd00ed172fbe753"
+                    }
+                  ]
+                },
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405": {
+                  "covered": true,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 337,
+                        "end_line": 11,
+                        "start_byte": 251,
+                        "start_line": 11
+                      },
+                      "raw_sha256": "fe53405d4f779f854c8c09601e35fcaea190f9eda8fd2554ce30d1c4186a8743"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 403,
+                        "end_line": 13,
+                        "start_byte": 383,
+                        "start_line": 13
+                      },
+                      "raw_sha256": "6bdda38afbf8226b07ce54e0f71dde90416b48e634456d6d15cabcbd7f04bad7"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+                "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+              ],
+              "metric": "physical_member_recall_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": {
+                "max_entities": 50,
+                "max_excerpt_bytes": 8192,
+                "max_response_bytes": 32768,
+                "timeout_seconds": 0.5
+              },
+              "native_stop_reason": null,
+              "native_truncated": false,
+              "numerator": 4,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+                "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+                "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+              ],
+              "present_languages": [
+                "go",
+                "javascript",
+                "python",
+                "typescript"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+                "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+                "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+              ],
+              "process_cpu_seconds": 0.0014504409999999968,
+              "response": {
+                "budgets": {
+                  "max_entities": 50,
+                  "max_excerpt_bytes": 8192,
+                  "max_response_bytes": 32768,
+                  "timeout_seconds": 0.5
+                },
+                "counts": {
+                  "documents": {
+                    "knowledge": "exact",
+                    "value": 15
+                  },
+                  "examined_candidates": 6,
+                  "returned_passages": 6,
+                  "returned_symbol_handles": 6
+                },
+                "identities": {
+                  "analyzer_identity": "207350cdc5694154a12bf44bb7c30a8a570a069b517716e5593c2f87cd4461e0",
+                  "config_identity": "8b0d3a9f14b9978ec71fab9576f1b2bd83b2d826d674bdda13023c362fa54f4d",
+                  "evidence_generation": "ca9a5120cdee1aaa6296253256518c79805a0897f47b55a7df834a94275d2c87",
+                  "repository_identity": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+                  "source_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657",
+                  "structural_generation": "27eb187d45446f40241cada92d79dc9e135cc95a2047fbc7556f5f514a729b3e"
+                },
+                "kind": "functions",
+                "mode": "keyword",
+                "query": "invalidate cache",
+                "results": [
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "6ad715939587fd255cb9e6f5eeb491f95e09ce7fc01dfdb328a3d9b584becfcd",
+                    "language": "python",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "invalidate_cache",
+                        "range": {
+                          "end_byte": 592,
+                          "end_line": 21,
+                          "start_byte": 499,
+                          "start_line": 19
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/python.py:499:592"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/python.py",
+                    "range": {
+                      "end_byte": 592,
+                      "end_line": 21,
+                      "start_byte": 499,
+                      "start_line": 19
+                    },
+                    "raw_digest": "6bd4c568ddcc123572f74bb9d64be5359d9a0074cb85219dae688e661aef1635",
+                    "redacted": false,
+                    "score": 0.016393,
+                    "text": "def invalidate_cache(cache, key):\n    \"\"\"Invalidate cache entry by key.\"\"\"\n    del cache[key]"
+                  },
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "8c23afc39757e66f8679ac473dca7b5ec792df7f90dce5ae3978c072038740f0",
+                    "language": "javascript",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "invalidateTenantCache",
+                        "range": {
+                          "end_byte": 407,
+                          "end_line": 17,
+                          "start_byte": 292,
+                          "start_line": 14
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/javascript.js:292:407"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/javascript.js",
+                    "range": {
+                      "end_byte": 407,
+                      "end_line": 17,
+                      "start_byte": 292,
+                      "start_line": 14
+                    },
+                    "raw_digest": "e9fe3d7d60f92f97377b36a0032f1857f1dd0817672c5d8563491506387f6081",
+                    "redacted": false,
+                    "score": 0.016129,
+                    "text": "function invalidateTenantCache(cache, tenant) {\n  // Invalidate cache entry for a tenant.\n  delete cache[tenant];\n}"
+                  },
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "af6e4caf3690f296f722f99f1d7afc61a0822b10043357f46cebdfbf6a8aee89",
+                    "language": "typescript",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "invalidateProfileCache",
+                        "range": {
+                          "end_byte": 405,
+                          "end_line": 14,
+                          "start_byte": 251,
+                          "start_line": 11
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/typescript.ts",
+                    "range": {
+                      "end_byte": 405,
+                      "end_line": 14,
+                      "start_byte": 251,
+                      "start_line": 11
+                    },
+                    "raw_digest": "9500650507d346fdf89a682e22da3e326e5789a6e41f4cd1e9d5140671a263cc",
+                    "redacted": false,
+                    "score": 0.015873,
+                    "text": "function invalidateProfileCache(profiles: Record<string, Profile>, id: string): void {\n  // Invalidate cache entry for a profile.\n  delete profiles[id];\n}"
+                  },
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b",
+                    "language": "go",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "EvictWorkspace",
+                        "range": {
+                          "end_byte": 152,
+                          "end_line": 6,
+                          "start_byte": 19,
+                          "start_line": 3
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/go.go",
+                    "range": {
+                      "end_byte": 152,
+                      "end_line": 6,
+                      "start_byte": 19,
+                      "start_line": 3
+                    },
+                    "raw_digest": "c3bd0725c9ee2ea7121b8c03c67ae18156e05eeeef960fc3b5dd7d379e044346",
+                    "redacted": false,
+                    "score": 0.015625,
+                    "text": "func EvictWorkspace(cache map[string]int, workspace string) {\n\t// Invalidate cache entry for a workspace.\n\tdelete(cache, workspace)\n}"
+                  },
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b",
+                    "language": "go",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "EvictWorkspacePreview",
+                        "range": {
+                          "end_byte": 286,
+                          "end_line": 11,
+                          "start_byte": 154,
+                          "start_line": 8
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/go.go:154:286"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/go.go",
+                    "range": {
+                      "end_byte": 286,
+                      "end_line": 11,
+                      "start_byte": 154,
+                      "start_line": 8
+                    },
+                    "raw_digest": "eed4700b56b4e6fa0fe9cf27c0950393bc4881e9625683cc1b39012600c4e3a6",
+                    "redacted": false,
+                    "score": 0.015385,
+                    "text": "func EvictWorkspacePreview(workspace string) string {\n\t// Describe the workspace without invalidating its cache.\n\treturn workspace\n}"
+                  },
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b",
+                    "language": "go",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "ArchiveCache",
+                        "range": {
+                          "end_byte": 364,
+                          "end_line": 16,
+                          "start_byte": 288,
+                          "start_line": 13
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/go.go:288:364"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/go.go",
+                    "range": {
+                      "end_byte": 364,
+                      "end_line": 16,
+                      "start_byte": 288,
+                      "start_line": 13
+                    },
+                    "raw_digest": "b2a2acb9a025d213300d57513ba0d1810d3f7170fb7657662dfb392dad6bec71",
+                    "redacted": false,
+                    "score": 0.015152,
+                    "text": "func ArchiveCache() string {\n\tmarker := \"archive tombstone\"\n\treturn marker\n}"
+                  }
+                ],
+                "stop_reason": null,
+                "storage": {
+                  "elapsed_seconds": 0.001378,
+                  "hard_model_deadline": false,
+                  "model_encode_seconds": 0,
+                  "rerank_seconds": 0
+                },
+                "truncated": false
+              },
+              "returned_distractor_handles": [
+                "tests/fixtures/code-understanding/retrieval/go.go:154:286"
+              ],
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.0014492010232061148
+            }
+          },
+          "distractor_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/go.go:154:286",
+            "tests/fixtures/code-understanding/retrieval/javascript.js:185:290",
+            "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+          ],
+          "full_precision": null,
+          "id": "FR006",
+          "prediction": null,
+          "query": "invalidate cache",
+          "relevant_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+            "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+            "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+            "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+          ],
+          "supporting_function_ids": []
+        },
+        {
+          "arms": {
+            "files": {
+              "denominator": 1,
+              "evidence_context_families": [],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 143,
+                        "end_line": 3,
+                        "start_byte": 47,
+                        "start_line": 3
+                      },
+                      "raw_sha256": "453b5830fb2a2ade18eec0cb0f39243de0e55e0ccb66dad9503d4ba180a85682"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 166,
+                        "end_line": 4,
+                        "start_byte": 146,
+                        "start_line": 4
+                      },
+                      "raw_sha256": "31b83a840001bac600ec939a88e3d41588467244cf3cea4b0e9bf363cb98b293"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [],
+              "metric": "file_presence_proxy_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": null,
+              "native_stop_reason": null,
+              "native_truncated": null,
+              "numerator": 1,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168"
+              ],
+              "present_languages": [
+                "typescript"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168"
+              ],
+              "process_cpu_seconds": 0.0006275900000000112,
+              "response": {
+                "documents": 4,
+                "mode": "keyword",
+                "query": "lookupProfileById",
+                "results": [
+                  {
+                    "evidence": "tests fixtures code understanding retrieval typescript ts\nL1: type Profile = { id: string; label: string };\nL12: // Invalidate cache entry for a profile.",
+                    "path": "tests/fixtures/code-understanding/retrieval/typescript.ts",
+                    "score": 0.016393,
+                    "similarity": null
+                  }
+                ],
+                "seconds": 0.0006
+              },
+              "returned_distractor_handles": null,
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.000626994005870074
+            },
+            "functions": {
+              "denominator": 1,
+              "evidence_context_families": [
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168"
+              ],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168": {
+                  "covered": true,
+                  "statements": [
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 143,
+                        "end_line": 3,
+                        "start_byte": 47,
+                        "start_line": 3
+                      },
+                      "raw_sha256": "453b5830fb2a2ade18eec0cb0f39243de0e55e0ccb66dad9503d4ba180a85682"
+                    },
+                    {
+                      "covered": true,
+                      "range": {
+                        "end_byte": 166,
+                        "end_line": 4,
+                        "start_byte": 146,
+                        "start_line": 4
+                      },
+                      "raw_sha256": "31b83a840001bac600ec939a88e3d41588467244cf3cea4b0e9bf363cb98b293"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168"
+              ],
+              "metric": "physical_member_recall_at_10",
+              "missing_relevant_ids": [],
+              "model_tokens": null,
+              "native_bounds": {
+                "max_entities": 50,
+                "max_excerpt_bytes": 8192,
+                "max_response_bytes": 32768,
+                "timeout_seconds": 0.5
+              },
+              "native_stop_reason": null,
+              "native_truncated": false,
+              "numerator": 1,
+              "present_context_families": [
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168"
+              ],
+              "present_languages": [
+                "typescript"
+              ],
+              "present_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168"
+              ],
+              "process_cpu_seconds": 0.0012973229999999891,
+              "response": {
+                "budgets": {
+                  "max_entities": 50,
+                  "max_excerpt_bytes": 8192,
+                  "max_response_bytes": 32768,
+                  "timeout_seconds": 0.5
+                },
+                "counts": {
+                  "documents": {
+                    "knowledge": "exact",
+                    "value": 15
+                  },
+                  "examined_candidates": 3,
+                  "returned_passages": 3,
+                  "returned_symbol_handles": 3
+                },
+                "identities": {
+                  "analyzer_identity": "207350cdc5694154a12bf44bb7c30a8a570a069b517716e5593c2f87cd4461e0",
+                  "config_identity": "8b0d3a9f14b9978ec71fab9576f1b2bd83b2d826d674bdda13023c362fa54f4d",
+                  "evidence_generation": "ca9a5120cdee1aaa6296253256518c79805a0897f47b55a7df834a94275d2c87",
+                  "repository_identity": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+                  "source_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657",
+                  "structural_generation": "27eb187d45446f40241cada92d79dc9e135cc95a2047fbc7556f5f514a729b3e"
+                },
+                "kind": "functions",
+                "mode": "keyword",
+                "query": "lookupProfileById",
+                "results": [
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "af6e4caf3690f296f722f99f1d7afc61a0822b10043357f46cebdfbf6a8aee89",
+                    "language": "typescript",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "lookupProfileById",
+                        "range": {
+                          "end_byte": 168,
+                          "end_line": 5,
+                          "start_byte": 47,
+                          "start_line": 3
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/typescript.ts",
+                    "range": {
+                      "end_byte": 168,
+                      "end_line": 5,
+                      "start_byte": 47,
+                      "start_line": 3
+                    },
+                    "raw_digest": "10795946d3b4eb0e86b25ffb4decc5d3d9e75d20e9892e537f074c7259d1cfc3",
+                    "redacted": false,
+                    "score": 0.032787,
+                    "text": "function lookupProfileById(profiles: Record<string, Profile>, id: string): Profile | undefined {\n  return profiles[id];\n}"
+                  },
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "af6e4caf3690f296f722f99f1d7afc61a0822b10043357f46cebdfbf6a8aee89",
+                    "language": "typescript",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "lookupProfileExample",
+                        "range": {
+                          "end_byte": 249,
+                          "end_line": 9,
+                          "start_byte": 170,
+                          "start_line": 7
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/typescript.ts",
+                    "range": {
+                      "end_byte": 249,
+                      "end_line": 9,
+                      "start_byte": 170,
+                      "start_line": 7
+                    },
+                    "raw_digest": "a91ab0123f71663243e5b5fdfa2d410015d5c363b7369f9d84f408000faf1f37",
+                    "redacted": false,
+                    "score": 0.016129,
+                    "text": "function lookupProfileExample(id: string): string {\n  return \"profile:\" + id;\n}"
+                  },
+                  {
+                    "evidence_kind": "static_syntax",
+                    "excerpt_truncated": false,
+                    "extraction_state": "parsed",
+                    "file_sha256": "af6e4caf3690f296f722f99f1d7afc61a0822b10043357f46cebdfbf6a8aee89",
+                    "language": "typescript",
+                    "members": [
+                      {
+                        "kind": "function",
+                        "name": "invalidateProfileCache",
+                        "range": {
+                          "end_byte": 405,
+                          "end_line": 14,
+                          "start_byte": 251,
+                          "start_line": 11
+                        },
+                        "symbol_id": "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+                      }
+                    ],
+                    "path": "tests/fixtures/code-understanding/retrieval/typescript.ts",
+                    "range": {
+                      "end_byte": 405,
+                      "end_line": 14,
+                      "start_byte": 251,
+                      "start_line": 11
+                    },
+                    "raw_digest": "9500650507d346fdf89a682e22da3e326e5789a6e41f4cd1e9d5140671a263cc",
+                    "redacted": false,
+                    "score": 0.015873,
+                    "text": "function invalidateProfileCache(profiles: Record<string, Profile>, id: string): void {\n  // Invalidate cache entry for a profile.\n  delete profiles[id];\n}"
+                  }
+                ],
+                "stop_reason": null,
+                "storage": {
+                  "elapsed_seconds": 0.001244,
+                  "hard_model_deadline": false,
+                  "model_encode_seconds": 0,
+                  "rerank_seconds": 0
+                },
+                "truncated": false
+              },
+              "returned_distractor_handles": [
+                "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+              ],
+              "source_affinity": true,
+              "value": 1.0,
+              "wall_seconds": 0.0012959619634784758
+            }
+          },
+          "distractor_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+          ],
+          "full_precision": null,
+          "id": "FR007",
+          "prediction": null,
+          "query": "lookupProfileById",
+          "relevant_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168"
+          ],
+          "supporting_function_ids": []
+        },
+        {
+          "arms": {
+            "files": {
+              "denominator": 1,
+              "evidence_context_families": [],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/python.py:374:496": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 410,
+                        "end_line": 14,
+                        "start_byte": 374,
+                        "start_line": 14
+                      },
+                      "raw_sha256": "11d3d01ece6986f66a7cb0d0bc43f9314660466a0cd6cafc210912659a328a53"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 496,
+                        "end_line": 16,
+                        "start_byte": 473,
+                        "start_line": 16
+                      },
+                      "raw_sha256": "3538d4c622c71ce081e444f2df571d015a574d0b507955ebdf38dc120ce5c55e"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [],
+              "metric": "file_presence_proxy_at_10",
+              "missing_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/python.py:374:496"
+              ],
+              "model_tokens": null,
+              "native_bounds": null,
+              "native_stop_reason": null,
+              "native_truncated": null,
+              "numerator": 0,
+              "present_context_families": [],
+              "present_languages": [],
+              "present_relevant_ids": [],
+              "process_cpu_seconds": 0.0005484080000000002,
+              "response": {
+                "documents": 4,
+                "mode": "keyword",
+                "query": "reverse remittance",
+                "results": [],
+                "seconds": 0.0005
+              },
+              "returned_distractor_handles": null,
+              "source_affinity": true,
+              "value": 0.0,
+              "wall_seconds": 0.0005480269901454449
+            },
+            "functions": {
+              "denominator": 1,
+              "evidence_context_families": [],
+              "evidence_coverage": {
+                "tests/fixtures/code-understanding/retrieval/python.py:374:496": {
+                  "covered": false,
+                  "statements": [
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 410,
+                        "end_line": 14,
+                        "start_byte": 374,
+                        "start_line": 14
+                      },
+                      "raw_sha256": "11d3d01ece6986f66a7cb0d0bc43f9314660466a0cd6cafc210912659a328a53"
+                    },
+                    {
+                      "covered": false,
+                      "range": {
+                        "end_byte": 496,
+                        "end_line": 16,
+                        "start_byte": 473,
+                        "start_line": 16
+                      },
+                      "raw_sha256": "3538d4c622c71ce081e444f2df571d015a574d0b507955ebdf38dc120ce5c55e"
+                    }
+                  ]
+                }
+              },
+              "evidence_covered_relevant_ids": [],
+              "metric": "physical_member_recall_at_10",
+              "missing_relevant_ids": [
+                "tests/fixtures/code-understanding/retrieval/python.py:374:496"
+              ],
+              "model_tokens": null,
+              "native_bounds": {
+                "max_entities": 50,
+                "max_excerpt_bytes": 8192,
+                "max_response_bytes": 32768,
+                "timeout_seconds": 0.5
+              },
+              "native_stop_reason": null,
+              "native_truncated": false,
+              "numerator": 0,
+              "present_context_families": [],
+              "present_languages": [],
+              "present_relevant_ids": [],
+              "process_cpu_seconds": 0.0007156580000000079,
+              "response": {
+                "budgets": {
+                  "max_entities": 50,
+                  "max_excerpt_bytes": 8192,
+                  "max_response_bytes": 32768,
+                  "timeout_seconds": 0.5
+                },
+                "counts": {
+                  "documents": {
+                    "knowledge": "exact",
+                    "value": 15
+                  },
+                  "examined_candidates": 0,
+                  "returned_passages": 0,
+                  "returned_symbol_handles": 0
+                },
+                "identities": {
+                  "analyzer_identity": "207350cdc5694154a12bf44bb7c30a8a570a069b517716e5593c2f87cd4461e0",
+                  "config_identity": "8b0d3a9f14b9978ec71fab9576f1b2bd83b2d826d674bdda13023c362fa54f4d",
+                  "evidence_generation": "ca9a5120cdee1aaa6296253256518c79805a0897f47b55a7df834a94275d2c87",
+                  "repository_identity": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+                  "source_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657",
+                  "structural_generation": "27eb187d45446f40241cada92d79dc9e135cc95a2047fbc7556f5f514a729b3e"
+                },
+                "kind": "functions",
+                "mode": "keyword",
+                "query": "reverse remittance",
+                "results": [],
+                "stop_reason": null,
+                "storage": {
+                  "elapsed_seconds": 0.000683,
+                  "hard_model_deadline": false,
+                  "model_encode_seconds": 0,
+                  "rerank_seconds": 0
+                },
+                "truncated": false
+              },
+              "returned_distractor_handles": [],
+              "source_affinity": true,
+              "value": 0.0,
+              "wall_seconds": 0.0007146610296331346
+            }
+          },
+          "distractor_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/python.py:260:371",
+            "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+          ],
+          "full_precision": null,
+          "id": "FR008",
+          "prediction": {
+            "basis": "Neither reverse nor remittance occurs in source paths or source bytes. Reranking cannot recover a function absent from the offered shortlist.",
+            "expected_miss": "both_keyword_shortlists"
+          },
+          "query": "reverse remittance",
+          "relevant_function_ids": [
+            "tests/fixtures/code-understanding/retrieval/python.py:374:496"
+          ],
+          "supporting_function_ids": []
+        }
+      ],
+      "resources": {
+        "benchmark_peak_rss_bytes": null,
+        "child_process_cpu_seconds": null,
+        "elapsed_seconds": 0.2797010100330226,
+        "model_tokens": null,
+        "process_cpu_seconds": 0.148495402,
+        "scope": "Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime."
+      },
+      "schema_version": 1,
+      "scope": "Four synthetic files; file-presence proxy and physical function recall are distinct. Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.",
+      "source_identity": {
+        "catalog": {
+          "deleted": 0,
+          "documents": 4,
+          "failed": 0,
+          "failures": [],
+          "failures_truncated": false,
+          "generation": "da97539023c7460c88b3b5fb62b00e78",
+          "identity": {
+            "analyzer": "synopsis-v2",
+            "config": "3ad1d1b1e094940457d838a84c2b86313771c91bb098bc3d7c91a61e7630d2da",
+            "repository": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+            "schema": "2"
+          },
+          "reused": 0,
+          "scanned": 4,
+          "seconds": 0.003,
+          "secure_reads": true,
+          "semantic_index": {
+            "analyzer": "synopsis-v2",
+            "config": "3ad1d1b1e094940457d838a84c2b86313771c91bb098bc3d7c91a61e7630d2da",
+            "documents": 4,
+            "generation": "da97539023c7460c88b3b5fb62b00e78",
+            "generation_basis": "keyword-docs-v2",
+            "missing_vectors": 4,
+            "model": null,
+            "repository": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+            "schema": "2",
+            "status": "not_indexed",
+            "vectors": 0
+          },
+          "truncated": 0
+        },
+        "file_docs": [
+          {
+            "content_digest": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b",
+            "digest": "08c854da59625a5f3e27a2a347f78b92f1f3e65d6d22614b2eb598d9045d47a0",
+            "path": "tests/fixtures/code-understanding/retrieval/go.go"
+          },
+          {
+            "content_digest": "8c23afc39757e66f8679ac473dca7b5ec792df7f90dce5ae3978c072038740f0",
+            "digest": "ffcd8a293b19016d861bd53f1e30b6d0ae61ee1edf2df51191943d6f57cd9be4",
+            "path": "tests/fixtures/code-understanding/retrieval/javascript.js"
+          },
+          {
+            "content_digest": "6ad715939587fd255cb9e6f5eeb491f95e09ce7fc01dfdb328a3d9b584becfcd",
+            "digest": "afa8db75f66e130915c3ca9472742a9b0d9a11f0b8b6cf68a09964cfa1a26c19",
+            "path": "tests/fixtures/code-understanding/retrieval/python.py"
+          },
+          {
+            "content_digest": "af6e4caf3690f296f722f99f1d7afc61a0822b10043357f46cebdfbf6a8aee89",
+            "digest": "e22df38010a6015e33173244d178c598859a04874b99e58f0d35e39beeeb4ec5",
+            "path": "tests/fixtures/code-understanding/retrieval/typescript.ts"
+          }
+        ],
+        "function": {
+          "counts": {
+            "body_bytes": 1870,
+            "chunks": 15,
+            "excluded_kinds": {},
+            "excluded_private_keys": 0,
+            "partial_symbols": 0,
+            "redacted_chunks": 0,
+            "symbols": 15
+          },
+          "identities": {
+            "analyzer_identity": "207350cdc5694154a12bf44bb7c30a8a570a069b517716e5593c2f87cd4461e0",
+            "config_identity": "8b0d3a9f14b9978ec71fab9576f1b2bd83b2d826d674bdda13023c362fa54f4d",
+            "evidence_generation": "ca9a5120cdee1aaa6296253256518c79805a0897f47b55a7df834a94275d2c87",
+            "repository_identity": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+            "source_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657",
+            "structural_generation": "27eb187d45446f40241cada92d79dc9e135cc95a2047fbc7556f5f514a729b3e"
+          },
+          "limits": {
+            "max_body_bytes": 268435456,
+            "max_window_bytes": 8192,
+            "max_windows": 100000
+          },
+          "projection_config_identity": "a788326007d2e64f27f392fc67299017d6cca5593c8de73beb7e95fabffa6e52",
+          "schema": "function-evidence-v1",
+          "status": "ready"
+        },
+        "implementation": {
+          "sha256": {
+            "evaluations/acceptance.py": "f1d408c30d8b8ff0286e22acde71bca0b2feb6ca798388e644238abbedd31e93",
+            "pyproject.toml": "5c11057fc766142b82a7d975262c033b43ddaddd441fa4c1d93edf99778950e0",
+            "repo_graph/analysis.py": "26d216c9c9e4b9c9bbebab1b4369a768dca1a3bbbcea8ccc82a7341f2a451173",
+            "repo_graph/analysis_native.py": "a1a7696dea5e8f19ccd43622ce5b04403066b81cbf78162f5f011a52078ec70d",
+            "repo_graph/analysis_queue.py": "ca4d74ec173a782cd8cc75bc48dbc7f322f48ac596b762c1c44f3beeda16afca",
+            "repo_graph/jev.py": "a8f27d62c381948ab248ee477cc3e353b8af240f8daf67c63947025849857243",
+            "repo_graph/rerank.py": "1c682aae730fc860da8fd95b14eea6fa6c37caaf815e57e254d987a76a4e57cf",
+            "repo_graph/search.py": "e2955152ae0495c305e33d2bc7247ce054a145d966ccc77d4d080e6ef97e51f9",
+            "repo_graph/source.py": "b4459e73a611d5fd807d84789f2f4d438e2bf78a756093626a0f227e465a4dbc",
+            "uv.lock": "2070aae111fd848c56247bc0ccf82060f3e24164f0700855f05b0225e59cb7d4"
+          }
+        },
+        "inputs": {
+          "evaluations/code-understanding/function-relevance-inputs.json": "bd2291fd403411a276e268564145844f0be4bc68b0632597784dc8cba9befe00",
+          "evaluations/code-understanding/function-relevance-review.json": "d4cc1bb4b7400e4f3f7620b43ffb633462796a82481a8f71838286a81eac1e68",
+          "tests/fixtures/code-understanding/retrieval/go.go": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b",
+          "tests/fixtures/code-understanding/retrieval/javascript.js": "8c23afc39757e66f8679ac473dca7b5ec792df7f90dce5ae3978c072038740f0",
+          "tests/fixtures/code-understanding/retrieval/python.py": "6ad715939587fd255cb9e6f5eeb491f95e09ce7fc01dfdb328a3d9b584becfcd",
+          "tests/fixtures/code-understanding/retrieval/typescript.ts": "af6e4caf3690f296f722f99f1d7afc61a0822b10043357f46cebdfbf6a8aee89"
+        },
+        "review_receipt_sha256": "388dcdc6616954d221d7a5deabaa8e34e57011980b9049f287fcc7a6b951c6d6",
+        "structural": {
+          "analyzer_identity": "207350cdc5694154a12bf44bb7c30a8a570a069b517716e5593c2f87cd4461e0",
+          "config_identity": "8b0d3a9f14b9978ec71fab9576f1b2bd83b2d826d674bdda13023c362fa54f4d",
+          "generation": "27eb187d45446f40241cada92d79dc9e135cc95a2047fbc7556f5f514a729b3e",
+          "repository_identity": "1bbb1f1cad67768724604a642a6623072ea683cf0bf3cedebea15bcd8acbcf13",
+          "source_identity": "6c61d006d9bd8dc80060110b1d7b7ab7529a27081e0b4f260c701a4a2747c657"
+        }
+      },
+      "status": "passed",
+      "task": "T047",
+      "task_accepted": false,
+      "token_savings_measured": false
     }
   }
 }

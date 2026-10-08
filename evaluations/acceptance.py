@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate frozen inputs; missing independent source truth cannot pass."""
 import argparse
+from contextlib import closing, ExitStack
 import hashlib
 import json
 import math
@@ -9,6 +10,8 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+import tempfile
+import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from repo_graph.source import SourceRoot
@@ -2192,9 +2195,258 @@ def impact_gate(root=None):
     return result
 
 
+_RANKING_REVIEW_SHA = 'd4cc1bb4b7400e4f3f7620b43ffb633462796a82481a8f71838286a81eac1e68'
+
+
+def _ranking_inputs(root):
+    """Admit the independently reviewed bytes before any producer is imported."""
+    hashes, files = {}, {}
+    with SourceRoot(root) as source:
+        manifest, sha = read_json(source, INPUTS + 'function-relevance-inputs.json', 65536)
+        hashes[INPUTS + 'function-relevance-inputs.json'] = sha
+        review, review_sha = read_json(source, INPUTS + 'function-relevance-review.json', 65536)
+        hashes[INPUTS + 'function-relevance-review.json'] = review_sha
+        if (review_sha != _RANKING_REVIEW_SHA or review['status'] != 'admitted_frozen_synthetic_source_key'
+                or review['task'] != 'T047' or review['input_manifest']['sha256'] != sha
+                or review['source_files'] != manifest['files'] or len(manifest['files']) != 4
+                or len(manifest['functions']) != 15 or len(manifest['questions']) != 8):
+            raise ValueError('Frozen ranking source admission differs')
+        for record in manifest['files']:
+            path = record['path']
+            if not fixture_path(path) or not path.startswith('tests/fixtures/code-understanding/retrieval/') or path in files:
+                raise ValueError('Ranking source inventory differs')
+            raw, sha, info = source.read(path, 16385, hash_full=False)
+            if (len(raw) != info.st_size or info.st_size > 16384 or sha != record['sha256']
+                    or type(record['bytes']) is not int or len(raw) != record['bytes']):
+                raise ValueError('Ranking source bytes differ')
+            raw.decode('utf-8'); files[path] = raw; hashes[path] = sha
+    functions = {row['id']: row for row in manifest['functions']}
+    anchors = {row['id']: row for row in review['physical_anchor_dispositions']}
+    if len(functions) != 15 or set(anchors) != set(functions):
+        raise ValueError('Ranking physical source key differs')
+    for id, row in functions.items():
+        raw = files[row['path']]; span = row['range']; start, end = span['start_byte'], span['end_byte']
+        if type(start) is not int or type(end) is not int or not 0 <= start < end <= len(raw):
+            raise ValueError('Ranking source range differs')
+        raw[:start].decode('utf-8'); raw[:end].decode('utf-8')
+        if (id != f'{row["path"]}:{start}:{end}' or digest(raw[start:end]) != row['raw_sha256']
+                or not valid_range(dict(row, text=raw[start:end].decode()), raw)
+                or any(anchors[id][key] != row[key] for key in ('range', 'raw_sha256', 'name', 'context_family'))):
+            raise ValueError('Ranking physical source range differs')
+        statements = anchors[id]['supporting_source_statements']
+        if not statements or not all(valid_range(statement, raw)
+                and digest(statement['text'].encode()) == statement['raw_sha256'] for statement in statements):
+            raise ValueError('Ranking reviewed statements differ')
+    questions = {row['id']: row for row in review['question_dispositions']}
+    if set(questions) != {row['id'] for row in manifest['questions']}:
+        raise ValueError('Ranking question source key differs')
+    for row in manifest['questions']:
+        judgment = questions[row['id']]
+        if (judgment['query'] != row['query'] or judgment['relevant_ids'] != row['relevant_function_ids']
+                or judgment['distractor_ids'] != row['distractor_function_ids']
+                or judgment['supporting_ids'] != row.get('supporting_function_ids', [])):
+            raise ValueError('Ranking relevance key differs')
+    if not committed(root, hashes):
+        raise ValueError('Ranking source inputs are uncommitted')
+    return manifest, review, files, hashes
+
+
+def ranking_boundary(root=None):
+    """Measure T047's finite native keyword arms; misses are retained findings."""
+    root = Path(root or ROOT)
+    started = time.perf_counter(); started_cpu = time.process_time()
+    cases = []; observations = []; identity = {}; phase = 'inputs'
+    def check(id, condition, detail):
+        cases.append({'id': id, 'status': 'passed' if condition else 'failed', 'detail': detail})
+    result = {'schema_version': 1, 'task': 'T047', 'gate': 'task-preflight', 'checks': 'ranking-boundary',
+        'status': 'blocked', 'source_identity': identity, 'case_results': cases, 'questions': observations,
+        'qualification_complete': False, 'task_accepted': False, 'human_evaluation': False,
+        'model_quality_measured': False, 'token_savings_measured': False,
+        'scope': 'Four synthetic files; file-presence proxy and physical function recall are distinct. '
+                 'Observed candidate misses are retained; no full precision, model, scale, agent or human quality claim.'}
+    try:
+        manifest, review, files, hashes = _ranking_inputs(root)
+        identity['inputs'] = hashes
+        identity['review_receipt_sha256'] = review['review']['receipt_sha256']
+        implementation = ('evaluations/acceptance.py', 'repo_graph/search.py', 'repo_graph/analysis.py',
+            'repo_graph/analysis_native.py', 'repo_graph/analysis_queue.py', 'repo_graph/source.py',
+            'repo_graph/rerank.py', 'repo_graph/jev.py', 'pyproject.toml', 'uv.lock')
+        with SourceRoot(root) as source:
+            identity['implementation'] = {'sha256': {path: source.read(path, 1024 * 1024, hash_full=True)[1]
+                                                      for path in implementation}}
+        check('committed_reviewed_inputs', True, 'Six exact input Git blobs admitted before extraction')
+        # Exercise the same loader with invalid bytes. No backend is imported in
+        # these child calls, because each returns at the input boundary.
+        with tempfile.TemporaryDirectory() as temporary:
+            draft = Path(temporary)
+            for path in hashes:
+                target = draft / path; target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((root / path).read_bytes())
+            uncommitted = ranking_boundary(draft)
+            first = next(iter(files)); (draft / first).write_bytes(files[first] + b'\n')
+            changed = ranking_boundary(draft)
+            (draft / first).write_bytes(files[first])
+            (draft / INPUTS / 'function-relevance-review.json').write_bytes(b'{')
+            malformed = ranking_boundary(draft)
+        result['input_refusal_controls'] = [{'id': name, 'expected_status': 'blocked', 'observation': child}
+            for name, child in (('uncommitted_inputs', uncommitted), ('changed_source', changed), ('malformed_review', malformed))]
+        check('input_refusal_before_extraction', all(child['status'] == 'blocked' and child.get('stopped_phase') == 'inputs'
+            for child in (uncommitted, changed, malformed)), 'Uncommitted inputs, changed source and malformed review refused')
+        if cases[-1]['status'] != 'passed':
+            raise ValueError('Ranking input refusal failed')
+        from unittest.mock import patch
+        from repo_graph import search, jev, rerank
+        from repo_graph.analysis import StructuralIndex
+        from evaluations.analysis import environment
+        functions = {row['id']: row for row in manifest['functions']}
+        anchors = {row['id']: row for row in review['physical_anchor_dispositions']}
+        limits = search.EvidenceLimits(**manifest['comparison']['function_limits'])
+        guards = {}; phase = 'capture'
+        with ExitStack() as stack, tempfile.TemporaryDirectory() as temporary:
+            for module, name in ((jev, 'evaluate'), (jev, 'typesafe_key'), (jev, 'OPEN'),
+                    (search.Embeddings, '__init__'), (rerank.LocalReranker, '__init__')):
+                guards[module.__name__ + '.' + name] = stack.enter_context(patch.object(module, name,
+                    side_effect=AssertionError('Inference is prohibited in this native keyword comparison')))
+            source_root, output = Path(temporary) / 'source', Path(temporary) / 'out'; source_root.mkdir(); output.mkdir()
+            for path, raw in files.items():
+                target = source_root / path; target.parent.mkdir(parents=True, exist_ok=True); target.write_bytes(raw)
+            catalog = search.catalog(source_root, list(files), output)
+            identity['catalog'] = catalog
+            result['capture_receipts'] = {'catalog': catalog}
+            index = StructuralIndex(source_root, output)
+            captured = index.refresh([dict(record, kind='source') for record in manifest['files']])
+            result['capture_receipts']['structural'] = captured
+            check('captured_foundation_ready', captured['status'] == 'ready' and catalog['failed'] == 0,
+                  'Existing file catalog and native structural owner captured the identical four files')
+            if cases[-1]['status'] != 'passed': raise ValueError('Ranking foundation unavailable')
+            identity['structural'] = index.metadata()
+            check('shared_repository_affinity', catalog['identity']['repository'] == captured['repository_identity'],
+                  'Catalog and structural generations have distinct domains; repository identity agrees')
+            definitions = {row['id']: row for row in index.read_facts('definitions') if row['kind'] in search.FUNCTION_KINDS}
+            check('physical_definition_inventory', set(definitions) == set(functions), 'No frozen ID is silently replaced or omitted')
+            for id, expected in functions.items():
+                actual = definitions.get(id)
+                check('physical_source:' + expected['label'], bool(actual) and actual['range'] == expected['range']
+                    and actual['path'] == expected['path'] and actual['name'] == expected['name']
+                    and digest(actual['text'].encode()) == expected['raw_sha256']
+                    and actual['provenance']['source_sha256'] == digest(files[expected['path']]),
+                    'Exact captured physical range, source digest and reviewed definition')
+            engine = search.Search(output); stack.callback(engine.close)
+            with closing(engine.connect()) as db:
+                _, projection = search._function_metadata(db)
+                docs = [dict(row) for row in db.execute('SELECT path,content_digest,digest,body FROM docs ORDER BY path')]
+            identity['function'] = projection
+            identity['file_docs'] = [{key: value for key, value in row.items() if key != 'body'} for row in docs]
+            file_evidence = {row['path']: row['body'][:1400] for row in docs}
+            check('file_content_affinity', {row['path']: row['content_digest'] for row in docs}
+                == {path: digest(raw) for path, raw in files.items()}, 'File synopsis shares the exact raw inventory')
+            snapshot_before = digest((output / 'search.db').read_bytes()); phase = 'queries'
+            for question in manifest['questions']:
+                observation = {'id': question['id'], 'query': question['query'], 'arms': {},
+                    'relevant_function_ids': question['relevant_function_ids'],
+                    'supporting_function_ids': question.get('supporting_function_ids', []),
+                    'distractor_function_ids': question['distractor_function_ids'],
+                    'prediction': question.get('candidate_miss_control'), 'full_precision': None}
+                observations.append(observation)
+                expected_ids = question['relevant_function_ids']; family = lambda ids: sorted({functions[id]['context_family'] for id in ids})
+                for kind in ('files', 'functions'):
+                    before = time.perf_counter(); cpu = time.process_time()
+                    response = engine.run(question['query'], kind=kind, mode='keyword', limit=10, reranker=None,
+                                          **({'limits': limits} if kind == 'functions' else {}))
+                    wall = time.perf_counter() - before; cpu = time.process_time() - cpu
+                    rows = response['results']; statement_results = {}
+                    handles = {member['symbol_id'] for row in rows for member in row.get('members', [])}
+                    if kind == 'files':
+                        affinity = all(row['path'] in file_evidence and row['evidence'] == file_evidence[row['path']] for row in rows)
+                    else:
+                        affinity = True
+                        for row in rows:
+                            region = row['range']; raw = files[row['path']][region['start_byte']:region['end_byte']]
+                            affinity &= (row['file_sha256'] == digest(files[row['path']]) and row['raw_digest'] == digest(raw)
+                                and row['text'].encode() == raw and all(member['symbol_id'] in functions and
+                                member['range'] == functions[member['symbol_id']]['range'] and
+                                member['name'] == functions[member['symbol_id']]['name'] for member in row['members']))
+                    check(question['id'] + ':' + kind + ':source_affinity', bool(affinity), 'Returned evidence agrees with this captured source')
+                    present = [id for id in expected_ids if (id in handles if kind == 'functions' else
+                               any(row['path'] == functions[id]['path'] for row in rows))]
+                    for id in expected_ids:
+                        target = functions[id]; evidence = []
+                        for statement in anchors[id]['supporting_source_statements']:
+                            span = statement['range']; found = False
+                            for row in rows:
+                                if row['path'] != target['path']: continue
+                                if kind == 'files':
+                                    lines = dict((int(number), text) for number, text in
+                                        re.findall(r'^L(\d+): (.*)$', row['evidence'], re.MULTILINE))
+                                    found |= span['start_line'] == span['end_line'] and lines.get(span['start_line']) == statement['text'].strip()
+                                else:
+                                    region = row['range']; raw = files[row['path']][region['start_byte']:region['end_byte']]
+                                    row_affinity = row['file_sha256'] == digest(files[row['path']]) and row['raw_digest'] == digest(raw) and row['text'].encode() == raw
+                                    found |= row_affinity and region['start_byte'] <= span['start_byte'] <= span['end_byte'] <= region['end_byte']
+                            evidence.append({'range': span, 'raw_sha256': statement['raw_sha256'], 'covered': bool(found)})
+                        statement_results[id] = {'covered': all(row['covered'] for row in evidence), 'statements': evidence}
+                    covered = [id for id, value in statement_results.items() if value['covered']]
+                    observation['arms'][kind] = {'response': response, 'wall_seconds': wall, 'process_cpu_seconds': cpu,
+                        'metric': 'physical_member_recall_at_10' if kind == 'functions' else 'file_presence_proxy_at_10',
+                        'present_relevant_ids': present, 'missing_relevant_ids': sorted(set(expected_ids) - set(present)),
+                        'numerator': len(present), 'denominator': len(expected_ids), 'value': len(present) / len(expected_ids),
+                        'evidence_coverage': statement_results, 'evidence_covered_relevant_ids': covered,
+                        'present_context_families': family(present), 'evidence_context_families': family(covered),
+                        'present_languages': sorted({next(record['language'] for record in manifest['files']
+                            if record['path'] == functions[id]['path']) for id in present}),
+                        'returned_distractor_handles': sorted(handles & set(question['distractor_function_ids'])) if kind == 'functions' else None,
+                        'native_bounds': response.get('budgets'), 'native_truncated': response.get('truncated'),
+                        'native_stop_reason': response.get('stop_reason'), 'source_affinity': bool(affinity), 'model_tokens': None}
+                    if kind == 'functions':
+                        check(question['id'] + ':snapshot', response['identities'] == projection['identities'], 'One captured function generation/config/analyzer')
+                        check(question['id'] + ':deadline', response['stop_reason'] not in ('deadline_exceeded', 'cancelled'), 'Actual deadline/cancellation retained without retry')
+                        if 'exact_identifier' in question:
+                            check(question['id'] + ':exact_identifier', set(expected_ids) <= handles,
+                                  'Frozen exact physical identifier must remain in the returned members')
+                check(question['id'] + ':measured', True, 'Both native keyword responses retained; relevance misses are experimental findings')
+            check('captured_snapshot_unchanged', digest((output / 'search.db').read_bytes()) == snapshot_before,
+                  'Keyword observations do not change captured structural/function evidence')
+            result['inference_guard_attempts'] = {name: guard.call_count for name, guard in guards.items()}
+            check('zero_inference', not any(result['inference_guard_attempts'].values()), 'No model initialization, key read or inference API attempt')
+        with SourceRoot(root) as source:
+            after = {path: source.read(path, 1024 * 1024, hash_full=True)[1] for path in implementation}
+            input_after = {path: source.read(path, 65536, hash_full=True)[1] for path in hashes}
+        check('implementation_stable', after == identity['implementation']['sha256'], 'Shared native/search bytes held throughout observation')
+        check('inputs_stable', input_after == hashes, 'Frozen source judgments and source bytes unchanged during observation')
+        result['denominators'] = review['denominators']
+        result['aggregate'] = {kind: {'numerator': sum(row['arms'][kind]['numerator'] for row in observations),
+            'denominator': 12, 'metric': observations[0]['arms'][kind]['metric'],
+            'evidence_covered_pairs': sum(len(row['arms'][kind]['evidence_covered_relevant_ids']) for row in observations)}
+            for kind in ('files', 'functions')}
+        result['optional_decisions'] = manifest['optional_decisions']
+        result['environment'] = environment()
+        result['status'] = 'passed' if all(row['status'] == 'passed' for row in cases) else 'blocked'
+    except (OSError, ValueError, RuntimeError, TypeError, KeyError, AttributeError, AssertionError, RecursionError) as error:
+        check('observation_available', False, 'Input, capture or query boundary failed; no retry or source-key retuning')
+        result.update(error_kind=type(error).__name__, stopped_phase=phase)
+    result['resources'] = {'elapsed_seconds': time.perf_counter() - started,
+        'process_cpu_seconds': time.process_time() - started_cpu, 'child_process_cpu_seconds': None,
+        'model_tokens': None, 'benchmark_peak_rss_bytes': None,
+        'scope': 'Finite functional comparison; query CPU excludes child processes; RSS high-water is entire process lifetime.'}
+    return result
+
+
+def _record_ranking_boundary(root, result):
+    from evaluations.analysis import write_result
+    path = 'evaluations/results/code-understanding/business.json'
+    with SourceRoot(root) as source:
+        existing, _ = read_json(source, path, 2 * 1024 * 1024)
+    if type(existing) is not dict or type(existing.get('tasks')) is not dict:
+        raise ValueError('Existing business evidence required')
+    existing['tasks']['T047'] = result
+    write_result(root, path, existing, 2 * 1024 * 1024)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--gate', choices=['freeze', 'engine', 'acceleration', 'impact'], default='freeze')
+    parser.add_argument('--gate', choices=['freeze', 'engine', 'acceleration', 'impact', 'task-preflight'], default='freeze')
+    parser.add_argument('--task', choices=['T047'])
+    parser.add_argument('--checks', choices=['ranking-boundary'])
     parser.add_argument('--evidence-root', type=Path, help='Existing private archived-worker root; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--source-map', type=Path, help='Private source map for archive isolation; alternatively REPO_GRAPH_EVAL_SOURCE_MAP')
     parser.add_argument('--prepare', action='store_true', help='Check draft inputs only; does not pass the freeze gate')
@@ -2203,6 +2455,16 @@ def main(argv=None):
     parser.add_argument('--review-template', type=Path, help='Write an unfilled independent source judgment template')
     parser.add_argument('--report', type=Path, help='Write a portable report; no reviewer identifiers are retained')
     args = parser.parse_args(argv)
+    if args.gate == 'task-preflight':
+        if (args.task != 'T047' or args.checks != 'ranking-boundary' or args.prepare or args.seal_inputs
+                or args.source_review or args.review_template or args.evidence_root or args.source_map or args.report):
+            parser.error('Task preflight supports exactly --task T047 --checks ranking-boundary')
+        report = ranking_boundary()
+        _record_ranking_boundary(ROOT, report)
+        print(json.dumps(report, ensure_ascii=False, separators=(',', ':')))
+        return 0 if report['status'] == 'passed' else 1
+    if args.task or args.checks:
+        parser.error('--task and --checks apply only to --gate task-preflight')
     if args.gate != 'freeze':
         if args.prepare or args.seal_inputs or args.source_review or args.review_template:
             parser.error('Source-freeze options apply only to --gate freeze')
