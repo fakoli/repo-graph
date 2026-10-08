@@ -3336,7 +3336,7 @@ def contract_facts(index):
             for kind in ('definitions','sites','scopes','imports','relationships','evidence')}
     from repo_graph.search import connect
     with closing(connect(index.output,readonly=True,owner=index.output_owner)) as db:
-        for table in ('structural_dependencies','structural_import_relationships'):
+        for table in ('structural_dependencies','structural_import_relationships','structural_contract_memberships'):
             result[table]=[dict(row) for row in db.execute('SELECT * FROM '+table+' ORDER BY path')]
             result[table].sort(key=lambda row:json.dumps(row,sort_keys=True,default=lambda value:value.decode() if isinstance(value,bytes) else value))
     return result
@@ -3356,6 +3356,84 @@ def contract_pages(output, **filters):
         else:raise ValueError('Contract continuation cap exceeded')
     if len({r['site']['id'] for r in rows})!=len(rows):raise ValueError('Duplicate contract occurrence page')
     return rows,pages
+
+
+def contract_impact_inputs(root=ROOT):
+    """The independently admitted finite oracle must precede producer execution."""
+    from evaluations.acceptance import committed
+    manifest, original, identity = contract_inputs(root)
+    paths = {INPUTS + 'contract-impact-inputs.json': '3aa2c2a22185a449e630056c020e9de160097b4fe4b55dc4496784c8840423f6',
+             INPUTS + 'contract-impact-review.json': 'c858f16420459982f92e0a747bfe16e4e5403eb17ce6c9e3ed9750443e84e6a6'}
+    with SourceRoot(root) as source:
+        oracle, sha = read_json(source, INPUTS + 'contract-impact-inputs.json')
+        review, review_sha = read_json(source, INPUTS + 'contract-impact-review.json')
+    if (sha != paths[INPUTS + 'contract-impact-inputs.json'] or review_sha != paths[INPUTS + 'contract-impact-review.json'] or
+            review.get('input_manifest', {}).get('sha256') != sha or review.get('correctness', {}).get('status') != 'passed' or
+            review.get('adversarial', {}).get('status') != 'passed' or review.get('implementation_approval') is not False or
+            not committed(root, paths)):
+        raise ValueError('Committed independently admitted contract-impact source oracle required')
+    identity.update(impact_input_sha256=sha, impact_source_review_sha256=review_sha)
+    return oracle, manifest, original, identity
+
+
+def contract_impact_pages(output, request, *, max_edges=1):
+    from repo_graph.analysis_queries import Queries
+    payload = dict(operation='impact', role='all', **request)
+    payload['limits'] = dict(max_edges=max_edges)
+    rows, pages = [], []
+    with Queries(output) as queries:
+        for _ in range(128):
+            page = queries.run(payload); pages.append(page); rows.extend(page['rows'])
+            if not page['cursor']:
+                if page['truncated']: raise ValueError('Frozen contract impact stopped before exhaustion')
+                break
+            payload['cursor'] = page['cursor']
+        else: raise ValueError('Contract impact continuation cap exceeded')
+    if len({(r['relation'],r['site']['id'],r['target']['id'] if r['target'] else None) for r in rows}) != len(rows):
+        raise ValueError('Duplicate physical contract-impact occurrence')
+    return rows, pages
+
+
+def contract_impact_grade(index, oracle, manifest, state):
+    cases = {case['profile_binding_id']:case for case in manifest['cases'] if 'profile_binding_id' in case}
+    mutation = next((m for m in manifest['incremental_mutations'] if m['id'] == state), None)
+    results = []
+    for assertion in oracle['proposed_assertions']:
+        if assertion['state'] != state: continue
+        rows, pages = contract_impact_pages(index.output, assertion['request'])
+        observed = {cases[r['binding_id']]['id']:r for r in rows}
+        expected = assertion['expected']; selected = set(expected['contract_case_ids'])
+        checks = dict(selected_membership=set(observed) == selected, no_duplicates=len(rows) == len(observed),
+            explicit_contract=all(r['relation'] == 'contract' for r in rows),
+            captured_affinity=all(p['generation'] == index.metadata()['generation'] and p['contracts_available'] and
+                p['contract_membership_schema'] == 'captured-contract-membership-v1' for p in pages),
+            bounded_pages=all(p['returned_edges'] <= 1 and p['examined_work'] <= 10000 and
+                p['returned_entities'] <= 50 and len(json.dumps(p,sort_keys=True,separators=(',',':')).encode()) <= 32768 for p in pages))
+        target_gold = expected.get('targets_by_case', {case_id:[expected['target_id']] for case_id in selected} if 'target_id' in expected else {})
+        tp = fp = fn = 0
+        for case_id in selected | set(observed):
+            row = observed.get(case_id); gold = set(target_gold.get(case_id, []))
+            actual = {row['target']['id']} if row and row['target'] else set()
+            tp += len(gold & actual); fp += len(actual - gold); fn += len(gold - actual)
+            checks['targets:' + case_id] = actual == gold
+            if row:
+                case = next(c for c in manifest['cases'] if c['id'] == case_id)
+                frozen = dict(case['expected'])
+                if mutation: frozen.update(mutation['expected_cases'].get(case_id, {}))
+                checks['certainty:' + case_id] = row['certainty'] == frozen['certainty']
+                if state == 'baseline' or mutation and 'reason' in mutation['expected_cases'].get(case_id, {}):
+                    checks['reason:' + case_id] = row['reason'] == frozen['reason']
+        if expected.get('selected_path_exists') is False or expected.get('captured_file_handle', True) is None:
+            checks['no_fabricated_missing_handle'] = not any(p['selected_files'] for p in pages)
+        results.append(dict(id=assertion['id'],state=state,status='passed' if all(checks.values()) else 'failed',checks=checks,
+            actual_query_rows=rows, selected_case_ids=sorted(observed), source_reference_sets=assertion['source_reference_sets'],
+            pages=[{key:p[key] for key in ('generation','repository_identity','source_identity','analyzer_identity','config_identity',
+                'impact_identity','scope','selected_files','selected_symbols','unavailable_paths','unknown_boundaries','total_count',
+                'examined_work','returned_entities','returned_edges','stop_reason','truncated','storage_setup_seconds','snapshot_copy_seconds')} for p in pages],
+            selected_target_metrics=dict(true_positive=tp,false_positive=fp,false_negative=fn,
+                precision=tp/(tp+fp) if tp+fp else None,recall=tp/(tp+fn) if tp+fn else None,
+                scope='Only frozen selected exact target declarations; conservative dependency membership is not runtime precision')))
+    return results
 
 
 def contract_grade(index, manifest, expected=None):
@@ -3485,6 +3563,281 @@ def contracts(root=ROOT,budget=None):
         scope='Explicit reviewed static contract links; no runtime transport/order/deployment, complete business path, model, scale or human qualification.')
 
 
+def contract_impact(root=ROOT, budget=None):
+    """Actual finite backend outcomes; viewer/human outcomes remain separate."""
+    from repo_graph.analysis import StructuralIndex
+    from repo_graph.analysis_queries import Queries, SQLSnapshot, Limits, _row_entities, encoded
+    from repo_graph.search import Search, captured_source, connect, index_status
+    root=Path(root); oracle,manifest,original,identity=contract_impact_inputs(root)
+    code_paths=('repo_graph/analysis.py','repo_graph/analysis_native.py','repo_graph/analysis_queue.py','repo_graph/analysis_queries.py',
+        'repo_graph/search.py','repo_graph/source.py','repo_graph/cli.py','repo_graph/server.py','evaluations/analysis.py',
+        'tests/test_contracts.py','pyproject.toml','uv.lock')
+    with SourceRoot(root) as owner:
+        before={path:owner.read(path,1024*1024,hash_full=True)[1] for path in code_paths}
+    identity['implementation']=dict(commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),sha256=before)
+    results=[]; failures=[]; receipts=[]; boundaries=[]
+    def require(condition,message):
+        if not condition: raise AssertionError(message)
+    def capture(identifier,action):
+        started=time.perf_counter()
+        try:
+            details=action(); row=dict(id=identifier,status='passed',details=details)
+        except Exception as error:
+            # Full diagnostics belong to retained private command logs, not a
+            # portable task report that could contain temporary or host paths.
+            print(identifier + ': ' + type(error).__name__ + ': ' + str(error), file=sys.stderr)
+            failure=dict(id=identifier,error_kind=type(error).__name__);failures.append(failure)
+            row=dict(failure,status='failed')
+        row['elapsed_seconds']=time.perf_counter()-started;results.append(row);return row
+    def refusal(action):
+        try: action()
+        except (ValueError,RuntimeError):return True
+        raise AssertionError('Required boundary was accepted')
+    request=dict(selector=dict(kind='source_area',paths=['bindings.json']),relations=['contract'],depth=1)
+    with tempfile.TemporaryDirectory(prefix='contract-impact-evaluation-') as scratch:
+        scratch=Path(scratch);source=scratch/'source';source.mkdir()
+        def write(blobs):
+            for path in source.rglob('*'):
+                if path.is_file():path.unlink()
+            for path,raw in blobs.items():
+                file=source/path;file.parent.mkdir(parents=True,exist_ok=True);file.write_bytes(raw)
+        def produce(output,blobs,mode='serial',*,git_base=None,enrolled=True):
+            context=contract_context(source,blobs,identity['independent_review_sha256'],contract_inventory_identity(blobs))
+            index=StructuralIndex(source,output,budget=budget,contract_context=context if enrolled else None)
+            receipt=index.refresh([{k:r[k] for k in ('path','language','kind','sha256','bytes')} for r in contract_inventory(blobs)],
+                mode=mode,concurrency=2 if mode=='queued' else 1,git_base=git_base)
+            receipts.append(dict(mode=mode,**receipt))
+            require(receipt['status']=='ready','Contract-impact producer not ready: '+str(receipt))
+            require(receipt['resources']['workers_started']==receipt['resources']['owned_workers_reaped'],'Owned workers not reaped')
+            return index
+        write(original);index=produce(scratch/'index',original)
+        baseline=contract_facts(index);baseline_rows,baseline_pages=contract_impact_pages(index.output,request)
+        def baseline_cases():
+            rows=contract_impact_grade(index,oracle,manifest,'baseline');results.extend(rows)
+            require(all(r['status']=='passed' for r in rows),'Baseline source assertion failed')
+            source_outcomes=contract_grade(index,manifest)
+            require(all(r['status']=='passed' for r in source_outcomes),'Original contract/source affinity changed')
+            queued=produce(scratch/'queued',original,'queued')
+            require(contract_facts(queued)==baseline,'Serial/queued facts or membership differ')
+            require(contract_impact_pages(queued.output,request)[0]==baseline_rows,'Serial/queued paged rows differ')
+            return dict(source_assertions=len(rows),serial_queued_equal=True,original_source_affinity_outcomes=source_outcomes)
+        capture('baseline-source-assertions',baseline_cases)
+        mutation_outcomes=[];cursor_outcomes=[];missing_outcomes=[]
+        for mutation in manifest['incremental_mutations']:
+            def changed_case(mutation=mutation):
+                write(original);current=produce(index.output,original)
+                with SQLSnapshot(current.output) as held,Queries(current.output) as queries:
+                    prior=queries.run(dict(operation='impact',**request,limits=dict(max_edges=1)))
+                    held_page=held.query(operation='impact',**request,limits=Limits(max_edges=1))
+                    blobs=contract_mutation(original,mutation);write(blobs);current=produce(current.output,blobs)
+                    require(refusal(lambda:queries.run(dict(operation='impact',**request,limits=dict(max_edges=1),cursor=prior['cursor']))),'Stale cursor accepted')
+                    unchanged=held.query(operation='impact',**request,limits=Limits(max_edges=1))
+                    require(unchanged['rows']==held_page['rows'] and unchanged['generation']==held_page['generation'],'Held snapshot mixed generations')
+                rows=contract_impact_grade(current,oracle,manifest,mutation['id']);results.extend(rows)
+                require(all(r['status']=='passed' for r in rows),'Mutation source assertion failed')
+                source_outcomes=contract_grade(current,manifest,mutation['expected_cases'])
+                require(all(r['status']=='passed' for r in source_outcomes),'Frozen mutated source affinity changed')
+                facts=contract_facts(current)
+                clean=produce(scratch/('clean-'+mutation['id']),blobs,'queued')
+                require(facts==contract_facts(clean),'Update/clean facts or membership differ')
+                current_rows,current_pages=contract_impact_pages(current.output,request)
+                require(current_rows==contract_impact_pages(clean.output,request)[0],'Update/clean paged rows differ')
+                # Every published site and available declaration witness is inspected
+                # using captured physical bytes; missing keys never become handles.
+                for row in current_rows:
+                    handles=[row['site']]+[h for h in row['evidence'] if h['source_role']=='structural_declaration']
+                    for handle in handles:
+                        source_handle={k:handle[k] for k in ('id','path','range','source_sha256')}
+                        excerpt=captured_source(Search(current.output),dict(generation=current.metadata()['generation'],handle=source_handle,max_excerpt_bytes=64))
+                        raw=blobs[handle['path']]
+                        require(hashlib.sha256(raw).hexdigest()==handle['source_sha256'],'Captured handle full-file digest differs')
+                        require(excerpt['raw_digest']==hashlib.sha256(raw[excerpt['range']['start_byte']:excerpt['range']['end_byte']]).hexdigest(),'Captured excerpt digest differs')
+                write(original);restored=produce(current.output,original)
+                require(contract_facts(restored)==baseline,'Restoration facts/membership differ')
+                cursor_outcomes.append(mutation['id']);mutation_outcomes.append(mutation['id'])
+                missing_outcomes.extend(r['id'] for r in rows if r['checks'].get('no_fabricated_missing_handle'))
+                return dict(source_assertions=len(rows),update_clean_equal=True,restore_equal=True,held_snapshot_stable=True,
+                    changed_cursor_refused=True,result_inventory_sha256=mutation['result_inventory_sha256'],original_source_affinity_outcomes=source_outcomes)
+            capture(mutation['id'],changed_case)
+        write(original);index=produce(index.output,original)
+        def boundary(identifier,action):
+            row=capture(identifier,action);boundaries.append(row);return row
+        boundary('CTI-INCREMENTAL',lambda:require(len(mutation_outcomes)==10,'Incomplete mutation parity'))
+        boundary('CTI-MISSING-PATH',lambda:require(len(missing_outcomes)>=3,'Missing/deleted witness path controls incomplete'))
+        boundary('CTI-ZERO-TARGET',lambda:require(len([r for r in baseline_rows if r['target'] is None])==12 and
+            all(not r['targets_exhaustive'] for r in baseline_rows if r['target'] is None),'Unknown targets promoted'))
+        def source_controls():
+            from unittest.mock import patch
+            count=0
+            with patch('repo_graph.source.SourceRoot.read',side_effect=AssertionError('Query-time source scan forbidden')):
+                for row in baseline_rows:
+                    for handle in [row['site']]+row['evidence']:
+                        h={k:handle[k] for k in ('id','path','range','source_sha256')}
+                        excerpt=captured_source(Search(index.output),dict(generation=index.metadata()['generation'],handle=h,max_excerpt_bytes=64))
+                        raw=original[h['path']]
+                        require(hashlib.sha256(raw).hexdigest()==h['source_sha256'],'Source witness digest differs')
+                        require(len(excerpt['text'].encode())<=64 and len(encoded(excerpt))<=32768,'Source cap exceeded')
+                        require(excerpt['raw_digest']==hashlib.sha256(raw[excerpt['range']['start_byte']:excerpt['range']['end_byte']]).hexdigest(),'Source excerpt digest differs')
+                        count+=1
+            return dict(captured_handles_inspected=count,live_source_reads=0)
+        boundary('CTI-SOURCE',source_controls)
+        def source_forgery():
+            import copy
+            h={k:baseline_rows[0]['site'][k] for k in ('id','path','range','source_sha256')}
+            base=dict(generation=index.metadata()['generation'],handle=h)
+            attempts=[]
+            for kind in ('generation','digest','range','id'):
+                forged=copy.deepcopy(base)
+                if kind=='generation':forged['generation']='0'*64
+                elif kind=='digest':forged['handle']['source_sha256']='0'*64
+                elif kind=='id':forged['handle']['id']='missing:0:1:contract'
+                else:forged['handle']['range']['end_byte']+=1
+                refusal(lambda:captured_source(Search(index.output),forged));attempts.append(kind)
+            return dict(refused=attempts)
+        boundary('CTI-SOURCE-FORGERY',source_forgery)
+        def filters_and_cursors():
+            invalid=[]
+            with Queries(index.output) as queries,Queries(index.output) as foreign:
+                prior=queries.run(dict(operation='impact',**request,limits=dict(max_edges=1)))
+                refusal(lambda:foreign.run(dict(operation='impact',**request,limits=dict(max_edges=1),cursor=prior['cursor'])))
+                for change in (dict(services=['gateway']),dict(protocols=['rpc']),dict(namespaces=['orders-api']),
+                    dict(certainties=['resolved']),dict(relations=['call','contract']),dict(selector=dict(kind='source_area',paths=['worker/']))):
+                    refusal(lambda:queries.run(dict(operation='impact',**dict(request,**change),limits=dict(max_edges=1),cursor=prior['cursor'])))
+                for key,values in (('services',[]),('services',['gateway','gateway']),('services',[True]),('services',['x']*9),
+                    ('namespaces',['x'*257]),('namespaces',{}),('protocols',['smtp']),('protocols',['http']*4)):
+                    refusal(lambda:queries.run(dict(operation='impact',**request,**{key:values})));invalid.append(dict(field=key,value=values))
+                refusal(lambda:queries.run(dict(operation='impact',selector=request['selector'],services=['gateway'])))
+            with SQLSnapshot(index.output) as held:
+                first=held.query(operation='impact',**request,limits=Limits(max_edges=1))
+                held._continuations[first['cursor']]=(0,*held._continuations[first['cursor']][1:])
+                refusal(lambda:held.query(operation='impact',**request,cursor=first['cursor']))
+            return dict(invalid_refused=invalid,filter_cursor_refusals=6,foreign_session_refused=True,expired_refused=True,
+                changed_source_cursor_controls=cursor_outcomes)
+        row=boundary('CTI-CURSOR',filters_and_cursors)
+        boundary('CTI-FILTER-TYPES',lambda:require(row['status']=='passed','Filter validation control failed'))
+        def limits_controls():
+            details=[]
+            with Queries(index.output) as queries:
+                for limit in (dict(max_examined_relationships=1),dict(max_entities=1),dict(max_response_bytes=4096),dict(max_edges=1)):
+                    page=queries.run(dict(operation='impact',**request,limits=limit))
+                    require(page['truncated'] and page['stop_reason'] and page['total_count']['kind']!='exact','Limit claimed completeness')
+                    require(page['returned_entities']<=limit.get('max_entities',50) and page['examined_work']<=limit.get('max_examined_relationships',10000) and
+                        page['returned_edges']<=limit.get('max_edges',100) and len(encoded(page))<=limit.get('max_response_bytes',32768),'Limit exceeded')
+                    details.append(dict(limits=limit,stop_reason=page['stop_reason'],entities=page['returned_entities'],work=page['examined_work'],bytes=len(encoded(page))))
+                cancelled=queries.run(dict(operation='impact',**request),cancel=lambda:True)
+                require(cancelled['stop_reason']=='cancelled' and not cancelled['rows'],'Cancellation ignored')
+            now=[0.0]
+            with SQLSnapshot(index.output,clock=lambda:now[0]) as held:
+                def advance():now[0]+=1;return False
+                stopped=held.query(operation='impact',**request,cancel=advance)
+                require(stopped['stop_reason']=='deadline_exceeded','Deadline ignored')
+            require(all(p['returned_entities']>=max((len(_row_entities(r)) for r in p['rows']),default=0) for p in baseline_pages),'Evidence declarations uncharged')
+            return dict(actual_limits=details,cancellation=True,deadline=True,evidence_declarations_charged=True)
+        boundary('CTI-LIMITS',limits_controls)
+        boundary('CTI-CAPPED-PAGING',lambda:require(len(baseline_rows)==16 and len({r['site']['id'] for r in baseline_rows})==16 and
+            all(p['returned_edges']<=1 for p in baseline_pages),'Paged membership skipped/duplicated rows'))
+        def projection_controls():
+            ordinary=produce(scratch/'ordinary',original,enrolled=False)
+            with closing(connect(ordinary.output,owner=ordinary.output_owner)) as db:
+                receipt=json.loads(db.execute("SELECT value FROM meta WHERE key='structural_impact_receipt'").fetchone()[0])
+                receipt.pop('contract_membership_schema');receipt['identity']=hashlib.sha256(encoded({k:v for k,v in receipt.items() if k!='identity'})).hexdigest()
+                db.execute("UPDATE meta SET value=? WHERE key='structural_impact_receipt'",(encoded(receipt).decode(),));db.commit()
+            with Queries(ordinary.output) as queries:
+                queries.run(dict(operation='impact',selector=dict(kind='source_area',paths=['worker/'])))
+                require(queries.run(dict(operation='symbol'))['rows'],'Legacy symbols unavailable')
+                refusal(lambda:queries.run(dict(operation='impact',**request)))
+            outcomes=[]
+            for defect in ('index','schema','enrollment','foreign_membership'):
+                write(original);bad=produce(scratch/('bad-'+defect),original)
+                with closing(connect(bad.output,owner=bad.output_owner)) as db:
+                    if defect=='index':db.execute('DROP INDEX structural_contract_witness_path')
+                    elif defect=='schema':db.execute("UPDATE meta SET value='old' WHERE key='structural_contract_membership_schema'")
+                    elif defect=='enrollment':
+                        receipt=json.loads(db.execute("SELECT value FROM meta WHERE key='structural_receipt'").fetchone()[0]);receipt['contract_enrollment']['consumer']['source_root_id']='0'*64
+                        db.execute("UPDATE meta SET value=? WHERE key='structural_receipt'",(encoded(receipt).decode(),))
+                    else:db.execute('INSERT INTO structural_contract_memberships VALUES(?,?)',('forged.json',baseline_rows[0]['site']['id']))
+                    db.commit()
+                payload=dict(operation='impact',**request)
+                if defect=='foreign_membership':payload['selector']=dict(kind='source_area',paths=['forged.json'])
+                with Queries(bad.output) as queries:
+                    refusal(lambda:queries.run(payload))
+                    queries.run(dict(operation='impact',selector=dict(kind='source_area',paths=['worker/'])))
+                outcomes.append(defect)
+            require(index_status(index.output)['structural']['impact']['receipt']['contracts_available'],'Validated contract status unavailable')
+            return dict(refused=outcomes,legacy_p1_usable=True)
+        boundary('CTI-PROJECTION',projection_controls)
+        def interface_parity():
+            import threading
+            from urllib.request import Request,urlopen
+            from repo_graph.server import create_server
+            payload=dict(operation='impact',selector=dict(kind='source_area',paths=['worker/openapi.json']),relations=['contract'],
+                services=['gateway'],protocols=['http'],role='all')
+            with Queries(index.output) as queries:direct=queries.run(payload)
+            entrypoint='from repo_graph.cli import main; raise SystemExit(main())'
+            command=[sys.executable,'-c',entrypoint,'query',str(index.output),'--operation','impact','--source-area','worker/openapi.json',
+                '--relation','contract','--service','gateway','--protocol','http','--role','all']
+            cli=subprocess.run(command,cwd=root,capture_output=True,text=True,timeout=10)
+            require(cli.returncode==0,'Contract-impact CLI failed: '+cli.stderr[:512]);observed=json.loads(cli.stdout)
+            keys=('generation','repository_identity','source_identity','analyzer_identity','config_identity','impact_identity',
+                'scope','rows','selected_files','selected_symbols','unavailable_paths','contract_membership_schema','contracts_available')
+            require({k:observed[k] for k in keys}=={k:direct[k] for k in keys},'CLI/direct captured rows or scope differ')
+            with create_server(Search(index.output)) as server:
+                thread=threading.Thread(target=server.serve_forever,kwargs={'poll_interval':.01});thread.start()
+                address=f'http://127.0.0.1:{server.server_port}'
+                try:
+                    with urlopen(Request(address+'/api/query',encoded(payload),headers={'Content-Type':'application/json'}),timeout=5) as response:
+                        http=json.loads(response.read(32769));require(response.status==200,'HTTP query refused')
+                    require({k:http[k] for k in keys}=={k:direct[k] for k in keys},'HTTP/direct captured rows or scope differ')
+                    h={k:direct['rows'][0]['site'][k] for k in ('id','path','range','source_sha256')}
+                    source_request=dict(generation=direct['generation'],handle=h,max_excerpt_bytes=64)
+                    with urlopen(Request(address+'/api/source',encoded(source_request),headers={'Content-Type':'application/json'}),timeout=5) as response:
+                        source_response=json.loads(response.read(32769))
+                    require(source_response['handle']==h and len(source_response['text'].encode())<=64,'HTTP source handle/cap differs')
+                finally:server.shutdown();thread.join(timeout=5)
+                require(not thread.is_alive(),'Owned server thread not stopped')
+            return dict(cli_command=['python','-c',entrypoint,'query','<synthetic-index>']+command[5:],cli_exit_code=cli.returncode,
+                direct_cli_http_equal=True,actual_rows=direct['rows'],viewer='pending_separate_viewer_lane')
+        boundary('CTI-PARITY',interface_parity)
+        def git_control():
+            from evaluations.engine_checks import _adapter_materialize
+            env={'PATH':os.environ.get('PATH',''),'GIT_CONFIG_GLOBAL':os.devnull,'GIT_CONFIG_NOSYSTEM':'1','GIT_OPTIONAL_LOCKS':'0','GIT_TERMINAL_PROMPT':'0'}
+            def git(*args):
+                return subprocess.run(['git','-c','core.hooksPath='+os.devnull,'-c','user.name=Synthetic Fixture',
+                    '-c','user.email=fixture@example.invalid','-C',str(source),*args],env=env,check=True,capture_output=True,text=True,timeout=5).stdout.strip()
+            git('init','--initial-branch=main');git('add','--all');git('commit','-m','Synthetic base');base=git('rev-parse','HEAD')
+            initial=produce(scratch/'git',original)
+            mutation=next(m for m in manifest['incremental_mutations'] if m['id']=='CT-INC-ARTIFACT-DELETE')
+            changed=contract_mutation(original,mutation)
+            _adapter_materialize(source,changed,removed=set(original)-set(changed))
+            git('add','--all');git('commit','-m','Synthetic artifact deletion')
+            current=produce(initial.output,changed,git_base=base)
+            with Queries(current.output) as queries:
+                first=queries.run(dict(operation='impact',selector=dict(kind='git_change',base_revision=base),relations=['contract'],limits=dict(max_edges=1)))
+                refusal(lambda:queries.run(dict(operation='impact',selector=dict(kind='git_change',base_revision='0'*40),relations=['contract'])))
+            rows,pages=contract_impact_pages(current.output,dict(selector=dict(kind='git_change',base_revision=base),relations=['contract']))
+            target_path=mutation['operations'][0]['path']
+            expected=set(oracle['states'][mutation['id']]['path_memberships'][target_path]);actual={r['binding_id'] for r in rows}
+            require(actual==expected,'Git changed-path membership differs from admitted dependency set')
+            require(all(p['selection']['git_change']['source_byte_affinity']=='unobserved_worktree' for p in pages),'Commit-byte equivalence fabricated')
+            require(any(b['path']==target_path and b['source_sha256'] is None for p in pages for b in p['unavailable_paths']),'Deleted artifact gained source handle')
+            return dict(base_revision=base,current_revision=git('rev-parse','HEAD'),membership=sorted(actual),deleted_path=target_path,
+                worktree_byte_affinity='unobserved',historical_closure='unavailable')
+        boundary('CTI-GIT',git_control)
+    with SourceRoot(root) as owner:
+        after={path:owner.read(path,1024*1024,hash_full=True)[1] for path in code_paths}
+    capture('implementation-stable',lambda:require(before==after,'Runtime/evaluator changed during execution'))
+    boundaries.append(dict(id='CTI-VIEW',status='not_executed',owner='separate_viewer_lane',reason='No backend test grades accessibility or saved viewer outcomes'))
+    measured=[r for r in results if r['id'] in {a['id'] for a in oracle['proposed_assertions']}]
+    failed=failures or any(r['status']=='failed' for r in results) or len(measured)!=43
+    return dict(schema_version=1,suite='contract-impact',status='failed' if failed else 'runtime_passed_view_pending',
+        component_runtime_status='failed' if failed else 'passed',source_identity=identity,case_results=results,boundary_results=boundaries,
+        failures=failures,producer_receipts=receipts,environment=environment(),
+        counts=dict(source_assertions_expected=43,source_assertions_measured=len(measured),mutations_measured=len(mutation_outcomes),
+            backend_boundary_controls=sum(r['status']=='passed' for r in boundaries),viewer_controls_pending=1),
+        resources=dict(tokens=None,native_peak_rss=None),qualification_complete=False,limits_qualified=False,
+        scope='Finite admitted static dependency/target oracle and backend interfaces; viewer, human, runtime transport/order, historical closure and scale unqualified')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group()
@@ -3503,7 +3856,7 @@ def main(argv=None):
                         help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
-    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact', 'impact-interface', 'django-framework', 'contracts'], default='component')
+    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact', 'impact-interface', 'django-framework', 'contracts', 'contract-impact'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
                         help='finite report cap: 2 MiB for comparison/structural suites, 1 MiB otherwise')
@@ -3518,7 +3871,7 @@ def main(argv=None):
         parser.error('--repetition beyond one requires --protocol')
     structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012', 'coverage': 'T013', 'evidence': 'T014'}.get(args.suite)
     view_task = {'impact': 'T043', 'impact-interface': 'T044'}.get(args.suite)
-    business_task = {'django-framework':'T018','contracts':'T020'}.get(args.suite)
+    business_task = {'django-framework':'T018','contracts':'T020','contract-impact':'T069'}.get(args.suite)
     if not (args.engine or args.screen_engines or args.compare or args.profile or args.profile_pilot) and structural_task is None and view_task is None and business_task is None:
         parser.error('an engine, screening, comparison or profiling mode is required for component')
     if (structural_task or view_task or business_task) and (args.screen_engines or args.compare or args.profile or args.profile_pilot):
@@ -3559,7 +3912,8 @@ def main(argv=None):
         if args.max_result_bytes <= 0:
             raise ValueError('Output budget must be positive')
         if business_task:
-            result = (contracts(ROOT,Budget(max_files=args.max_files,max_total_bytes=args.max_source_bytes,max_nodes=args.max_nodes))
+            result = (contract_impact(ROOT,Budget(max_files=args.max_files,max_total_bytes=args.max_source_bytes,max_nodes=args.max_nodes))
+                if args.suite=='contract-impact' else contracts(ROOT,Budget(max_files=args.max_files,max_total_bytes=args.max_source_bytes,max_nodes=args.max_nodes))
                 if args.suite=='contracts' else django_framework(ROOT, Budget(max_files=args.max_files,
                 max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes), source_map=args.source_map, work_root=args.work_root))
             result['resources'] = {'finite_framework_elapsed_seconds': time.perf_counter() - started,
@@ -3572,7 +3926,8 @@ def main(argv=None):
             else: size = write_result(ROOT, args.output, result, args.max_result_bytes)
             print(json.dumps({'status': result['status'], 'counts': result['counts'], 'failures': len(result['failures']),
                               'result': args.output, 'result_bytes': size}, separators=(',', ':')))
-            return 0 if result['status'] == 'passed' else 1
+            passed = result.get('component_runtime_status') == 'passed' if args.suite == 'contract-impact' else result['status'] == 'passed'
+            return 0 if passed else 1
         if args.profile_pilot:
             if args.protocol:
                 from evaluations.performance import mapped_corpora

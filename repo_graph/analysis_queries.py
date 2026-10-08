@@ -21,6 +21,7 @@ from .source import SourceRoot
 
 QUERY_RULE_VERSION = 'physical-occurrence-v2'
 IMPACT_RULE_VERSION = 'captured-impact-v1'
+CONTRACT_MEMBERSHIP_VERSION = 'captured-contract-membership-v1'
 _LOADED_QUERY_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 
@@ -40,12 +41,36 @@ def validate_impact_receipt(receipt, identities):
     if (type(receipt) is not dict or receipt.get('schema') != IMPACT_RULE_VERSION or
             any(receipt.get(k) != v for k, v in identities.items()) or
             type(receipt.get('git_change')) is not dict or type(receipt.get('revision_dirty')) is not dict or
-            receipt.get('contracts_available') is not False or
+            type(receipt.get('contracts_available')) is not bool or
+            receipt.get('contracts_available') and receipt.get('contract_membership_schema') != CONTRACT_MEMBERSHIP_VERSION or
+            not receipt.get('contracts_available') and receipt.get('contract_membership_schema') not in (None, '') or
             receipt.get('historical_call_closure') != 'unavailable_current_index_only' or
             len(encoded(receipt)) > 32768 or
             receipt.get('identity') != hashlib.sha256(encoded({k: v for k, v in receipt.items() if k != 'identity'})).hexdigest()):
         raise ValueError('Missing, stale or foreign impact projection; refresh the index')
     return receipt
+
+
+def validate_contract_projection(read, identities, *, membership=False):
+    """Targeted captured enrollment/projection checks; no source or graph walk."""
+    schema = read("SELECT value FROM meta WHERE key='structural_contract_schema'")
+    if schema is None or schema[0] != 'reviewed-explicit-contracts-v1':
+        raise ValueError('Missing captured contract projection; explicitly enroll a reviewed profile')
+    captured = read("SELECT substr(value,1,32769) FROM meta WHERE key='structural_receipt'")
+    if captured is None or len(captured[0].encode()) > 32768:
+        raise ValueError('Missing bounded captured contract enrollment')
+    receipt = _json_record(captured[0])
+    from .analysis import _contract_context
+    enrollment = _contract_context(receipt.get('contract_enrollment'), identities['repository_identity'])
+    if enrollment is None or any(receipt.get(k) != v for k, v in identities.items()):
+        raise ValueError('Foreign or stale captured contract enrollment')
+    if membership:
+        schema = read("SELECT value FROM meta WHERE key='structural_contract_membership_schema'")
+        columns = read("SELECT group_concat(name,',') FROM (SELECT name FROM pragma_index_info('structural_contract_witness_path') ORDER BY seqno)")
+        table = read("SELECT group_concat(name,',') FROM (SELECT name FROM pragma_table_info('structural_contract_memberships') ORDER BY cid)")
+        if schema is None or schema[0] != CONTRACT_MEMBERSHIP_VERSION or columns is None or columns[0] != 'path,site_id' or table is None or table[0] != 'path,site_id':
+            raise ValueError('Missing bounded contract membership projection; refresh the index')
+    return enrollment
 
 
 def _row_entities(row):
@@ -109,7 +134,7 @@ def _impact_options(selector, relations, certainties):
         if type(value) is not list or not value or len(value) > len(allowed) or any(type(v) is not str or v not in allowed for v in value) or len(set(value)) != len(value):
             raise ValueError('Invalid impact filters')
         return sorted(value)
-    return selector, choices(relations, ('call', 'import'), ['call', 'import'] if selector else ['call']), choices(
+    return selector, choices(relations, ('call', 'import', 'contract'), ['call', 'import'] if selector else ['call']), choices(
         certainties, ('resolved', 'candidate', 'unresolved'), ['candidate', 'resolved', 'unresolved'])
 
 
@@ -126,15 +151,15 @@ def _framework_filters(operation, families, kinds):
         'django_route', 'django_management_handle', 'django_orm_get_queryset', 'unknown_framework_candidate'))
 
 
-def _contract_filters(operation, services, protocols, namespaces):
-    if operation != 'contract':
+def _contract_filters(operation, services, protocols, namespaces, relations=None):
+    if operation != 'contract' and not (operation == 'impact' and relations is not None and 'contract' in relations):
         if any(value is not None for value in (services, protocols, namespaces)):
-            raise ValueError('Contract filters require contract operation')
+            raise ValueError('Contract filters require contract operation or explicit contract impact relation')
         return None, None, None
     def choices(value, maximum):
         if value is None: return None
         if (type(value) is not list or not 1 <= len(value) <= maximum or
-                any(type(item) is not str or not item or len(item.encode()) > 256 for item in value) or
+                any(type(item) is not str or not item or '\0' in item or len(item.encode()) > 256 for item in value) or
                 len(set(value)) != len(value)):
             raise ValueError('Bounded typed contract filters required')
         return sorted(value)
@@ -629,7 +654,7 @@ class SQLSnapshot(Snapshot):
             (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY ' + ','.join(columns) +
             ' LIMIT 1', arguments)
 
-    def _require_impact(self):
+    def _require_impact(self, contracts=False):
         receipt = self.impact_receipt
         expected = dict(repository_identity=self.repository_identity, source_identity=self.source_identity,
             analyzer_identity=self.analyzer_identity, config_identity=self.config_identity, generation=self.generation)
@@ -642,6 +667,10 @@ class SQLSnapshot(Snapshot):
             row = self._read("SELECT group_concat(name,',') FROM (SELECT name FROM pragma_index_info(?) ORDER BY seqno)", (name,))
             if row is None or row[0] != columns:
                 raise ValueError('Missing bounded import projection; refresh the index')
+        if contracts:
+            if not receipt['contracts_available']:
+                raise ValueError('Missing captured contract membership capability; explicitly enroll a reviewed profile')
+            validate_contract_projection(self._read, expected, membership=True)
         return receipt
 
     def _file_handle(self, path):
@@ -682,7 +711,7 @@ class SQLSnapshot(Snapshot):
             'evidence_kind': 'static_syntax', 'scope': item['scope']}
 
     def _impact_query(self, seed, *, selector, relations, certainties, depth, prefix, scope, role,
-                      limits, cursor, cancel, setup):
+                      limits, cursor, cancel, setup, services=None, protocols=None, namespaces=None):
         """One SQL/work/deadline budget for selection, imports and reverse calls."""
         selector, relations, certainties = _impact_options(selector, relations, certainties)
         started, reason, work, callbacks = self._clock(), None, 0, 0
@@ -720,6 +749,7 @@ class SQLSnapshot(Snapshot):
                 frontier.append([kind, identifier, level, None])
         def file_work(path, level, membership=True):
             if membership and 'call' in relations: queue('members', path, level)
+            if membership and 'contract' in relations: queue('contract_members', path, level)
             if 'import' in relations:
                 queue('imports', path, level)
                 queue('unknown_imports', path, level)
@@ -729,6 +759,7 @@ class SQLSnapshot(Snapshot):
             if reserved:
                 boundaries.update({key: 2 ** 64 for key in ('depth_limit', 'unresolved_call', 'unresolved_import',
                     'candidate_call', 'candidate_import', 'filtered_relation', 'filtered_name',
+                    'unresolved_contract', 'filtered_contract',
                     'source_area_not_in_admitted_inventory', 'historical_or_nonadmitted_source_path',
                     'partial_excluded_or_configuration_source')})
             return {'generation': self.generation, 'repository_identity': self.repository_identity,
@@ -742,9 +773,12 @@ class SQLSnapshot(Snapshot):
                     'revision_dirty': (receipt or {}).get('revision_dirty')},
                 'scope': {'path_filter': scope, 'name_prefix': prefix, 'depth': depth,
                     'relations': relations, 'certainties': certainties, 'role': role,
+                    'services': services, 'protocols': protocols, 'namespaces': namespaces,
                     'evidence_kind': 'static_syntax', 'claim': 'possible_captured_reachability'},
                 'unknown_boundaries': boundaries,
-                'historical_call_closure': 'unavailable_current_index_only', 'contracts_available': False,
+                'historical_call_closure': 'unavailable_current_index_only',
+                'contracts_available': bool((receipt or {}).get('contracts_available')),
+                'contract_membership_schema': (receipt or {}).get('contract_membership_schema'),
                 'runtime_complete': False, 'live_source_observed': False,
                 'examined_work': work, 'examined_relationships': work, 'examined_symbols': len(selected_symbols),
                 'returned_entities': len(entities), 'returned_symbol_handles': len(symbols),
@@ -757,13 +791,14 @@ class SQLSnapshot(Snapshot):
                     'scope': 'captured_physical_relations_within_selected_filters_and_depth'},
                 'cursor': continuation, 'truncated': bool(frontier) or reason is not None, 'stop_reason': reason}
         try:
-            receipt = self._require_impact()
+            receipt = self._require_impact(contracts='contract' in relations)
             if selector and selector['kind'] == 'git_change' and (receipt['git_change'].get('status') != 'ready' or
                     receipt['git_change'].get('base_revision') != selector['base_revision']):
                 raise ValueError('Git selector has no matching admitted changed-path receipt')
             signature = hashlib.sha256(encoded({'impact': receipt, 'implementation': code_identity(),
                 'rules': IMPACT_RULE_VERSION, 'seed': seed, 'selector': selector, 'relations': relations,
-                'certainties': certainties, 'depth': depth, 'prefix': prefix, 'scope': scope, 'role': role})).hexdigest()
+                'certainties': certainties, 'depth': depth, 'prefix': prefix, 'scope': scope, 'role': role,
+                'services': services, 'protocols': protocols, 'namespaces': namespaces})).hexdigest()
             if cursor is not None:
                 previous = self._continuations.get(cursor)
                 if previous is None or previous[0] <= started or previous[1] != signature:
@@ -792,7 +827,7 @@ class SQLSnapshot(Snapshot):
                     if kind == 'seed':
                         value = self._handle(identifier)
                         output, sym, position = 'symbol', [identifier], []
-                        actions = ([('calls', identifier, level)] if 'call' in relations else []) + [('file', value['path'], level)]
+                        actions = ([('calls', identifier, level)] if 'call' in relations or 'contract' in relations else []) + [('file', value['path'], level)]
                     elif kind in ('area', 'git'):
                         if kind == 'git':
                             occurrence = self._read('SELECT path,status FROM structural_git_changes' +
@@ -806,6 +841,11 @@ class SQLSnapshot(Snapshot):
                             if after: clauses += ['path>?']; args += [after]
                             occurrence = self._read('SELECT path,status FROM structural_files' +
                                 (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY path LIMIT 1', args)
+                            if 'contract' in relations:
+                                witness = self._read('SELECT path FROM structural_contract_memberships INDEXED BY structural_contract_witness_path' +
+                                    (' WHERE ' + ' AND '.join(clauses) if clauses else '') + ' ORDER BY path,site_id LIMIT 1', args)
+                                if witness is not None and (occurrence is None or witness['path'] < occurrence['path']):
+                                    occurrence = {'path': witness['path'], 'status': 'known_contract_witness_dependency'}
                         if occurrence is None:
                             if kind == 'area' and after is None: boundary('source_area_not_in_admitted_inventory')
                             frontier.popleft(); continue
@@ -813,9 +853,11 @@ class SQLSnapshot(Snapshot):
                         value = self._file_handle(position)
                         if value is None:
                             value = {'id': 'unavailable-source:' + hashlib.sha256(position.encode()).hexdigest(),
-                                     'path': position, 'change_status': occurrence['status'], 'source_sha256': None,
+                                     'path': position, 'source_sha256': None,
                                      'reason': 'historical or nonadmitted source; current closure unavailable'}
+                            if kind == 'git': value['change_status'] = occurrence['status']
                             output = 'boundary'
+                            if 'contract' in relations: actions = [('contract_members', position, level)]
                         else:
                             if kind == 'git': value['change_status'] = occurrence['status']
                             output, files = 'file', [value['id']]
@@ -832,6 +874,20 @@ class SQLSnapshot(Snapshot):
                         value = self._handle(occurrence['id'])
                         output, sym = 'symbol', [value['id']]
                         actions = [('calls', value['id'], level)]
+                    elif kind == 'contract_members':
+                        occurrence = self._read('''SELECT r.* FROM structural_contract_memberships m INDEXED BY structural_contract_witness_path
+                            JOIN structural_relationships r ON r.site_id=m.site_id WHERE m.path=?''' +
+                            (' AND m.site_id>?' if after else '') + ' ORDER BY m.site_id LIMIT 1', [identifier] + ([after] if after else []))
+                        if occurrence is None: frontier.popleft(); continue
+                        position = occurrence['site_id']
+                        if occurrence['role'] not in ('contract', 'contract_boundary'):
+                            raise ValueError('Foreign captured contract membership')
+                        member = self._read("SELECT substr(json_extract(data,'$.contract_dependency_paths'),1,8193) FROM structural_sites WHERE id=?", (position,))
+                        paths = json.loads(member[0]) if member is not None and member[0] is not None and len(member[0].encode()) <= 8192 else None
+                        if type(paths) is not list or len(paths) > 64 or any(type(p) is not str for p in paths) or identifier not in paths:
+                            raise ValueError('Foreign captured contract witness path')
+                        value = dict(self._row((position, occurrence['target_id'] or None)), relation='contract', evidence_kind='static_syntax')
+                        output = 'edge'; sym = sorted(_row_entities(value))
                     elif kind in ('imports', 'unknown_imports'):
                         columns = ('path', 'start_byte', 'end_byte', 'id') if kind == 'imports' else ('start_byte', 'end_byte', 'id', 'target_path')
                         clause, args = ('target_path=?', [identifier]) if kind == 'imports' else ("path=? AND target_path=''", [identifier])
@@ -855,13 +911,14 @@ class SQLSnapshot(Snapshot):
                                 ' ORDER BY ' + ','.join(columns) + ' LIMIT 1', args)
                         if occurrence is None: frontier.popleft(); continue
                         position = [occurrence[k] for k in self._order_columns]
-                        if occurrence['role'] in ('contract','contract_boundary'):
+                        is_contract = occurrence['role'] in ('contract','contract_boundary')
+                        if is_contract and ('contract' not in relations or kind != 'calls'):
                             frontier[0][3] = position
                             continue
                         value = dict(self._row((occurrence['site_id'], occurrence['target_id'] or None)),
-                                     relation='call', evidence_kind='static_syntax')
+                                     relation='contract' if is_contract else 'call', evidence_kind='static_syntax')
                         output = 'edge'
-                        sym = [h['id'] for h in (value['caller'], value['target']) if h]
+                        sym = sorted(_row_entities(value))
                         if kind == 'calls' and value['caller']:
                             actions = [('calls', value['caller']['id'], level + 1), ('file', value['caller']['path'], level + 1)]
                     if output == 'edge':
@@ -874,6 +931,9 @@ class SQLSnapshot(Snapshot):
                                 value['relation'] == 'call' and role != 'all' and value['site']['role'] != role):
                             if edge_key not in seen: boundary('filtered_relation')
                             frontier[0][3] = position; continue
+                        if value['relation'] == 'contract' and any(allowed is not None and value[field] not in allowed for field, allowed in
+                                (('service_id', services), ('protocol', protocols), ('namespace', namespaces))):
+                            boundary('filtered_contract'); frontier[0][3] = position; continue
                         if prefix:
                             target = value.get('caller')
                             name = None if target is None else self._read(
@@ -955,10 +1015,11 @@ class SQLSnapshot(Snapshot):
             raise ValueError('Invalid bounded persisted query')
         _validate_query(seed, operation, depth, prefix, scope, role, cancel, selector, relations, certainties)
         families, kinds = _framework_filters(operation, families, kinds)
-        services, protocols, namespaces = _contract_filters(operation, services, protocols, namespaces)
+        services, protocols, namespaces = _contract_filters(operation, services, protocols, namespaces, relations)
         if selector is not None or relations is not None or certainties is not None:
             return self._impact_query(seed, selector=selector, relations=relations, certainties=certainties,
-                depth=depth, prefix=prefix, scope=scope, role=role, limits=limits, cursor=cursor, cancel=cancel, setup=_setup)
+                depth=depth, prefix=prefix, scope=scope, role=role, limits=limits, cursor=cursor, cancel=cancel, setup=_setup,
+                services=services, protocols=protocols, namespaces=namespaces)
         requested_role = role
         if operation in ('call', 'reference'):
             role = 'call' if operation == 'call' else 'reference'
@@ -1034,19 +1095,8 @@ class SQLSnapshot(Snapshot):
                 frontier.clear()
                 reason = 'framework_not_enrolled'
             if operation == 'contract':
-                schema = self._read("SELECT value FROM meta WHERE key='structural_contract_schema'")
-                if schema is None or schema[0] != 'reviewed-explicit-contracts-v1':
-                    raise ValueError('Missing captured contract projection; explicitly enroll a reviewed profile')
-                captured = self._read("SELECT substr(value,1,32769) FROM meta WHERE key='structural_receipt'")
-                if captured is None or len(captured[0].encode()) > 32768:
-                    raise ValueError('Missing bounded captured contract enrollment')
-                receipt = json.loads(captured[0])
-                from .analysis import _contract_context
-                enrollment = _contract_context(receipt.get('contract_enrollment'),self.repository_identity)
-                if enrollment is None or any(receipt.get(key)!=value for key,value in (
-                        ('generation',self.generation),('source_identity',self.source_identity),('analyzer_identity',self.analyzer_identity),
-                        ('config_identity',self.config_identity),('repository_identity',self.repository_identity))):
-                    raise ValueError('Foreign or stale captured contract enrollment')
+                validate_contract_projection(self._read, dict(generation=self.generation, source_identity=self.source_identity,
+                    analyzer_identity=self.analyzer_identity, config_identity=self.config_identity, repository_identity=self.repository_identity))
             if seed is not None:
                 if self._read('SELECT 1 FROM structural_symbols WHERE id=?', (seed,)) is None:
                     raise ValueError('Unknown structural seed')
@@ -1264,7 +1314,7 @@ class Queries:
         _validate_query(**arguments, cancel=cancel)
         _framework_filters(arguments['operation'], payload.get('families'), payload.get('kinds'))
         arguments.update(families=payload.get('families'), kinds=payload.get('kinds'))
-        _contract_filters(arguments['operation'],payload.get('services'),payload.get('protocols'),payload.get('namespaces'))
+        _contract_filters(arguments['operation'],payload.get('services'),payload.get('protocols'),payload.get('namespaces'),arguments['relations'])
         arguments.update(services=payload.get('services'),protocols=payload.get('protocols'),namespaces=payload.get('namespaces'))
         cursor = payload.get('cursor')
         if cursor is not None and (type(cursor) is not str or len(cursor) != 64):

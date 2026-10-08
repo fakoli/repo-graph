@@ -164,7 +164,18 @@ captured SQL snapshots, existing entity/edge/work/byte/deadline caps and fenced
 continuations. Queries never reread or parse live source. Captured source handles
 retain bounded redacted inspection through the existing source API. Ordinary
 call/reference and call/import impact operations do not relabel contract links.
-Contract impact traversal and a contract viewer remain separate interface work.
+Contract reverse impact is explicit: `repo-graph query INDEX --operation impact
+--source-area worker/service.proto --relation contract`. An exact declaration
+`--seed` reverses only captured targets; path selection uses an indexed reviewed
+witness dependency, including known absent paths. A dependency is a conservative
+reconsideration candidate, not a callable target or runtime effect. Unknowns
+remain zero-target and cannot add contract hops. Missing witness paths never
+receive fabricated source handles or excerpts. Existing admitted lexical calls
+retain possible-reachability wording. Origin-service `--service`, `--protocol`
+and `--namespace` filters bind the response scope and continuation. Contracts are
+omitted by default; absent or old membership projections refuse contract impact.
+The captured membership schema, rows and identity belong to the same structural
+transaction/generation, with unchanged work, deadline and output budgets.
 
 Missing/computed service, route or topic, conflicting endpoints, mismatched
 namespace/schema/operation, unknown generated provenance, missing/stale artifact
@@ -182,3 +193,11 @@ independently reviewed mutations. The `contracts` suite records actual serial/
 queued and clean/update/restoration outcomes, physical witnesses, errors and
 resources. These bounded synthetic results do not qualify representative scale,
 agent answers, human UX or release readiness.
+
+The `contract-impact` suite uses a separately source-admitted finite membership
+and filter oracle. Its command exit code grades the backend component; a
+`runtime_passed_view_pending` report keeps the viewer control unexecuted until
+the coordinator integrates actual browser evidence. Backend success alone is
+not T069 acceptance or human UX approval. Unknown dependency selection does
+not measure runtime effect precision or recall. Unmeasured tokens and native
+peak memory remain null.

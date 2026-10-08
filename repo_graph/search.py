@@ -779,6 +779,12 @@ def index_status(output, *, owner=None, expected_source=None, backend_available=
                             try:
                                 captured_impact = _captured_impact_receipt(meta, structural['identities'])
                                 captured_impact = _portable_impact_receipt(captured_impact)
+                                if captured_impact['contracts_available']:
+                                    from .analysis_queries import validate_contract_projection
+                                    def captured_read(sql, args=()):
+                                        check(); row = db.execute(sql, args).fetchone(); check(); return row
+                                    validate_contract_projection(captured_read, {key: captured_impact[key] for key in (
+                                        'repository_identity', 'source_identity', 'analyzer_identity', 'config_identity', 'generation')}, membership=True)
                                 names = db.execute("SELECT count(*) FROM sqlite_master WHERE "
                                     "(type='table' AND name IN ('structural_import_relationships','structural_git_changes')) OR "
                                     "(type='index' AND name IN ('structural_reverse_import','structural_unassigned_occurrence'))").fetchone()[0]
@@ -1442,7 +1448,7 @@ def _captured_impact_receipt(meta, identities):
 
 def _portable_impact_receipt(impact):
     """Status exposes captured identifiers and fixed labels, never arbitrary metadata."""
-    if set(impact) != {'schema', 'repository_identity', 'source_identity', 'analyzer_identity', 'config_identity',
+    if set(impact) - {'contract_membership_schema'} != {'schema', 'repository_identity', 'source_identity', 'analyzer_identity', 'config_identity',
             'generation', 'revision_dirty', 'git_change', 'base_snapshot', 'historical_call_closure', 'contracts_available', 'identity'}:
         raise ValueError('Unexpected captured impact metadata')
     revision, change = impact['revision_dirty'], impact['git_change']
@@ -1473,6 +1479,8 @@ def _portable_impact_receipt(impact):
     # Construct the public shape explicitly even after validating the stored shape.
     public = {key: impact[key] for key in ('schema', 'repository_identity', 'source_identity', 'analyzer_identity',
         'config_identity', 'generation', 'historical_call_closure', 'contracts_available', 'identity')}
+    if 'contract_membership_schema' in impact:
+        public['contract_membership_schema'] = impact['contract_membership_schema']
     public['revision_dirty'] = {key: revision[key] for key in ('revision', 'dirty', 'knowledge', 'reason', 'dirty_basis', 'content_identity') if key in revision}
     public['git_change'] = {key: change[key] for key in ('status', 'base_revision', 'current_revision', 'source_byte_affinity',
         'dirty', 'basis', 'count', 'changes_sha256', 'reason') if key in change}

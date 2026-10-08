@@ -1,5 +1,6 @@
 """Admitted synthetic contract scope; no real services or repository code execute."""
 import copy
+from contextlib import closing
 import hashlib
 import json
 from pathlib import Path
@@ -9,11 +10,12 @@ import unittest
 from unittest.mock import patch
 
 from evaluations.analysis import (contract_inputs, contract_inventory, contract_inventory_identity,
-    contract_context, contract_mutation, contract_grade, contract_facts, contract_pages)
+    contract_context, contract_mutation, contract_grade, contract_facts, contract_pages,
+    contract_impact_inputs, contract_impact_grade, contract_impact_pages)
 from repo_graph.analysis import StructuralIndex, IndexLimits
 from repo_graph.analysis_native import Budget
 from repo_graph.analysis_queries import Queries, SQLSnapshot, Limits
-from repo_graph.search import Search, captured_source
+from repo_graph.search import Search, captured_source, connect, index_status
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -198,6 +200,77 @@ class ContractTests(unittest.TestCase):
         self.assertEqual((index.output/'search.db').read_bytes(),original)
         refusal=index.refresh([r['path'] for r in contract_inventory(self.original)],cancel=lambda:True)
         self.assertEqual(refusal['status'],'interrupted'); self.assertEqual((index.output/'search.db').read_bytes(),original)
+
+    def test_contract_impact_admitted_baseline_membership_filters_and_reverse(self):
+        oracle, manifest, _, _ = contract_impact_inputs(ROOT)
+        index, receipt = self.index()
+        results = contract_impact_grade(index, oracle, manifest, 'baseline')
+        self.assertEqual(len(results), 29)
+        self.assertTrue(all(r['status']=='passed' for r in results), results)
+        status = index_status(index.output)['structural']['impact']
+        self.assertEqual(status['state'], 'ready')
+        self.assertTrue(status['receipt']['contracts_available'])
+        self.assertEqual(status['receipt']['contract_membership_schema'], 'captured-contract-membership-v1')
+        request = dict(selector=dict(kind='source_area',paths=['bindings.json']),relations=['contract'])
+        rows, pages = contract_impact_pages(index.output,request)
+        self.assertEqual(len(rows),16)
+        self.assertEqual(sum(row['target'] is None for row in rows),12)
+        with Queries(index.output) as queries:
+            first=queries.run(dict(operation='impact',**request,limits=dict(max_edges=1)))
+            for changed in (dict(services=['gateway']),dict(protocols=['rpc']),dict(namespaces=['orders-api']),
+                            dict(relations=['call','contract']),dict(certainties=['resolved'])):
+                with self.subTest(changed=changed), self.assertRaises(ValueError):
+                    queries.run(dict(operation='impact',**dict(request,**changed),limits=dict(max_edges=1),cursor=first['cursor']))
+            for name,values in (('services',[]),('services',['gateway','gateway']),('services',[True]),
+                                ('protocols',['smtp']),('namespaces',['x'*257])):
+                with self.subTest(name=name,values=values), self.assertRaises(ValueError):
+                    queries.run(dict(operation='impact',**request,**{name:values}))
+            with self.assertRaises(ValueError):
+                queries.run(dict(operation='impact',selector=request['selector'],services=['gateway']))
+            evidence_limited=queries.run(dict(operation='impact',**request,limits=dict(max_entities=1)))
+            self.assertEqual(evidence_limited['rows'],[])
+            self.assertEqual(evidence_limited['stop_reason'],'entity_budget_exceeded')
+        # Captured contract/site/declaration evidence never reads live source.
+        with patch('repo_graph.source.SourceRoot.read',side_effect=AssertionError('live source read forbidden')):
+            for row in rows:
+                for handle in [row['site']] + [h for h in row['evidence'] if h['source_role']=='structural_declaration']:
+                    actual={k:handle[k] for k in ('id','path','range','source_sha256')}
+                    result=captured_source(Search(index.output),dict(generation=receipt['generation'],handle=actual,max_excerpt_bytes=64))
+                    self.assertLessEqual(len(result['text'].encode()),64)
+
+    def test_contract_impact_missing_projection_and_legacy_p1_are_explicit(self):
+        index,_=self.index()
+        request=dict(operation='impact',selector=dict(kind='source_area',paths=['bindings.json']),relations=['contract'])
+        with closing(connect(index.output,owner=index.output_owner)) as db:
+            db.execute('DROP INDEX structural_contract_witness_path'); db.commit()
+        with Queries(index.output) as queries:
+            with self.assertRaisesRegex(ValueError,'membership projection'):queries.run(request)
+            ordinary=queries.run(dict(operation='impact',selector=dict(kind='source_area',paths=['worker/'])))
+            self.assertFalse(any(r['relation']=='contract' for r in ordinary['rows']))
+        ordinary,_=self.index(output=self.scratch/'legacy',context=False)
+        with closing(connect(ordinary.output,owner=ordinary.output_owner)) as db:
+            receipt=json.loads(db.execute("SELECT value FROM meta WHERE key='structural_impact_receipt'").fetchone()[0])
+            receipt.pop('contract_membership_schema')
+            from repo_graph.analysis_queries import encoded
+            receipt['identity']=hashlib.sha256(encoded({k:v for k,v in receipt.items() if k!='identity'})).hexdigest()
+            db.execute("UPDATE meta SET value=? WHERE key='structural_impact_receipt'",(encoded(receipt).decode(),));db.commit()
+        with Queries(ordinary.output) as queries:
+            self.assertTrue(queries.run(dict(operation='symbol'))['rows'])
+            queries.run(dict(operation='impact',selector=dict(kind='source_area',paths=['worker/'])))
+            with self.assertRaisesRegex(ValueError,'membership capability'):queries.run(request)
+
+    def test_contract_impact_input_guard_precedes_extraction(self):
+        from evaluations import analysis as evaluation
+        original=evaluation.read_json
+        def malformed(source,path,*args,**kwargs):
+            value,sha=original(source,path,*args,**kwargs)
+            if path.endswith('contract-impact-review.json'):
+                value=dict(value,correctness=dict(status='failed'))
+            return value,sha
+        with patch.object(evaluation,'read_json',malformed),patch.object(StructuralIndex,'refresh',side_effect=AssertionError('must not extract')):
+            with self.assertRaisesRegex(ValueError,'admitted'):contract_impact_inputs(ROOT)
+        with patch('evaluations.acceptance.committed',return_value=False),patch.object(StructuralIndex,'refresh',side_effect=AssertionError('must not extract')):
+            with self.assertRaises(ValueError):contract_impact_inputs(ROOT)
 
 
 if __name__=='__main__':unittest.main()

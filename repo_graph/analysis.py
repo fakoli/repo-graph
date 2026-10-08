@@ -25,6 +25,7 @@ from .source import SourceRoot, PublicationError
 SCHEMA = 'structural-v2'
 IMPACT_SCHEMA = 'captured-impact-v1'
 CONTRACT_SCHEMA = 'reviewed-explicit-contracts-v1'
+CONTRACT_MEMBERSHIP_SCHEMA = 'captured-contract-membership-v1'
 _LOADED_INDEX_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 LANGUAGES = {'.py': 'python', '.go': 'go', '.js': 'javascript', '.jsx': 'javascript',
              '.ts': 'typescript', '.tsx': 'typescript'}
@@ -219,6 +220,7 @@ def _contract_capture(capsule, path, raw, digest, record):
 def _contract_publish(db, files, capsule, context, check, resources):
     """A bounded imported projection over the same captured declarations/index."""
     old_ids = "SELECT id FROM structural_sites WHERE role IN ('contract','contract_boundary')"
+    db.execute('DELETE FROM structural_contract_memberships')
     db.execute('DELETE FROM structural_relationships WHERE site_id IN (' + old_ids + ')')
     db.execute("DELETE FROM structural_sites WHERE role IN ('contract','contract_boundary')")
     db.execute("DELETE FROM structural_evidence WHERE json_extract(data,'$.provenance.syntax_kind')='contract_witness'")
@@ -298,6 +300,20 @@ def _contract_publish(db, files, capsule, context, check, resources):
         declaration, origin_reason = endpoints[binding['id']]
         contract = contracts.get(binding['contract_id'])
         identity = binding['declared_contract_identity']
+        # Reviewed profile dependencies include absent and unqualified witnesses.
+        # This selection projection never grants an endpoint target or source handle.
+        dependency_paths = {path, binding['declaration']['path'], binding['binding_source']['path']}
+        if contract:
+            artifact = artifacts.get(contract['artifact_id'])
+            if artifact: dependency_paths.add(artifact['path'])
+            dependency_paths.update(row['path'] for row in contract['source_witnesses'])
+            opposite = 'consumer' if binding['role'] == 'producer' else 'server'
+            for candidate in profile['bindings']:
+                work.node()
+                if (candidate['role'] == opposite and candidate['contract_id'] == contract['id'] and
+                        candidate['declared_contract_identity'] == contract['identity'] and
+                        (opposite == 'consumer' or candidate['service_id'] == contract['identity']['contract_service_id'])):
+                    dependency_paths.update(candidate[name]['path'] for name in ('declaration', 'binding_source'))
         reason, target, target_binding = '', None, None
         if origin_reason:
             reason = 'origin_source_affinity_unqualified'
@@ -346,6 +362,7 @@ def _contract_publish(db, files, capsule, context, check, resources):
             relation_kind='explicit_' + identity['protocol'], binding_id=binding['id'], service_id=binding['service_id'],
             endpoint_role=binding['role'], protocol=identity['protocol'], namespace=identity['namespace'],
             contract_identity=identity, contract_identity_asserted=not bool(reason), partial=partial,
+            contract_dependency_paths=sorted(dependency_paths),
             boundary_origin='current_profile_row' if origin_reason else 'captured_source_binding', evidence=witnesses,
             provenance=dict(source_sha256=origin['source_sha256'], rule_version=native.RULE_VERSION,
                 syntax_kind='contract_binding', evidence_kind='static_syntax', contract_schema=CONTRACT_SCHEMA,
@@ -353,6 +370,9 @@ def _contract_publish(db, files, capsule, context, check, resources):
                 runtime_qualified=False))
         work.retain(len(encoded(site)))
         db.execute('INSERT INTO structural_sites VALUES(?,?,?,?,?)', (identifier,origin['path'],ordinal,role,encoded(site)))
+        for dependency_path in sorted(dependency_paths):
+            check(); work.fact()
+            db.execute('INSERT INTO structural_contract_memberships VALUES(?,?)', (dependency_path, identifier))
         target_span = target['range'] if not reason else dict(start_byte=-1,end_byte=-1)
         db.execute('INSERT INTO structural_relationships VALUES(?,?,?,?,?,?,?,?,?,?,?)',
             (identifier,target['id'] if not reason else '',origin['path'],role,site['certainty'],site['caller'] or '',
@@ -692,6 +712,9 @@ def _schema(db):
       target_path TEXT NOT NULL, certainty TEXT NOT NULL, data TEXT NOT NULL,
       PRIMARY KEY(id,target_path));
     CREATE INDEX IF NOT EXISTS structural_reverse_import ON structural_import_relationships(target_path,path,start_byte,end_byte,id);
+    CREATE TABLE IF NOT EXISTS structural_contract_memberships(path TEXT NOT NULL, site_id TEXT NOT NULL,
+        PRIMARY KEY(path,site_id));
+    CREATE INDEX IF NOT EXISTS structural_contract_witness_path ON structural_contract_memberships(path,site_id);
     CREATE TABLE IF NOT EXISTS structural_git_changes(path TEXT PRIMARY KEY,status TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS structural_relationships(site_id TEXT NOT NULL, target_id TEXT NOT NULL,
       path TEXT NOT NULL, role TEXT NOT NULL, certainty TEXT NOT NULL,
@@ -804,6 +827,7 @@ class StructuralIndex:
             config = hashlib.sha256(encoded({'collection': collection_config,
                                              'framework_context': self.framework_context,
                                              'contract_schema': CONTRACT_SCHEMA,
+                                             'contract_membership_schema': CONTRACT_MEMBERSHIP_SCHEMA,
                                              'contract_context': self.contract_context})).hexdigest()
             with SourceRoot(self.output) as output:
                 if output.identity != self.output_owner:
@@ -1064,6 +1088,9 @@ class StructuralIndex:
                 for row in db.execute('SELECT target_path,data FROM structural_import_relationships ORDER BY path,ordinal,target_path'):
                     check()
                     generation.update(encoded([row['target_path'], json.loads(row['data'])]))
+                generation.update(CONTRACT_MEMBERSHIP_SCHEMA.encode())
+                for row in db.execute('SELECT path,site_id FROM structural_contract_memberships ORDER BY path,site_id'):
+                    check(); generation.update(encoded([row['path'], row['site_id']]))
                 git_after = _git_observation(source, check)
                 if git_before != git_after:
                     git_after = {'revision': None, 'dirty': None, 'knowledge': 'unknown', 'reason': 'git_changed_during_capture'}
@@ -1093,12 +1120,15 @@ class StructuralIndex:
                     'source_identity': source_identity, 'analyzer_identity': analyzer, 'config_identity': config,
                     'generation': receipt['generation'], 'revision_dirty': receipt['revision_dirty'],
                     'git_change': git_change, 'base_snapshot': base_snapshot,
-                    'historical_call_closure': 'unavailable_current_index_only', 'contracts_available': False}
+                    'historical_call_closure': 'unavailable_current_index_only', 'contracts_available': self.contract_context is not None,
+                    'contract_membership_schema': CONTRACT_MEMBERSHIP_SCHEMA if self.contract_context else None}
                 impact['identity'] = hashlib.sha256(encoded(impact)).hexdigest()
                 receipt['impact_identity'] = impact['identity']
                 db.executemany('INSERT OR REPLACE INTO meta VALUES(?,?)',
                     (('structural_impact_schema', IMPACT_SCHEMA), ('structural_impact_receipt', encoded(impact).decode()),
                      ('structural_contract_schema', CONTRACT_SCHEMA if self.contract_context else '')))
+                db.execute('INSERT OR REPLACE INTO meta VALUES(?,?)', ('structural_contract_membership_schema',
+                    CONTRACT_MEMBERSHIP_SCHEMA if self.contract_context else ''))
                 project_function_evidence(db, {
                     'repository_identity': self.owner, 'source_identity': source_identity,
                     'structural_generation': receipt['generation'],

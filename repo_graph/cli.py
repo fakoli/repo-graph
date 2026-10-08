@@ -126,7 +126,7 @@ def main(argv=None):
     selectors = query.add_mutually_exclusive_group()
     selectors.add_argument('--source-area', action='append', help='Impact of captured path/directory; repeat for multiple areas')
     selectors.add_argument('--git-base', type=_captured_commit, help='Impact from producer-captured changes against this exact commit')
-    query.add_argument('--relation', action='append', choices=['call', 'import'], help='Impact relation filter; repeat to include both')
+    query.add_argument('--relation', action='append', choices=['call', 'import', 'contract'], help='Impact relation filter; contracts require explicit selection and enrollment')
     query.add_argument('--certainty', action='append', choices=['resolved', 'candidate', 'unresolved'], help='Impact certainty filter; repeat for multiple levels')
     query.add_argument('--limits', help='JSON object reducing or overriding finite query limits')
     query.add_argument('--stdio', action='store_true', help='Read JSON requests and write bounded JSON responses, one per line')
