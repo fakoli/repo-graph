@@ -466,6 +466,7 @@ try {
   assert.equal(await page.locator('#tab-explore').getAttribute('aria-selected'),'true');
   assert.ok(await page.locator('#tab-explore').evaluate(tab=>tab===document.activeElement));
   assert.equal(await page.locator('.view-tabs button[tabindex="0"]').count(),1); checks.push('arrow navigation and roving tab focus');
+  await page.evaluate(()=>new Promise(requestAnimationFrame));
   await page.locator('#map').focus();
   const beforePan=await page.locator('#world').getAttribute('transform'); await page.keyboard.press('ArrowRight');
   assert.notEqual(await page.locator('#world').getAttribute('transform'),beforePan);
