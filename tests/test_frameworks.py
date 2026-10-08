@@ -102,6 +102,14 @@ class FrameworkSyntaxTests(unittest.TestCase):
                     self.assertEqual(len(rows),1)
                     row = rows[0]
                     self.assertEqual((row['family'],row['relation_kind'],len(row['targets'])),(expected['row_family'],expected['row_kind'],expected['target_cardinality']))
+                    membership = [item for item in row['evidence'] if item['source_role']=='declared_configuration_membership']
+                    self.assertEqual(len(membership),2)
+                    item = b'"data/jobs.xml"'
+                    start = blobs['__manifest__.py'].index(item)
+                    self.assertTrue(any(witness['range']==native.configuration_span(blobs['__manifest__.py'],start,start+len(item)) for witness in membership))
+                    for witness in case['witnesses']:
+                        if witness['path']=='__manifest__.py':
+                            self.assertTrue(any(all(candidate['range'][key]==witness['range'][key] for key in ('start_byte','end_byte')) for candidate in membership))
                     for target in row['targets']:
                         self.assertEqual((definitions[target]['kind'],definitions[target]['callable']),('configuration_value',False))
             with Queries(output) as queries:
@@ -163,6 +171,102 @@ class FrameworkSyntaxTests(unittest.TestCase):
             self.assertFalse(any(row['path'].endswith('.xml') and row['targets'] for row in duplicate_index.read_facts('sites')))
             self.assertEqual(index.refresh(sorted(blobs))['status'],'ready')
             self.assertTrue(any(row['path'].endswith('.xml') and row['targets'] for row in index.read_facts('sites')))
+
+    def test_odoo_identity_failures_and_partial_errors_keep_physical_boundaries(self):
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph.analysis_queries import Queries
+        from repo_graph import search
+        from repo_graph.source import SourceRoot
+        _,blobs,context = self.odoo_inputs()
+        for label,changes in {
+            'missing_model_facade':{'odoo/models/__init__.py':b'from ..orm.models import MissingModel as Model\n'},
+            'malformed_method':{'models.py':blobs['models.py'].replace(b'def action_confirm(self):',b'def action_confirm(self')},
+        }.items():
+            files = [native.collect_file(dict(path=path,language='python',content=raw)) for path,raw in (blobs|changes).items() if path.endswith('.py')]
+            file = next(file for file in files if file.path=='models.py')
+            result = native.resolve_collected(files,framework_context=context)
+            self.assertIn(result['status'],('complete','partial'),result['stop_reason'])
+            framework = [row for row in result['facts']['sites'] if row['path']=='models.py' and row['role'].startswith('framework')]
+            with self.subTest(boundary=label):
+                if label=='missing_model_facade':
+                    assignment = next(row for row in file.syntax_metadata['python_assignments'] if row['right']['type']=='binary_operator')
+                    rows = [row for row in framework if row['range']==assignment['range']]
+                    self.assertEqual(len(rows),1)
+                    self.assertEqual(rows[0]['text'],assignment['text'])
+                    self.assertFalse(any(row['targets'] for row in framework))
+                else:
+                    order = next(row for row in file.definitions if row['kind']=='class' and row['name']=='Order')
+                    errors = [error for error in file.errors if error['kind']=='error' and order['range']['start_byte']<=error['range']['start_byte']<error['range']['end_byte']<=order['range']['end_byte']]
+                    covering = max(errors,key=lambda error:error['range']['end_byte']-error['range']['start_byte'])
+                    rows = [row for row in framework if row['provenance']['syntax_kind']==covering['syntax_kind'] and row['range']==covering['range']]
+                    self.assertEqual(len(rows),1)
+                    self.assertEqual(rows[0]['text'],changes['models.py'][covering['range']['start_byte']:covering['range']['end_byte']].decode())
+                    self.assertEqual(rows[0]['partial_source_role'],'origin')
+                    self.assertFalse(any(row['kind']=='method' and row['range']['start_byte']<order['range']['end_byte'] for row in file.definitions))
+                    self.assertFalse(any(row[0]['role']=='call' and row[0]['range']['start_byte']<order['range']['end_byte'] for row in file.candidates))
+                    self.assertEqual([row for row in framework if order['range']['start_byte']<=row['range']['start_byte']<row['range']['end_byte']<=order['range']['end_byte']],rows)
+                    # Parsed methods in the same partial file retain their own
+                    # physical declarations rather than borrowing the ERROR.
+                    picking = next(row for row in file.definitions if row['kind']=='method' and row['name'].endswith('button_validate'))
+                    self.assertTrue(any(row['range']==picking['range'] and row['text']==picking['text'] for row in framework))
+                    with tempfile.TemporaryDirectory() as scratch:
+                        source,output=Path(scratch)/'source',Path(scratch)/'index';source.mkdir()
+                        for path,raw in (blobs|changes).items():
+                            target=source/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+                        index=StructuralIndex(source,output,framework_context=context)
+                        ready=index.refresh(sorted(blobs));self.assertEqual(ready['status'],'ready',ready)
+                        with Queries(output) as queries:
+                            result=queries.run(dict(operation='framework',families=['framework_boundary'],limits=dict(max_edges=100,max_entities=100,max_response_bytes=131072)))
+                            self.assertFalse(result['truncated'],result)
+                            stored=[row for row in result['rows'] if row['site']['id']==rows[0]['id']]
+                            self.assertEqual(len(stored),1)
+                            self.assertIsNone(stored[0]['target'])
+                            handle={key:stored[0]['site'][key] for key in ('id','path','range','source_sha256')}
+                        engine=search.Search(output)
+                        try:
+                            with patch.object(SourceRoot,'read',side_effect=AssertionError('Query reread source')),patch.object(native,'backend',side_effect=AssertionError('Query parsed source')):
+                                captured=search.captured_source(engine,dict(generation=ready['generation'],handle=handle,max_excerpt_bytes=8192))
+                                self.assertEqual(captured['text'],rows[0]['text'])
+                        finally: engine.close()
+                for row in rows:
+                    self.assertEqual((row['family'],row['certainty'],row['targets'],row['targets_exhaustive']),('framework_boundary','unresolved',[],False))
+                    self.assertEqual((row['runtime_qualified'],row['runtime_dispatch'],row['runtime_callable_targets']),(False,'unresolved',[]))
+            unenrolled = native.resolve_collected(files)['facts']['sites']
+            self.assertFalse(any(row['role'].startswith('framework') for row in unenrolled))
+
+    def test_odoo_manifest_literal_witnesses_use_original_byte_spans(self):
+        from repo_graph.analysis import StructuralIndex, _framework_element
+        from repo_graph import search
+        from repo_graph.source import SourceRoot
+        _,blobs,context = self.odoo_inputs()
+        raw = '# café, 雪\r\n{\r\n "name": "Addon",\r\n "data": [\r\n   "unused.xml",\r\n   "data/jobs.xml",\r\n ],\r\n}\r\n'.encode()
+        manifest = native.collect_file(dict(path='__manifest__.py',language='python',content=raw))
+        pair = next(pair for pair in manifest.syntax_metadata['python_dictionaries'][0]['pairs'] if pair['key']['spelling']=='"data"')
+        item = pair['elements'][1]
+        fragment = _framework_element(pair,item)
+        span = native.configuration_span(raw,item['start_byte'],item['end_byte'])
+        self.assertEqual(fragment,dict(range=span,text='"data/jobs.xml"'))
+        blobs['__manifest__.py'] = raw
+        with tempfile.TemporaryDirectory() as scratch:
+            source,output = Path(scratch)/'source',Path(scratch)/'index'; source.mkdir()
+            for path,content in blobs.items():
+                target=source/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(content)
+            index = StructuralIndex(source,output,framework_context=context)
+            ready=index.refresh(sorted(blobs));self.assertEqual(ready['status'],'ready',ready)
+            sites=[row for row in index.read_facts('sites') if row['path']=='data/jobs.xml' and row['role'].startswith('framework')]
+            self.assertEqual(len(sites),3)  # Declaration, dispatch and retained eval boundary.
+            engine=search.Search(output)
+            try:
+                with patch.object(SourceRoot,'read',side_effect=AssertionError('Query reread source')),patch.object(native,'backend',side_effect=AssertionError('Query parsed source')):
+                    for site in sites:
+                        witnesses=[row for row in site['evidence'] if row['source_role']=='declared_configuration_membership']
+                        self.assertEqual({(row['range']['start_byte'],row['range']['end_byte']) for row in witnesses},
+                            {(pair['range']['start_byte'],pair['range']['end_byte']),(span['start_byte'],span['end_byte'])})
+                        for witness in witnesses:
+                            handle={key:witness[key] for key in ('id','path','range','source_sha256')}
+                            captured=search.captured_source(engine,dict(generation=ready['generation'],handle=handle,max_excerpt_bytes=8192))
+                            self.assertEqual(captured['text'],raw[witness['range']['start_byte']:witness['range']['end_byte']].decode())
+            finally: engine.close()
 
     def test_odoo_configuration_and_api_negative_guards_are_bounded(self):
         _,blobs,context = self.odoo_inputs()

@@ -2390,15 +2390,43 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                                    any(assignment['left']['type'] == 'attribute' and assignment['left']['base_identifier'] and
                                        assignment['left']['base'] == definition['name'] for assignment in file.syntax_metadata['python_assignments'])):
                     reason = 'conditional_decorated_or_ambiguous_model_class'
-                if not reason and (len(labels) != 1 or labels[0]['kind'] != 'assignment' or labels[0]['conditional'] or
-                                   literal(labels[0]['right']) is None or len(class_scope.bindings.get(labels[0]['name'], [])) != 1):
+                invalid_label = (len(labels) != 1 or labels[0]['kind'] != 'assignment' or labels[0]['conditional'] or
+                                   literal(labels[0]['right']) is None or len(class_scope.bindings.get(labels[0]['name'], [])) != 1)
+                if not reason and invalid_label:
                     reason = 'computed_missing_or_ambiguous_model_label'
                 evidence.extend(witness(file, label, 'model_label') for label in labels)
-                label_boundary = reason == 'computed_missing_or_ambiguous_model_label' and len(labels) == 1
+                label_boundary = invalid_label and len(labels) == 1
                 if label_boundary:
                     origin = dict(path=file.path, range=labels[0]['range'], text=labels[0]['text'],
                                   provenance=definition['provenance'], caller=definition['id'])
                     yield row(origin, hint, reason, [], evidence)
+                if file.partial:
+                    # A malformed declaration can be an ERROR rather than a
+                    # method/call node. Retain its parser-owned source boundary
+                    # without recovering a name, callable or nested callsite.
+                    covered = -1
+                    class_raw = definition['text'].encode()
+                    methods = local_methods.get(class_scope.ordinal, [])
+                    def in_method(a, b):
+                        for method in methods:
+                            work.node()
+                            if method['range']['start_byte'] <= a < b <= method['range']['end_byte']:
+                                return True
+                        return False
+                    for error in sorted(file.errors, key=lambda item:(item['range']['start_byte'],-item['range']['end_byte'])):
+                        work.node()
+                        span = error['range']; a,b = span['start_byte'],span['end_byte']
+                        if (error['kind'] != 'error' or a == b or a < covered or
+                                not class_scope.range['start_byte'] <= a < b <= class_scope.range['end_byte'] or
+                                in_method(a,b)):
+                            continue
+                        covered = b
+                        start = definition['range']['start_byte']
+                        source = class_raw[a-start:b-start]
+                        work.text(len(source))
+                        origin = dict(path=file.path,range=span,text=source.decode(),caller=definition['id'],
+                            provenance=dict(definition['provenance'],syntax_kind=error['syntax_kind']))
+                        yield row(origin,hint,'partial_model_parser_error',[],evidence)
                 for method in local_methods.get(class_scope.ordinal,[]):
                     work.node()
                     method_declaration = declarations.get(method['id'])

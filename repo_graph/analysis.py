@@ -198,6 +198,23 @@ def _contract_span(raw, start, end):
                 end_line=raw[:end].count(b'\n') + (not raw[:end].endswith(b'\n')))
 
 
+def _framework_element(pair, element):
+    """Original literal slice from the already collected dictionary source."""
+    start = pair['range']['start_byte']
+    raw = pair['text'].encode()
+    a,b = element['start_byte']-start,element['end_byte']-start
+    if not 0 <= a < b <= len(raw):
+        raise ValueError('Framework literal witness outside collected pair')
+    text = raw[a:b].decode()
+    if element['type'] != 'string' or text != element['spelling']:
+        raise ValueError('Framework literal witness differs from collected source')
+    span = native.configuration_span(raw,a,b)
+    span.update(start_byte=element['start_byte'],end_byte=element['end_byte'],
+        start_line=span['start_line']+pair['range']['start_line']-1,
+        end_line=span['end_line']+pair['range']['start_line']-1)
+    return dict(range=span,text=text)
+
+
 def _odoo_publish(db, files, context, budget, check):
     """Project explicitly enrolled XML over the existing captured structural IR."""
     old_ids = "SELECT id FROM structural_sites WHERE json_extract(data,'$.language')='configuration' AND role IN ('framework','framework_boundary')"
@@ -229,30 +246,36 @@ def _odoo_publish(db, files, context, budget, check):
         return value if type(value) is str else None
     def membership(enrolled):
         manifest_path = enrolled['manifest_path']
-        if manifest_path not in files: return None, 'missing_or_unparsed_manifest'
+        if manifest_path not in files: return [], 'missing_or_unparsed_manifest'
         manifest = files[manifest_path]
         dictionaries = manifest.syntax_metadata['python_dictionaries']
         if (manifest.partial or manifest.definitions or manifest.imports or manifest.candidates or
                 len(dictionaries) != 1 or not dictionaries[0]['literal']):
-            return None, 'partial_or_computed_manifest'
+            return [], 'partial_or_computed_manifest'
         pairs = dictionaries[0]['pairs']
         names = [literal(pair['key']) for pair in pairs]
-        if None in names or len(names) != len(set(names)): return None, 'ambiguous_or_computed_manifest_keys'
+        if None in names or len(names) != len(set(names)): return [], 'ambiguous_or_computed_manifest_keys'
         rows = [pair for pair in pairs if literal(pair['key']) == 'data']
         pair = rows[0] if len(rows) == 1 else None
-        if pair is None: return None, 'missing_manifest_data_membership'
+        if pair is None: return [], 'missing_manifest_data_membership'
         witness = dict(id=f'{manifest_path}:{pair["range"]["start_byte"]}:{pair["range"]["end_byte"]}:framework_witness',
             path=manifest_path, range=pair['range'], source_sha256=manifest.record['sha256'], source_role='declared_configuration_membership')
         values = [literal(item) for item in pair['elements']]
         if pair['value']['type'] not in ('list', 'tuple') or None in values or len(values) != len(set(values)):
-            return witness, 'computed_or_ambiguous_manifest_data'
+            return [witness], 'computed_or_ambiguous_manifest_data'
         relative = str(PurePosixPath(enrolled['path']).relative_to(PurePosixPath(manifest_path).parent)) if (
             PurePosixPath(manifest_path).parent in PurePosixPath(enrolled['path']).parents) else None
         for value in values:
             try: SourceRoot.parts(value)
-            except OSError: return witness, 'noncanonical_manifest_data'
-            if str(PurePosixPath(value)) != value: return witness, 'noncanonical_manifest_data'
-        return witness, '' if relative in values else 'configuration_not_in_literal_manifest_data'
+            except OSError: return [witness], 'noncanonical_manifest_data'
+            if str(PurePosixPath(value)) != value: return [witness], 'noncanonical_manifest_data'
+        witnesses = [witness]
+        if relative in values:
+            element = pair['elements'][values.index(relative)]
+            fragment = _framework_element(pair,element)
+            witnesses.append(dict(id=f'{manifest_path}:{element["start_byte"]}:{element["end_byte"]}:framework_witness',
+                path=manifest_path,range=fragment['range'],source_sha256=manifest.record['sha256'],source_role='declared_configuration_membership'))
+        return witnesses, '' if relative in values else 'configuration_not_in_literal_manifest_data'
     def fact(path, record, fragment, kind, suffix=''):
         work.fact(); work.text(len(fragment['text'].encode()))
         span = fragment['range']
@@ -264,8 +287,7 @@ def _odoo_publish(db, files, context, budget, check):
         files.consumer = path
         files.observe('configurations', '*'); files.observe('inventory', '*')
         files.observe('file', enrolled['manifest_path'])
-        manifest_witness, manifest_reason = membership(enrolled)
-        evidence = [manifest_witness] if manifest_witness else []
+        evidence, manifest_reason = membership(enrolled)
         ordinal = 100000
         def publish(origin, kind, reason, target=None, witnesses=None):
             nonlocal ordinal
@@ -1066,6 +1088,8 @@ class StructuralIndex:
                                 *declaration['decorators']) if fragment is not None)
                         for dictionary in file.syntax_metadata['python_dictionaries']:
                             fragments.extend(dictionary['pairs'])
+                            for pair in dictionary['pairs']:
+                                fragments.extend(_framework_element(pair,element) for element in pair['elements'] if element['type']=='string')
                         for ordinal, fragment in enumerate(fragments):
                             span = fragment['range']
                             identifier = f'{file.path}:{span["start_byte"]}:{span["end_byte"]}:framework_witness'
