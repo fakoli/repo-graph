@@ -1,0 +1,771 @@
+{
+  "schema_version": 1,
+  "status": "private_proposal_not_frozen",
+  "encoding": "content_utf8 encoded exactly as UTF-8; zero newline normalization",
+  "files": [
+    {
+      "path": "tests/fixtures/code-understanding/go/export_probe.go",
+      "language": "go",
+      "kind": "source",
+      "content_utf8": "package fixture\n\nimport alias \"example.test/codeunderstanding/helpers\"\n\nfunc ExportProbe(value int) int { return alias.finish(value) }\n",
+      "sha256": "a45b5dc5d8aac5d0a6c79af777167210fa632b12bb85abf973416c6ed5e81809",
+      "bytes": 135
+    },
+    {
+      "path": "tests/fixtures/code-understanding/go/go.mod",
+      "language": "go",
+      "kind": "configuration",
+      "content_utf8": "module example.test/codeunderstanding\n\ngo 1.22\n",
+      "sha256": "c7f706c0079567fe08400fc22ff242d42fd21f069a54993f0042e2e066adfbef",
+      "bytes": 47
+    },
+    {
+      "path": "tests/fixtures/code-understanding/go/helpers/helpers.go",
+      "language": "go",
+      "kind": "source",
+      "content_utf8": "// Synthetic local import target.\npackage helpers\n\nfunc Finish(value int) int { return value * 2 }\n",
+      "sha256": "cba725ddec2106700fc68bd0a906e20207f0c595067253e4b392f1fc2b39a885",
+      "bytes": 99
+    },
+    {
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "kind": "source",
+      "content_utf8": "// Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\npackage fixture\n\nimport (\n\talias \"example.test/codeunderstanding/helpers\"\n\tmissing \"example.test/codeunderstanding/optional\"\n)\n\nfunc Local(value int) int      { return value + 1 }\nfunc Direct() int              { return Local(1) }\nfunc Imported() int            { return alias.Finish(2) }\nfunc Reference() func(int) int { return Local }\nfunc ValueAlias() int {\n\tnextStep := Local\n\treturn nextStep(2)\n}\nfunc Shadow() int {\n\tLocal := func(value int) int { return value + 100 }\n\treturn Local(3)\n}\nfunc Callback(fn func(int) int) int { return fn(4) }\n\ntype Worker interface{ Run() int }\ntype First struct{}\ntype Second struct{}\n\nfunc (First) Run() int  { return Local(5) }\nfunc (Second) Run() int { return alias.Finish(6) }\nfunc Receiver(chooseFirst bool) int {\n\tvar worker Worker = First{}\n\tif !chooseFirst {\n\t\tworker = Second{}\n\t}\n\treturn worker.Run()\n}\nfunc Missing() int                                            { return missing.Added(7) }\nfunc Dynamic(table map[string]func(int) int, name string) int { return table[name](8) }\nfunc café(value int) int                                      { return value - 1 }\nfunc UnicodeCall() int                                        { return café(9) }\n",
+      "sha256": "38618cbba6d6d6f9921737cf67db2c54777ed3a5c8ecff77b7953e5cac7f9d8d",
+      "bytes": 1261
+    },
+    {
+      "path": "tests/fixtures/code-understanding/go/service-contract.json",
+      "language": "go",
+      "kind": "configuration",
+      "content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"value\"}\n",
+      "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+      "bytes": 64
+    },
+    {
+      "path": "tests/fixtures/code-understanding/go/types.go",
+      "language": "go",
+      "kind": "source",
+      "content_utf8": "package fixture\n\ntype Value int\n\nfunc Typed(value Value) Value { return value }\nfunc TypedUse(value Value) Value { return Typed(value) }\n",
+      "sha256": "89d4b1da5839b505c21e3d60c5bc761215892a8f78375a611e5a059364482f9e",
+      "bytes": 137
+    },
+    {
+      "path": "tests/fixtures/code-understanding/javascript/helpers.js",
+      "language": "javascript",
+      "kind": "source",
+      "content_utf8": "// Synthetic local import target.\nexport function finish(value) { return value * 2; }\n",
+      "sha256": "4f3ac4a73328e8edcf3991f4dd6a2ca2786dfff2dede60195149189046302288",
+      "bytes": 86
+    },
+    {
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "kind": "source",
+      "content_utf8": "// Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\nimport { finish as importedFinish } from \"./helpers.js\";\nimport { added } from \"./optional.js\";\n\nexport function local(value) { return value + 1; }\nexport function direct() { return local(1); }\nexport function imported() { return importedFinish(2); }\nexport function reference() { return local; }\nexport function valueAlias() {\n  const nextStep = local;\n  return nextStep(2);\n}\nexport function shadow() {\n  const local = (value) => value + 100;\n  return local(3);\n}\nexport function callback(fn) { return fn(4); }\nexport class First { run() { return local(5); } }\nexport class Second { run() { return importedFinish(6); } }\nexport function receiver(chooseFirst) {\n  const worker = chooseFirst ? new First() : new Second();\n  return worker.run();\n}\nexport function missing() { return added(7); }\nexport function dynamic(table, name) { return table[name](8); }\nexport function café(value) { return value - 1; }\nexport function unicodeCall() { return café(9); }\n",
+      "sha256": "6bdb31321d316cbadd6825ed3148b4b9eb203a122ecc0ee14ab3604bcf60a6a9",
+      "bytes": 1025
+    },
+    {
+      "path": "tests/fixtures/code-understanding/javascript/package.json",
+      "language": "javascript",
+      "kind": "configuration",
+      "content_utf8": "{\"name\":\"synthetic-fixture\",\"type\":\"module\"}\n",
+      "sha256": "b6efa0277e710dbe13cbf8f1fad32b8cc964c0ee72f1425a1a4e059cad7e2105",
+      "bytes": 45
+    },
+    {
+      "path": "tests/fixtures/code-understanding/javascript/service-contract.json",
+      "language": "javascript",
+      "kind": "configuration",
+      "content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"value\"}\n",
+      "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+      "bytes": 64
+    },
+    {
+      "path": "tests/fixtures/code-understanding/javascript/types.js",
+      "language": "javascript",
+      "kind": "source",
+      "content_utf8": "/** @param {number} value @returns {number} */\nexport function typed(value) { return value; }\nexport function typedUse(value) { return typed(value); }\n",
+      "sha256": "f6ed1f74cf6478a5193a7ed9471ccaf8e049c581ad097e77074edf962123cf09",
+      "bytes": 151
+    },
+    {
+      "path": "tests/fixtures/code-understanding/python/export_caller.py",
+      "language": "python",
+      "kind": "source",
+      "content_utf8": "from .export_control import visible\n\ndef export_use():\n    return visible(1)\n",
+      "sha256": "abf552c28d597897a9d1fba8f976bcbc4fa8f4e1d9f0f5b97ee1dd20eb95c795",
+      "bytes": 77
+    },
+    {
+      "path": "tests/fixtures/code-understanding/python/export_control.py",
+      "language": "python",
+      "kind": "source",
+      "content_utf8": "__all__ = [\"visible\"]\n\ndef visible(value):\n    return value\n",
+      "sha256": "8addd6ad0bab4c0ce78a76af0ccbf3835f53a921b5ff612ced0151fbdeb3a87e",
+      "bytes": 60
+    },
+    {
+      "path": "tests/fixtures/code-understanding/python/fanout.py",
+      "language": "python",
+      "kind": "source",
+      "content_utf8": "# Synthetic source-only fan-out: café, λ. No execution.\n\ndef leaf_000():\n    return 0\n\ndef leaf_001():\n    return 1\n\ndef leaf_002():\n    return 2\n\ndef leaf_003():\n    return 3\n\ndef leaf_004():\n    return 4\n\ndef leaf_005():\n    return 5\n\ndef leaf_006():\n    return 6\n\ndef leaf_007():\n    return 7\n\ndef leaf_008():\n    return 8\n\ndef leaf_009():\n    return 9\n\ndef leaf_010():\n    return 10\n\ndef leaf_011():\n    return 11\n\ndef leaf_012():\n    return 12\n\ndef leaf_013():\n    return 13\n\ndef leaf_014():\n    return 14\n\ndef leaf_015():\n    return 15\n\ndef leaf_016():\n    return 16\n\ndef leaf_017():\n    return 17\n\ndef leaf_018():\n    return 18\n\ndef leaf_019():\n    return 19\n\ndef leaf_020():\n    return 20\n\ndef leaf_021():\n    return 21\n\ndef leaf_022():\n    return 22\n\ndef leaf_023():\n    return 23\n\ndef leaf_024():\n    return 24\n\ndef leaf_025():\n    return 25\n\ndef leaf_026():\n    return 26\n\ndef leaf_027():\n    return 27\n\ndef leaf_028():\n    return 28\n\ndef leaf_029():\n    return 29\n\ndef leaf_030():\n    return 30\n\ndef leaf_031():\n    return 31\n\ndef leaf_032():\n    return 32\n\ndef leaf_033():\n    return 33\n\ndef leaf_034():\n    return 34\n\ndef leaf_035():\n    return 35\n\ndef leaf_036():\n    return 36\n\ndef leaf_037():\n    return 37\n\ndef leaf_038():\n    return 38\n\ndef leaf_039():\n    return 39\n\ndef leaf_040():\n    return 40\n\ndef leaf_041():\n    return 41\n\ndef leaf_042():\n    return 42\n\ndef leaf_043():\n    return 43\n\ndef leaf_044():\n    return 44\n\ndef leaf_045():\n    return 45\n\ndef leaf_046():\n    return 46\n\ndef leaf_047():\n    return 47\n\ndef leaf_048():\n    return 48\n\ndef leaf_049():\n    return 49\n\ndef leaf_050():\n    return 50\n\ndef leaf_051():\n    return 51\n\ndef leaf_052():\n    return 52\n\ndef leaf_053():\n    return 53\n\ndef leaf_054():\n    return 54\n\ndef leaf_055():\n    return 55\n\ndef leaf_056():\n    return 56\n\ndef leaf_057():\n    return 57\n\ndef leaf_058():\n    return 58\n\ndef leaf_059():\n    return 59\n\ndef leaf_060():\n    return 60\n\ndef leaf_061():\n    return 61\n\ndef leaf_062():\n    return 62\n\ndef leaf_063():\n    return 63\n\ndef leaf_064():\n    return 64\n\ndef leaf_065():\n    return 65\n\ndef leaf_066():\n    return 66\n\ndef leaf_067():\n    return 67\n\ndef leaf_068():\n    return 68\n\ndef leaf_069():\n    return 69\n\ndef leaf_070():\n    return 70\n\ndef leaf_071():\n    return 71\n\ndef leaf_072():\n    return 72\n\ndef leaf_073():\n    return 73\n\ndef leaf_074():\n    return 74\n\ndef leaf_075():\n    return 75\n\ndef leaf_076():\n    return 76\n\ndef leaf_077():\n    return 77\n\ndef leaf_078():\n    return 78\n\ndef leaf_079():\n    return 79\n\ndef leaf_080():\n    return 80\n\ndef leaf_081():\n    return 81\n\ndef leaf_082():\n    return 82\n\ndef leaf_083():\n    return 83\n\ndef leaf_084():\n    return 84\n\ndef leaf_085():\n    return 85\n\ndef leaf_086():\n    return 86\n\ndef leaf_087():\n    return 87\n\ndef leaf_088():\n    return 88\n\ndef leaf_089():\n    return 89\n\ndef leaf_090():\n    return 90\n\ndef leaf_091():\n    return 91\n\ndef leaf_092():\n    return 92\n\ndef leaf_093():\n    return 93\n\ndef leaf_094():\n    return 94\n\ndef leaf_095():\n    return 95\n\ndef leaf_096():\n    return 96\n\ndef leaf_097():\n    return 97\n\ndef leaf_098():\n    return 98\n\ndef leaf_099():\n    return 99\n\ndef leaf_100():\n    return 100\n\ndef leaf_101():\n    return 101\n\ndef leaf_102():\n    return 102\n\ndef leaf_103():\n    return 103\n\ndef leaf_104():\n    return 104\n\ndef leaf_105():\n    return 105\n\ndef leaf_106():\n    return 106\n\ndef leaf_107():\n    return 107\n\ndef leaf_108():\n    return 108\n\ndef leaf_109():\n    return 109\n\ndef leaf_110():\n    return 110\n\ndef leaf_111():\n    return 111\n\ndef hub():\n    leaf_000()\n    leaf_001()\n    leaf_002()\n    leaf_003()\n    leaf_004()\n    leaf_005()\n    leaf_006()\n    leaf_007()\n    leaf_008()\n    leaf_009()\n    leaf_010()\n    leaf_011()\n    leaf_012()\n    leaf_013()\n    leaf_014()\n    leaf_015()\n    leaf_016()\n    leaf_017()\n    leaf_018()\n    leaf_019()\n    leaf_020()\n    leaf_021()\n    leaf_022()\n    leaf_023()\n    leaf_024()\n    leaf_025()\n    leaf_026()\n    leaf_027()\n    leaf_028()\n    leaf_029()\n    leaf_030()\n    leaf_031()\n    leaf_032()\n    leaf_033()\n    leaf_034()\n    leaf_035()\n    leaf_036()\n    leaf_037()\n    leaf_038()\n    leaf_039()\n    leaf_040()\n    leaf_041()\n    leaf_042()\n    leaf_043()\n    leaf_044()\n    leaf_045()\n    leaf_046()\n    leaf_047()\n    leaf_048()\n    leaf_049()\n    leaf_050()\n    leaf_051()\n    leaf_052()\n    leaf_053()\n    leaf_054()\n    leaf_055()\n    leaf_056()\n    leaf_057()\n    leaf_058()\n    leaf_059()\n    leaf_060()\n    leaf_061()\n    leaf_062()\n    leaf_063()\n    leaf_064()\n    leaf_065()\n    leaf_066()\n    leaf_067()\n    leaf_068()\n    leaf_069()\n    leaf_070()\n    leaf_071()\n    leaf_072()\n    leaf_073()\n    leaf_074()\n    leaf_075()\n    leaf_076()\n    leaf_077()\n    leaf_078()\n    leaf_079()\n    leaf_080()\n    leaf_081()\n    leaf_082()\n    leaf_083()\n    leaf_084()\n    leaf_085()\n    leaf_086()\n    leaf_087()\n    leaf_088()\n    leaf_089()\n    leaf_090()\n    leaf_091()\n    leaf_092()\n    leaf_093()\n    leaf_094()\n    leaf_095()\n    leaf_096()\n    leaf_097()\n    leaf_098()\n    leaf_099()\n    leaf_100()\n    leaf_101()\n    leaf_102()\n    leaf_103()\n    leaf_104()\n    leaf_105()\n    leaf_106()\n    leaf_107()\n    leaf_108()\n    leaf_109()\n    leaf_110()\n    leaf_111()\n    return cycle_a()\n\ndef cycle_a():\n    return cycle_b()\n\ndef cycle_b():\n    return cycle_a()\n",
+      "sha256": "b9586e0c318a5ddb1a3bd7a7cf006b72b8e31a2555dbac124fca31ea4a1132fe",
+      "bytes": 5319
+    },
+    {
+      "path": "tests/fixtures/code-understanding/python/helpers.py",
+      "language": "python",
+      "kind": "source",
+      "content_utf8": "\"\"\"Synthetic local import target.\"\"\"\n\n\ndef finish(value):\n    return value * 2\n",
+      "sha256": "2237d35781c0e8eb8def03c5afff0186ce120db894ac0433b972b03723b607e6",
+      "bytes": 79
+    },
+    {
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "kind": "source",
+      "content_utf8": "\"\"\"Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\"\"\"\n\nfrom .helpers import finish as imported_finish\nfrom .optional import added\n\n\ndef local(value):\n    return value + 1\n\n\ndef direct():\n    return local(1)\n\n\ndef imported():\n    return imported_finish(2)\n\n\ndef reference():\n    return local\n\n\ndef value_alias():\n    next_step = local\n    return next_step(2)\n\n\ndef shadow():\n    def local(value):\n        return value + 100\n    return local(3)\n\n\ndef callback(fn):\n    return fn(4)\n\n\nclass First:\n    def run(self):\n        return local(5)\n\n\nclass Second:\n    def run(self):\n        return imported_finish(6)\n\n\ndef receiver(choose_first):\n    worker = First() if choose_first else Second()\n    return worker.run()\n\n\ndef missing():\n    return added(7)\n\n\ndef dynamic(table, name):\n    return table[name](8)\n\n\ndef café(value):\n    return value - 1\n\n\ndef unicode_call():\n    return café(9)\n",
+      "sha256": "8c593055001d4d077d1fab1f12a97eafdbdbf5628f0af63ceb3b71da525dec1e",
+      "bytes": 900
+    },
+    {
+      "path": "tests/fixtures/code-understanding/python/pyproject.toml",
+      "language": "python",
+      "kind": "configuration",
+      "content_utf8": "[tool.synthetic]\nnamespace = \"alpha\"\n",
+      "sha256": "48c5a6db5fc5888843d601a5f1eaa98af27d609f9df31e31c04bf3d9aec920df",
+      "bytes": 37
+    },
+    {
+      "path": "tests/fixtures/code-understanding/python/service-contract.json",
+      "language": "python",
+      "kind": "configuration",
+      "content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"value\"}\n",
+      "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+      "bytes": 64
+    },
+    {
+      "path": "tests/fixtures/code-understanding/python/types.py",
+      "language": "python",
+      "kind": "source",
+      "content_utf8": "def typed(value: int) -> int:\n    return value\n\ndef typed_use(value):\n    return typed(value)\n",
+      "sha256": "ec8a68412871c016d1a8f550e76671aa751a95216b967791aa1652bf2001ff9c",
+      "bytes": 94
+    },
+    {
+      "path": "tests/fixtures/code-understanding/typescript/helpers.ts",
+      "language": "typescript",
+      "kind": "source",
+      "content_utf8": "// Synthetic local import target.\nexport function finish(value: number): number { return value * 2; }\n",
+      "sha256": "8f2435f241915ce537f7f9067aa60828e84a6da4545721ce6d242a0a19ea22a7",
+      "bytes": 102
+    },
+    {
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "kind": "source",
+      "content_utf8": "// Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\nimport { finish as importedFinish } from \"./helpers\";\nimport { added } from \"./optional\";\n\nexport function local(value: number): number { return value + 1; }\nexport function direct(): number { return local(1); }\nexport function imported(): number { return importedFinish(2); }\nexport function reference(): (value: number) => number { return local; }\nexport function valueAlias(): number {\n  const nextStep = local;\n  return nextStep(2);\n}\nexport function shadow(): number {\n  const local = (value: number): number => value + 100;\n  return local(3);\n}\nexport function callback(fn: (value: number) => number): number { return fn(4); }\nexport interface Worker { run(): number; }\nexport class First implements Worker { run(): number { return local(5); } }\nexport class Second implements Worker { run(): number { return importedFinish(6); } }\nexport function receiver(chooseFirst: boolean): number {\n  const worker: Worker = chooseFirst ? new First() : new Second();\n  return worker.run();\n}\nexport function missing(): number { return added(7); }\nexport function dynamic(table: Record<string, (value: number) => number>, name: string): number { return table[name](8); }\nexport function café(value: number): number { return value - 1; }\nexport function unicodeCall(): number { return café(9); }\n",
+      "sha256": "82f81117584f15fbaed1b0baa8ddef4c9628dac873ce9b904b3a0f76b129d500",
+      "bytes": 1356
+    },
+    {
+      "path": "tests/fixtures/code-understanding/typescript/service-contract.json",
+      "language": "typescript",
+      "kind": "configuration",
+      "content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"value\"}\n",
+      "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+      "bytes": 64
+    },
+    {
+      "path": "tests/fixtures/code-understanding/typescript/tsconfig.json",
+      "language": "typescript",
+      "kind": "configuration",
+      "content_utf8": "{\"compilerOptions\":{\"strict\":false}}\n",
+      "sha256": "7396dc78a5ebb28cd40247a0c8c8de7dda8731b3dbf606823acc1d92331bfe43",
+      "bytes": 37
+    },
+    {
+      "path": "tests/fixtures/code-understanding/typescript/types.ts",
+      "language": "typescript",
+      "kind": "source",
+      "content_utf8": "export type Value = number;\nexport function typed(value: Value): Value { return value; }\nexport function typedUse(value: Value): Value { return typed(value); }\n",
+      "sha256": "d963db315899eb5206dc6a29512560c42f792aa135e60684e0d24485df8abc27",
+      "bytes": 160
+    }
+  ],
+  "updates": [
+    {
+      "id": "U-PY-BODY",
+      "language": "python",
+      "category": "body",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/python/main.py",
+          "old": "local(1)",
+          "new": "imported_finish(1)",
+          "occurrences": 1,
+          "sha256_before": "8c593055001d4d077d1fab1f12a97eafdbdbf5628f0af63ceb3b71da525dec1e",
+          "sha256_after": "06354027b718ad5a7e32004d149074b0eb7c983eedba1672dd2d2adc0cc26164"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/python/main.py",
+          "language": "python",
+          "kind": "source",
+          "before_content_utf8": "\"\"\"Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\"\"\"\n\nfrom .helpers import finish as imported_finish\nfrom .optional import added\n\n\ndef local(value):\n    return value + 1\n\n\ndef direct():\n    return local(1)\n\n\ndef imported():\n    return imported_finish(2)\n\n\ndef reference():\n    return local\n\n\ndef value_alias():\n    next_step = local\n    return next_step(2)\n\n\ndef shadow():\n    def local(value):\n        return value + 100\n    return local(3)\n\n\ndef callback(fn):\n    return fn(4)\n\n\nclass First:\n    def run(self):\n        return local(5)\n\n\nclass Second:\n    def run(self):\n        return imported_finish(6)\n\n\ndef receiver(choose_first):\n    worker = First() if choose_first else Second()\n    return worker.run()\n\n\ndef missing():\n    return added(7)\n\n\ndef dynamic(table, name):\n    return table[name](8)\n\n\ndef café(value):\n    return value - 1\n\n\ndef unicode_call():\n    return café(9)\n",
+          "before_bytes": 900,
+          "after_content_utf8": "\"\"\"Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\"\"\"\n\nfrom .helpers import finish as imported_finish\nfrom .optional import added\n\n\ndef local(value):\n    return value + 1\n\n\ndef direct():\n    return imported_finish(1)\n\n\ndef imported():\n    return imported_finish(2)\n\n\ndef reference():\n    return local\n\n\ndef value_alias():\n    next_step = local\n    return next_step(2)\n\n\ndef shadow():\n    def local(value):\n        return value + 100\n    return local(3)\n\n\ndef callback(fn):\n    return fn(4)\n\n\nclass First:\n    def run(self):\n        return local(5)\n\n\nclass Second:\n    def run(self):\n        return imported_finish(6)\n\n\ndef receiver(choose_first):\n    worker = First() if choose_first else Second()\n    return worker.run()\n\n\ndef missing():\n    return added(7)\n\n\ndef dynamic(table, name):\n    return table[name](8)\n\n\ndef café(value):\n    return value - 1\n\n\ndef unicode_call():\n    return café(9)\n",
+          "after_bytes": 910
+        }
+      ]
+    },
+    {
+      "id": "U-PY-EXPORT",
+      "language": "python",
+      "category": "export",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/python/export_control.py",
+          "old": "[\"visible\"]",
+          "new": "[]",
+          "occurrences": 1,
+          "sha256_before": "8addd6ad0bab4c0ce78a76af0ccbf3835f53a921b5ff612ced0151fbdeb3a87e",
+          "sha256_after": "469fa8dfb4c76c521eb375f4871a7f86aa11de9f7cb484eb549c9af41bf328ca"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/python/export_control.py",
+          "language": "python",
+          "kind": "source",
+          "before_content_utf8": "__all__ = [\"visible\"]\n\ndef visible(value):\n    return value\n",
+          "before_bytes": 60,
+          "after_content_utf8": "__all__ = []\n\ndef visible(value):\n    return value\n",
+          "after_bytes": 51
+        }
+      ]
+    },
+    {
+      "id": "U-PY-TYPE",
+      "language": "python",
+      "category": "type",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/python/types.py",
+          "old": "value: int) -> int",
+          "new": "value: float) -> float",
+          "occurrences": 1,
+          "sha256_before": "ec8a68412871c016d1a8f550e76671aa751a95216b967791aa1652bf2001ff9c",
+          "sha256_after": "fabff26169e06caf09054582f4d43c71668b8d8643d7b5c5519c06ac5ffed936"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/python/types.py",
+          "language": "python",
+          "kind": "source",
+          "before_content_utf8": "def typed(value: int) -> int:\n    return value\n\ndef typed_use(value):\n    return typed(value)\n",
+          "before_bytes": 94,
+          "after_content_utf8": "def typed(value: float) -> float:\n    return value\n\ndef typed_use(value):\n    return typed(value)\n",
+          "after_bytes": 98
+        }
+      ]
+    },
+    {
+      "id": "U-PY-CONFIG",
+      "language": "python",
+      "category": "config",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/python/pyproject.toml",
+          "old": "\"alpha\"",
+          "new": "\"beta\"",
+          "occurrences": 1,
+          "sha256_before": "48c5a6db5fc5888843d601a5f1eaa98af27d609f9df31e31c04bf3d9aec920df",
+          "sha256_after": "181b8889c5c3d20e3c469e6bc35660965eba188c53f09285fa9c2974a1f34ca7"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/python/pyproject.toml",
+          "language": "python",
+          "kind": "configuration",
+          "before_content_utf8": "[tool.synthetic]\nnamespace = \"alpha\"\n",
+          "before_bytes": 37,
+          "after_content_utf8": "[tool.synthetic]\nnamespace = \"beta\"\n",
+          "after_bytes": 36
+        }
+      ]
+    },
+    {
+      "id": "U-PY-CONTRACT",
+      "language": "python",
+      "category": "contract",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/python/service-contract.json",
+          "old": "\"value\"",
+          "new": "\"payload\"",
+          "occurrences": 1,
+          "sha256_before": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+          "sha256_after": "e0f6de2aecb5b77222d8091f9af10d3e96c5007f0c201706f1f126f24e4f8e75"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/python/service-contract.json",
+          "language": "python",
+          "kind": "configuration",
+          "before_content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"value\"}\n",
+          "before_bytes": 64,
+          "after_content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"payload\"}\n",
+          "after_bytes": 66
+        }
+      ]
+    },
+    {
+      "id": "U-GO-BODY",
+      "language": "go",
+      "category": "body",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/go/main.go",
+          "old": "Local(1)",
+          "new": "alias.Finish(1)",
+          "occurrences": 1,
+          "sha256_before": "38618cbba6d6d6f9921737cf67db2c54777ed3a5c8ecff77b7953e5cac7f9d8d",
+          "sha256_after": "d25b954836514bf88677466ddc26148a372a3e42b38308ea23b059ddc2ffda29"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/go/main.go",
+          "language": "go",
+          "kind": "source",
+          "before_content_utf8": "// Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\npackage fixture\n\nimport (\n\talias \"example.test/codeunderstanding/helpers\"\n\tmissing \"example.test/codeunderstanding/optional\"\n)\n\nfunc Local(value int) int      { return value + 1 }\nfunc Direct() int              { return Local(1) }\nfunc Imported() int            { return alias.Finish(2) }\nfunc Reference() func(int) int { return Local }\nfunc ValueAlias() int {\n\tnextStep := Local\n\treturn nextStep(2)\n}\nfunc Shadow() int {\n\tLocal := func(value int) int { return value + 100 }\n\treturn Local(3)\n}\nfunc Callback(fn func(int) int) int { return fn(4) }\n\ntype Worker interface{ Run() int }\ntype First struct{}\ntype Second struct{}\n\nfunc (First) Run() int  { return Local(5) }\nfunc (Second) Run() int { return alias.Finish(6) }\nfunc Receiver(chooseFirst bool) int {\n\tvar worker Worker = First{}\n\tif !chooseFirst {\n\t\tworker = Second{}\n\t}\n\treturn worker.Run()\n}\nfunc Missing() int                                            { return missing.Added(7) }\nfunc Dynamic(table map[string]func(int) int, name string) int { return table[name](8) }\nfunc café(value int) int                                      { return value - 1 }\nfunc UnicodeCall() int                                        { return café(9) }\n",
+          "before_bytes": 1261,
+          "after_content_utf8": "// Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\npackage fixture\n\nimport (\n\talias \"example.test/codeunderstanding/helpers\"\n\tmissing \"example.test/codeunderstanding/optional\"\n)\n\nfunc Local(value int) int      { return value + 1 }\nfunc Direct() int              { return alias.Finish(1) }\nfunc Imported() int            { return alias.Finish(2) }\nfunc Reference() func(int) int { return Local }\nfunc ValueAlias() int {\n\tnextStep := Local\n\treturn nextStep(2)\n}\nfunc Shadow() int {\n\tLocal := func(value int) int { return value + 100 }\n\treturn Local(3)\n}\nfunc Callback(fn func(int) int) int { return fn(4) }\n\ntype Worker interface{ Run() int }\ntype First struct{}\ntype Second struct{}\n\nfunc (First) Run() int  { return Local(5) }\nfunc (Second) Run() int { return alias.Finish(6) }\nfunc Receiver(chooseFirst bool) int {\n\tvar worker Worker = First{}\n\tif !chooseFirst {\n\t\tworker = Second{}\n\t}\n\treturn worker.Run()\n}\nfunc Missing() int                                            { return missing.Added(7) }\nfunc Dynamic(table map[string]func(int) int, name string) int { return table[name](8) }\nfunc café(value int) int                                      { return value - 1 }\nfunc UnicodeCall() int                                        { return café(9) }\n",
+          "after_bytes": 1268
+        }
+      ]
+    },
+    {
+      "id": "U-GO-EXPORT",
+      "language": "go",
+      "category": "export",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/go/helpers/helpers.go",
+          "old": "func Finish(",
+          "new": "func finish(",
+          "occurrences": 1,
+          "sha256_before": "cba725ddec2106700fc68bd0a906e20207f0c595067253e4b392f1fc2b39a885",
+          "sha256_after": "605710ea61a3295a757a671aa89410585c41a7d2a8fabb8a6f6eaf1f715a3b79"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/go/helpers/helpers.go",
+          "language": "go",
+          "kind": "source",
+          "before_content_utf8": "// Synthetic local import target.\npackage helpers\n\nfunc Finish(value int) int { return value * 2 }\n",
+          "before_bytes": 99,
+          "after_content_utf8": "// Synthetic local import target.\npackage helpers\n\nfunc finish(value int) int { return value * 2 }\n",
+          "after_bytes": 99
+        }
+      ]
+    },
+    {
+      "id": "U-GO-TYPE",
+      "language": "go",
+      "category": "type",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/go/types.go",
+          "old": "type Value int",
+          "new": "type Value string",
+          "occurrences": 1,
+          "sha256_before": "89d4b1da5839b505c21e3d60c5bc761215892a8f78375a611e5a059364482f9e",
+          "sha256_after": "ec89f257351ff66a627ed3528cbd86e0d70d9a49a405ee7b44ae31d03f9f749e"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/go/types.go",
+          "language": "go",
+          "kind": "source",
+          "before_content_utf8": "package fixture\n\ntype Value int\n\nfunc Typed(value Value) Value { return value }\nfunc TypedUse(value Value) Value { return Typed(value) }\n",
+          "before_bytes": 137,
+          "after_content_utf8": "package fixture\n\ntype Value string\n\nfunc Typed(value Value) Value { return value }\nfunc TypedUse(value Value) Value { return Typed(value) }\n",
+          "after_bytes": 140
+        }
+      ]
+    },
+    {
+      "id": "U-GO-CONFIG",
+      "language": "go",
+      "category": "config",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/go/go.mod",
+          "old": "module example.test/codeunderstanding",
+          "new": "module example.test/renamed",
+          "occurrences": 1,
+          "sha256_before": "c7f706c0079567fe08400fc22ff242d42fd21f069a54993f0042e2e066adfbef",
+          "sha256_after": "dc607e0be4cc472a37b3689ae26a7a00615f04c69b1e2f8b3b0fc4aad5224eba"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/go/go.mod",
+          "language": "go",
+          "kind": "configuration",
+          "before_content_utf8": "module example.test/codeunderstanding\n\ngo 1.22\n",
+          "before_bytes": 47,
+          "after_content_utf8": "module example.test/renamed\n\ngo 1.22\n",
+          "after_bytes": 37
+        }
+      ]
+    },
+    {
+      "id": "U-GO-CONTRACT",
+      "language": "go",
+      "category": "contract",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/go/service-contract.json",
+          "old": "\"value\"",
+          "new": "\"payload\"",
+          "occurrences": 1,
+          "sha256_before": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+          "sha256_after": "e0f6de2aecb5b77222d8091f9af10d3e96c5007f0c201706f1f126f24e4f8e75"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/go/service-contract.json",
+          "language": "go",
+          "kind": "configuration",
+          "before_content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"value\"}\n",
+          "before_bytes": 64,
+          "after_content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"payload\"}\n",
+          "after_bytes": 66
+        }
+      ]
+    },
+    {
+      "id": "U-JS-BODY",
+      "language": "javascript",
+      "category": "body",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/javascript/main.js",
+          "old": "local(1)",
+          "new": "importedFinish(1)",
+          "occurrences": 1,
+          "sha256_before": "6bdb31321d316cbadd6825ed3148b4b9eb203a122ecc0ee14ab3604bcf60a6a9",
+          "sha256_after": "596068c0f2ba6497c8125f9ea0592ac9d4912b60ed23a0949e2c5cd1f8824151"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/javascript/main.js",
+          "language": "javascript",
+          "kind": "source",
+          "before_content_utf8": "// Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\nimport { finish as importedFinish } from \"./helpers.js\";\nimport { added } from \"./optional.js\";\n\nexport function local(value) { return value + 1; }\nexport function direct() { return local(1); }\nexport function imported() { return importedFinish(2); }\nexport function reference() { return local; }\nexport function valueAlias() {\n  const nextStep = local;\n  return nextStep(2);\n}\nexport function shadow() {\n  const local = (value) => value + 100;\n  return local(3);\n}\nexport function callback(fn) { return fn(4); }\nexport class First { run() { return local(5); } }\nexport class Second { run() { return importedFinish(6); } }\nexport function receiver(chooseFirst) {\n  const worker = chooseFirst ? new First() : new Second();\n  return worker.run();\n}\nexport function missing() { return added(7); }\nexport function dynamic(table, name) { return table[name](8); }\nexport function café(value) { return value - 1; }\nexport function unicodeCall() { return café(9); }\n",
+          "before_bytes": 1025,
+          "after_content_utf8": "// Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\nimport { finish as importedFinish } from \"./helpers.js\";\nimport { added } from \"./optional.js\";\n\nexport function local(value) { return value + 1; }\nexport function direct() { return importedFinish(1); }\nexport function imported() { return importedFinish(2); }\nexport function reference() { return local; }\nexport function valueAlias() {\n  const nextStep = local;\n  return nextStep(2);\n}\nexport function shadow() {\n  const local = (value) => value + 100;\n  return local(3);\n}\nexport function callback(fn) { return fn(4); }\nexport class First { run() { return local(5); } }\nexport class Second { run() { return importedFinish(6); } }\nexport function receiver(chooseFirst) {\n  const worker = chooseFirst ? new First() : new Second();\n  return worker.run();\n}\nexport function missing() { return added(7); }\nexport function dynamic(table, name) { return table[name](8); }\nexport function café(value) { return value - 1; }\nexport function unicodeCall() { return café(9); }\n",
+          "after_bytes": 1034
+        }
+      ]
+    },
+    {
+      "id": "U-JS-EXPORT",
+      "language": "javascript",
+      "category": "export",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/javascript/helpers.js",
+          "old": "export function finish(",
+          "new": "function finish(",
+          "occurrences": 1,
+          "sha256_before": "4f3ac4a73328e8edcf3991f4dd6a2ca2786dfff2dede60195149189046302288",
+          "sha256_after": "fab1d68d2feabf84a466698a51192fe3af5d2094d0ab0dd5cc8b31851b1772fb"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/javascript/helpers.js",
+          "language": "javascript",
+          "kind": "source",
+          "before_content_utf8": "// Synthetic local import target.\nexport function finish(value) { return value * 2; }\n",
+          "before_bytes": 86,
+          "after_content_utf8": "// Synthetic local import target.\nfunction finish(value) { return value * 2; }\n",
+          "after_bytes": 79
+        }
+      ]
+    },
+    {
+      "id": "U-JS-TYPE",
+      "language": "javascript",
+      "category": "type",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/javascript/types.js",
+          "old": "@param {number} value @returns {number}",
+          "new": "@param {string} value @returns {string}",
+          "occurrences": 1,
+          "sha256_before": "f6ed1f74cf6478a5193a7ed9471ccaf8e049c581ad097e77074edf962123cf09",
+          "sha256_after": "3de039c734aa4cfa7015c20d2801c2cb022b16763e64b3bc39d9ccfcf76b86d2"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/javascript/types.js",
+          "language": "javascript",
+          "kind": "source",
+          "before_content_utf8": "/** @param {number} value @returns {number} */\nexport function typed(value) { return value; }\nexport function typedUse(value) { return typed(value); }\n",
+          "before_bytes": 151,
+          "after_content_utf8": "/** @param {string} value @returns {string} */\nexport function typed(value) { return value; }\nexport function typedUse(value) { return typed(value); }\n",
+          "after_bytes": 151
+        }
+      ]
+    },
+    {
+      "id": "U-JS-CONFIG",
+      "language": "javascript",
+      "category": "config",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/javascript/package.json",
+          "old": "\"module\"",
+          "new": "\"commonjs\"",
+          "occurrences": 1,
+          "sha256_before": "b6efa0277e710dbe13cbf8f1fad32b8cc964c0ee72f1425a1a4e059cad7e2105",
+          "sha256_after": "1c6bae1b84bd232645ac5dd57fe1be0da5a24e3fa052d3bee8ade2d934387aae"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/javascript/package.json",
+          "language": "javascript",
+          "kind": "configuration",
+          "before_content_utf8": "{\"name\":\"synthetic-fixture\",\"type\":\"module\"}\n",
+          "before_bytes": 45,
+          "after_content_utf8": "{\"name\":\"synthetic-fixture\",\"type\":\"commonjs\"}\n",
+          "after_bytes": 47
+        }
+      ]
+    },
+    {
+      "id": "U-JS-CONTRACT",
+      "language": "javascript",
+      "category": "contract",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/javascript/service-contract.json",
+          "old": "\"value\"",
+          "new": "\"payload\"",
+          "occurrences": 1,
+          "sha256_before": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+          "sha256_after": "e0f6de2aecb5b77222d8091f9af10d3e96c5007f0c201706f1f126f24e4f8e75"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/javascript/service-contract.json",
+          "language": "javascript",
+          "kind": "configuration",
+          "before_content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"value\"}\n",
+          "before_bytes": 64,
+          "after_content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"payload\"}\n",
+          "after_bytes": 66
+        }
+      ]
+    },
+    {
+      "id": "U-TS-BODY",
+      "language": "typescript",
+      "category": "body",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/typescript/main.ts",
+          "old": "local(1)",
+          "new": "importedFinish(1)",
+          "occurrences": 1,
+          "sha256_before": "82f81117584f15fbaed1b0baa8ddef4c9628dac873ce9b904b3a0f76b129d500",
+          "sha256_after": "3d3ce3c871fc913537aca2107b1b64945b36858503c53b2173b6cc559d545f56"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/typescript/main.ts",
+          "language": "typescript",
+          "kind": "source",
+          "before_content_utf8": "// Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\nimport { finish as importedFinish } from \"./helpers\";\nimport { added } from \"./optional\";\n\nexport function local(value: number): number { return value + 1; }\nexport function direct(): number { return local(1); }\nexport function imported(): number { return importedFinish(2); }\nexport function reference(): (value: number) => number { return local; }\nexport function valueAlias(): number {\n  const nextStep = local;\n  return nextStep(2);\n}\nexport function shadow(): number {\n  const local = (value: number): number => value + 100;\n  return local(3);\n}\nexport function callback(fn: (value: number) => number): number { return fn(4); }\nexport interface Worker { run(): number; }\nexport class First implements Worker { run(): number { return local(5); } }\nexport class Second implements Worker { run(): number { return importedFinish(6); } }\nexport function receiver(chooseFirst: boolean): number {\n  const worker: Worker = chooseFirst ? new First() : new Second();\n  return worker.run();\n}\nexport function missing(): number { return added(7); }\nexport function dynamic(table: Record<string, (value: number) => number>, name: string): number { return table[name](8); }\nexport function café(value: number): number { return value - 1; }\nexport function unicodeCall(): number { return café(9); }\n",
+          "before_bytes": 1356,
+          "after_content_utf8": "// Synthetic source only: café, λ and 🌱 test UTF-8 offsets.\nimport { finish as importedFinish } from \"./helpers\";\nimport { added } from \"./optional\";\n\nexport function local(value: number): number { return value + 1; }\nexport function direct(): number { return importedFinish(1); }\nexport function imported(): number { return importedFinish(2); }\nexport function reference(): (value: number) => number { return local; }\nexport function valueAlias(): number {\n  const nextStep = local;\n  return nextStep(2);\n}\nexport function shadow(): number {\n  const local = (value: number): number => value + 100;\n  return local(3);\n}\nexport function callback(fn: (value: number) => number): number { return fn(4); }\nexport interface Worker { run(): number; }\nexport class First implements Worker { run(): number { return local(5); } }\nexport class Second implements Worker { run(): number { return importedFinish(6); } }\nexport function receiver(chooseFirst: boolean): number {\n  const worker: Worker = chooseFirst ? new First() : new Second();\n  return worker.run();\n}\nexport function missing(): number { return added(7); }\nexport function dynamic(table: Record<string, (value: number) => number>, name: string): number { return table[name](8); }\nexport function café(value: number): number { return value - 1; }\nexport function unicodeCall(): number { return café(9); }\n",
+          "after_bytes": 1365
+        }
+      ]
+    },
+    {
+      "id": "U-TS-EXPORT",
+      "language": "typescript",
+      "category": "export",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/typescript/helpers.ts",
+          "old": "export function finish(",
+          "new": "function finish(",
+          "occurrences": 1,
+          "sha256_before": "8f2435f241915ce537f7f9067aa60828e84a6da4545721ce6d242a0a19ea22a7",
+          "sha256_after": "dd00b3e1ea5d0bee5d18a923c5aa7364ebb4edc245fa876c274e36259b8c8735"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/typescript/helpers.ts",
+          "language": "typescript",
+          "kind": "source",
+          "before_content_utf8": "// Synthetic local import target.\nexport function finish(value: number): number { return value * 2; }\n",
+          "before_bytes": 102,
+          "after_content_utf8": "// Synthetic local import target.\nfunction finish(value: number): number { return value * 2; }\n",
+          "after_bytes": 95
+        }
+      ]
+    },
+    {
+      "id": "U-TS-TYPE",
+      "language": "typescript",
+      "category": "type",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/typescript/types.ts",
+          "old": "export type Value = number;",
+          "new": "export type Value = string;",
+          "occurrences": 1,
+          "sha256_before": "d963db315899eb5206dc6a29512560c42f792aa135e60684e0d24485df8abc27",
+          "sha256_after": "4717dd87b3b43d97690c51d34b8f14e2168aa9298e12fe5e030b976371438d67"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/typescript/types.ts",
+          "language": "typescript",
+          "kind": "source",
+          "before_content_utf8": "export type Value = number;\nexport function typed(value: Value): Value { return value; }\nexport function typedUse(value: Value): Value { return typed(value); }\n",
+          "before_bytes": 160,
+          "after_content_utf8": "export type Value = string;\nexport function typed(value: Value): Value { return value; }\nexport function typedUse(value: Value): Value { return typed(value); }\n",
+          "after_bytes": 160
+        }
+      ]
+    },
+    {
+      "id": "U-TS-CONFIG",
+      "language": "typescript",
+      "category": "config",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/typescript/tsconfig.json",
+          "old": "false",
+          "new": "true",
+          "occurrences": 1,
+          "sha256_before": "7396dc78a5ebb28cd40247a0c8c8de7dda8731b3dbf606823acc1d92331bfe43",
+          "sha256_after": "671920f9e86e8620695b89c0328206cb79c2ae66dd7bf466a0644e20d1cfd9f1"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/typescript/tsconfig.json",
+          "language": "typescript",
+          "kind": "configuration",
+          "before_content_utf8": "{\"compilerOptions\":{\"strict\":false}}\n",
+          "before_bytes": 37,
+          "after_content_utf8": "{\"compilerOptions\":{\"strict\":true}}\n",
+          "after_bytes": 36
+        }
+      ]
+    },
+    {
+      "id": "U-TS-CONTRACT",
+      "language": "typescript",
+      "category": "contract",
+      "starts_from": "supplemental_base_with_original_v1_unchanged",
+      "operations": [
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/typescript/service-contract.json",
+          "old": "\"value\"",
+          "new": "\"payload\"",
+          "occurrences": 1,
+          "sha256_before": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+          "sha256_after": "e0f6de2aecb5b77222d8091f9af10d3e96c5007f0c201706f1f126f24e4f8e75"
+        }
+      ],
+      "changed_files": [
+        {
+          "path": "tests/fixtures/code-understanding/typescript/service-contract.json",
+          "language": "typescript",
+          "kind": "configuration",
+          "before_content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"value\"}\n",
+          "before_bytes": 64,
+          "after_content_utf8": "{\"schema_version\":1,\"operation\":\"echo\",\"request_field\":\"payload\"}\n",
+          "after_bytes": 66
+        }
+      ]
+    }
+  ],
+  "query_freshness_update": {
+    "path": "tests/fixtures/code-understanding/python/fanout.py",
+    "old": "    return 0\n",
+    "new": "    return -1\n",
+    "occurrences": 1,
+    "sha256_before": "b9586e0c318a5ddb1a3bd7a7cf006b72b8e31a2555dbac124fca31ea4a1132fe",
+    "sha256_after": "ccf1d2b6ffe5667e87b96e3b2cd4da044ba9b6b9d81a3f39c80b4fa029fa4977",
+    "before_content_utf8": "# Synthetic source-only fan-out: café, λ. No execution.\n\ndef leaf_000():\n    return 0\n\ndef leaf_001():\n    return 1\n\ndef leaf_002():\n    return 2\n\ndef leaf_003():\n    return 3\n\ndef leaf_004():\n    return 4\n\ndef leaf_005():\n    return 5\n\ndef leaf_006():\n    return 6\n\ndef leaf_007():\n    return 7\n\ndef leaf_008():\n    return 8\n\ndef leaf_009():\n    return 9\n\ndef leaf_010():\n    return 10\n\ndef leaf_011():\n    return 11\n\ndef leaf_012():\n    return 12\n\ndef leaf_013():\n    return 13\n\ndef leaf_014():\n    return 14\n\ndef leaf_015():\n    return 15\n\ndef leaf_016():\n    return 16\n\ndef leaf_017():\n    return 17\n\ndef leaf_018():\n    return 18\n\ndef leaf_019():\n    return 19\n\ndef leaf_020():\n    return 20\n\ndef leaf_021():\n    return 21\n\ndef leaf_022():\n    return 22\n\ndef leaf_023():\n    return 23\n\ndef leaf_024():\n    return 24\n\ndef leaf_025():\n    return 25\n\ndef leaf_026():\n    return 26\n\ndef leaf_027():\n    return 27\n\ndef leaf_028():\n    return 28\n\ndef leaf_029():\n    return 29\n\ndef leaf_030():\n    return 30\n\ndef leaf_031():\n    return 31\n\ndef leaf_032():\n    return 32\n\ndef leaf_033():\n    return 33\n\ndef leaf_034():\n    return 34\n\ndef leaf_035():\n    return 35\n\ndef leaf_036():\n    return 36\n\ndef leaf_037():\n    return 37\n\ndef leaf_038():\n    return 38\n\ndef leaf_039():\n    return 39\n\ndef leaf_040():\n    return 40\n\ndef leaf_041():\n    return 41\n\ndef leaf_042():\n    return 42\n\ndef leaf_043():\n    return 43\n\ndef leaf_044():\n    return 44\n\ndef leaf_045():\n    return 45\n\ndef leaf_046():\n    return 46\n\ndef leaf_047():\n    return 47\n\ndef leaf_048():\n    return 48\n\ndef leaf_049():\n    return 49\n\ndef leaf_050():\n    return 50\n\ndef leaf_051():\n    return 51\n\ndef leaf_052():\n    return 52\n\ndef leaf_053():\n    return 53\n\ndef leaf_054():\n    return 54\n\ndef leaf_055():\n    return 55\n\ndef leaf_056():\n    return 56\n\ndef leaf_057():\n    return 57\n\ndef leaf_058():\n    return 58\n\ndef leaf_059():\n    return 59\n\ndef leaf_060():\n    return 60\n\ndef leaf_061():\n    return 61\n\ndef leaf_062():\n    return 62\n\ndef leaf_063():\n    return 63\n\ndef leaf_064():\n    return 64\n\ndef leaf_065():\n    return 65\n\ndef leaf_066():\n    return 66\n\ndef leaf_067():\n    return 67\n\ndef leaf_068():\n    return 68\n\ndef leaf_069():\n    return 69\n\ndef leaf_070():\n    return 70\n\ndef leaf_071():\n    return 71\n\ndef leaf_072():\n    return 72\n\ndef leaf_073():\n    return 73\n\ndef leaf_074():\n    return 74\n\ndef leaf_075():\n    return 75\n\ndef leaf_076():\n    return 76\n\ndef leaf_077():\n    return 77\n\ndef leaf_078():\n    return 78\n\ndef leaf_079():\n    return 79\n\ndef leaf_080():\n    return 80\n\ndef leaf_081():\n    return 81\n\ndef leaf_082():\n    return 82\n\ndef leaf_083():\n    return 83\n\ndef leaf_084():\n    return 84\n\ndef leaf_085():\n    return 85\n\ndef leaf_086():\n    return 86\n\ndef leaf_087():\n    return 87\n\ndef leaf_088():\n    return 88\n\ndef leaf_089():\n    return 89\n\ndef leaf_090():\n    return 90\n\ndef leaf_091():\n    return 91\n\ndef leaf_092():\n    return 92\n\ndef leaf_093():\n    return 93\n\ndef leaf_094():\n    return 94\n\ndef leaf_095():\n    return 95\n\ndef leaf_096():\n    return 96\n\ndef leaf_097():\n    return 97\n\ndef leaf_098():\n    return 98\n\ndef leaf_099():\n    return 99\n\ndef leaf_100():\n    return 100\n\ndef leaf_101():\n    return 101\n\ndef leaf_102():\n    return 102\n\ndef leaf_103():\n    return 103\n\ndef leaf_104():\n    return 104\n\ndef leaf_105():\n    return 105\n\ndef leaf_106():\n    return 106\n\ndef leaf_107():\n    return 107\n\ndef leaf_108():\n    return 108\n\ndef leaf_109():\n    return 109\n\ndef leaf_110():\n    return 110\n\ndef leaf_111():\n    return 111\n\ndef hub():\n    leaf_000()\n    leaf_001()\n    leaf_002()\n    leaf_003()\n    leaf_004()\n    leaf_005()\n    leaf_006()\n    leaf_007()\n    leaf_008()\n    leaf_009()\n    leaf_010()\n    leaf_011()\n    leaf_012()\n    leaf_013()\n    leaf_014()\n    leaf_015()\n    leaf_016()\n    leaf_017()\n    leaf_018()\n    leaf_019()\n    leaf_020()\n    leaf_021()\n    leaf_022()\n    leaf_023()\n    leaf_024()\n    leaf_025()\n    leaf_026()\n    leaf_027()\n    leaf_028()\n    leaf_029()\n    leaf_030()\n    leaf_031()\n    leaf_032()\n    leaf_033()\n    leaf_034()\n    leaf_035()\n    leaf_036()\n    leaf_037()\n    leaf_038()\n    leaf_039()\n    leaf_040()\n    leaf_041()\n    leaf_042()\n    leaf_043()\n    leaf_044()\n    leaf_045()\n    leaf_046()\n    leaf_047()\n    leaf_048()\n    leaf_049()\n    leaf_050()\n    leaf_051()\n    leaf_052()\n    leaf_053()\n    leaf_054()\n    leaf_055()\n    leaf_056()\n    leaf_057()\n    leaf_058()\n    leaf_059()\n    leaf_060()\n    leaf_061()\n    leaf_062()\n    leaf_063()\n    leaf_064()\n    leaf_065()\n    leaf_066()\n    leaf_067()\n    leaf_068()\n    leaf_069()\n    leaf_070()\n    leaf_071()\n    leaf_072()\n    leaf_073()\n    leaf_074()\n    leaf_075()\n    leaf_076()\n    leaf_077()\n    leaf_078()\n    leaf_079()\n    leaf_080()\n    leaf_081()\n    leaf_082()\n    leaf_083()\n    leaf_084()\n    leaf_085()\n    leaf_086()\n    leaf_087()\n    leaf_088()\n    leaf_089()\n    leaf_090()\n    leaf_091()\n    leaf_092()\n    leaf_093()\n    leaf_094()\n    leaf_095()\n    leaf_096()\n    leaf_097()\n    leaf_098()\n    leaf_099()\n    leaf_100()\n    leaf_101()\n    leaf_102()\n    leaf_103()\n    leaf_104()\n    leaf_105()\n    leaf_106()\n    leaf_107()\n    leaf_108()\n    leaf_109()\n    leaf_110()\n    leaf_111()\n    return cycle_a()\n\ndef cycle_a():\n    return cycle_b()\n\ndef cycle_b():\n    return cycle_a()\n",
+    "after_content_utf8": "# Synthetic source-only fan-out: café, λ. No execution.\n\ndef leaf_000():\n    return -1\n\ndef leaf_001():\n    return 1\n\ndef leaf_002():\n    return 2\n\ndef leaf_003():\n    return 3\n\ndef leaf_004():\n    return 4\n\ndef leaf_005():\n    return 5\n\ndef leaf_006():\n    return 6\n\ndef leaf_007():\n    return 7\n\ndef leaf_008():\n    return 8\n\ndef leaf_009():\n    return 9\n\ndef leaf_010():\n    return 10\n\ndef leaf_011():\n    return 11\n\ndef leaf_012():\n    return 12\n\ndef leaf_013():\n    return 13\n\ndef leaf_014():\n    return 14\n\ndef leaf_015():\n    return 15\n\ndef leaf_016():\n    return 16\n\ndef leaf_017():\n    return 17\n\ndef leaf_018():\n    return 18\n\ndef leaf_019():\n    return 19\n\ndef leaf_020():\n    return 20\n\ndef leaf_021():\n    return 21\n\ndef leaf_022():\n    return 22\n\ndef leaf_023():\n    return 23\n\ndef leaf_024():\n    return 24\n\ndef leaf_025():\n    return 25\n\ndef leaf_026():\n    return 26\n\ndef leaf_027():\n    return 27\n\ndef leaf_028():\n    return 28\n\ndef leaf_029():\n    return 29\n\ndef leaf_030():\n    return 30\n\ndef leaf_031():\n    return 31\n\ndef leaf_032():\n    return 32\n\ndef leaf_033():\n    return 33\n\ndef leaf_034():\n    return 34\n\ndef leaf_035():\n    return 35\n\ndef leaf_036():\n    return 36\n\ndef leaf_037():\n    return 37\n\ndef leaf_038():\n    return 38\n\ndef leaf_039():\n    return 39\n\ndef leaf_040():\n    return 40\n\ndef leaf_041():\n    return 41\n\ndef leaf_042():\n    return 42\n\ndef leaf_043():\n    return 43\n\ndef leaf_044():\n    return 44\n\ndef leaf_045():\n    return 45\n\ndef leaf_046():\n    return 46\n\ndef leaf_047():\n    return 47\n\ndef leaf_048():\n    return 48\n\ndef leaf_049():\n    return 49\n\ndef leaf_050():\n    return 50\n\ndef leaf_051():\n    return 51\n\ndef leaf_052():\n    return 52\n\ndef leaf_053():\n    return 53\n\ndef leaf_054():\n    return 54\n\ndef leaf_055():\n    return 55\n\ndef leaf_056():\n    return 56\n\ndef leaf_057():\n    return 57\n\ndef leaf_058():\n    return 58\n\ndef leaf_059():\n    return 59\n\ndef leaf_060():\n    return 60\n\ndef leaf_061():\n    return 61\n\ndef leaf_062():\n    return 62\n\ndef leaf_063():\n    return 63\n\ndef leaf_064():\n    return 64\n\ndef leaf_065():\n    return 65\n\ndef leaf_066():\n    return 66\n\ndef leaf_067():\n    return 67\n\ndef leaf_068():\n    return 68\n\ndef leaf_069():\n    return 69\n\ndef leaf_070():\n    return 70\n\ndef leaf_071():\n    return 71\n\ndef leaf_072():\n    return 72\n\ndef leaf_073():\n    return 73\n\ndef leaf_074():\n    return 74\n\ndef leaf_075():\n    return 75\n\ndef leaf_076():\n    return 76\n\ndef leaf_077():\n    return 77\n\ndef leaf_078():\n    return 78\n\ndef leaf_079():\n    return 79\n\ndef leaf_080():\n    return 80\n\ndef leaf_081():\n    return 81\n\ndef leaf_082():\n    return 82\n\ndef leaf_083():\n    return 83\n\ndef leaf_084():\n    return 84\n\ndef leaf_085():\n    return 85\n\ndef leaf_086():\n    return 86\n\ndef leaf_087():\n    return 87\n\ndef leaf_088():\n    return 88\n\ndef leaf_089():\n    return 89\n\ndef leaf_090():\n    return 90\n\ndef leaf_091():\n    return 91\n\ndef leaf_092():\n    return 92\n\ndef leaf_093():\n    return 93\n\ndef leaf_094():\n    return 94\n\ndef leaf_095():\n    return 95\n\ndef leaf_096():\n    return 96\n\ndef leaf_097():\n    return 97\n\ndef leaf_098():\n    return 98\n\ndef leaf_099():\n    return 99\n\ndef leaf_100():\n    return 100\n\ndef leaf_101():\n    return 101\n\ndef leaf_102():\n    return 102\n\ndef leaf_103():\n    return 103\n\ndef leaf_104():\n    return 104\n\ndef leaf_105():\n    return 105\n\ndef leaf_106():\n    return 106\n\ndef leaf_107():\n    return 107\n\ndef leaf_108():\n    return 108\n\ndef leaf_109():\n    return 109\n\ndef leaf_110():\n    return 110\n\ndef leaf_111():\n    return 111\n\ndef hub():\n    leaf_000()\n    leaf_001()\n    leaf_002()\n    leaf_003()\n    leaf_004()\n    leaf_005()\n    leaf_006()\n    leaf_007()\n    leaf_008()\n    leaf_009()\n    leaf_010()\n    leaf_011()\n    leaf_012()\n    leaf_013()\n    leaf_014()\n    leaf_015()\n    leaf_016()\n    leaf_017()\n    leaf_018()\n    leaf_019()\n    leaf_020()\n    leaf_021()\n    leaf_022()\n    leaf_023()\n    leaf_024()\n    leaf_025()\n    leaf_026()\n    leaf_027()\n    leaf_028()\n    leaf_029()\n    leaf_030()\n    leaf_031()\n    leaf_032()\n    leaf_033()\n    leaf_034()\n    leaf_035()\n    leaf_036()\n    leaf_037()\n    leaf_038()\n    leaf_039()\n    leaf_040()\n    leaf_041()\n    leaf_042()\n    leaf_043()\n    leaf_044()\n    leaf_045()\n    leaf_046()\n    leaf_047()\n    leaf_048()\n    leaf_049()\n    leaf_050()\n    leaf_051()\n    leaf_052()\n    leaf_053()\n    leaf_054()\n    leaf_055()\n    leaf_056()\n    leaf_057()\n    leaf_058()\n    leaf_059()\n    leaf_060()\n    leaf_061()\n    leaf_062()\n    leaf_063()\n    leaf_064()\n    leaf_065()\n    leaf_066()\n    leaf_067()\n    leaf_068()\n    leaf_069()\n    leaf_070()\n    leaf_071()\n    leaf_072()\n    leaf_073()\n    leaf_074()\n    leaf_075()\n    leaf_076()\n    leaf_077()\n    leaf_078()\n    leaf_079()\n    leaf_080()\n    leaf_081()\n    leaf_082()\n    leaf_083()\n    leaf_084()\n    leaf_085()\n    leaf_086()\n    leaf_087()\n    leaf_088()\n    leaf_089()\n    leaf_090()\n    leaf_091()\n    leaf_092()\n    leaf_093()\n    leaf_094()\n    leaf_095()\n    leaf_096()\n    leaf_097()\n    leaf_098()\n    leaf_099()\n    leaf_100()\n    leaf_101()\n    leaf_102()\n    leaf_103()\n    leaf_104()\n    leaf_105()\n    leaf_106()\n    leaf_107()\n    leaf_108()\n    leaf_109()\n    leaf_110()\n    leaf_111()\n    return cycle_a()\n\ndef cycle_a():\n    return cycle_b()\n\ndef cycle_b():\n    return cycle_a()\n"
+  }
+}

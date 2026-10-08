@@ -1,0 +1,465 @@
+{
+  "schema": 1,
+  "gate": "source-and-index-trust",
+  "scope": "Synthetic local trust regressions only; later qualification gates remain pending.",
+  "status": "checks_passed_review_pending",
+  "acceptance": "No task is accepted until independent correctness, evidence and ownership review is recorded in Anvil.",
+  "source_identity": {
+    "base_commit": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+    "files_sha256": {
+      "repo_graph/source.py": "64cc2c9687ba114ff088c180cf1f0da23e6dd5ea58ebd30b623073e8d09a70ca",
+      "repo_graph/builder.py": "d609644f5624733ccf49d08ae8f0bbd3450439495911bd645809fcec8b28e67d",
+      "repo_graph/search.py": "210fd29dd33a2d6aeb70adfbb2ea9b76c13fc0c257671ec96d28b618b4e3d125",
+      "repo_graph/server.py": "e4df6cff89ade1835a9788932926c821d003299bc4555b82090cdce526f709af",
+      "tests/test_repo_graph.py": "a58a290861b8dab1ab0025f1f0a70a5198f844a4db746266ed8e253ef807a9ab",
+      "tests/test_search.py": "02e5916d31344173c6870b2754d97a7fd16ffba99fc4f87680b03cdaefe342c6"
+    },
+    "schema": "2",
+    "import_analyzer": "imports-v2",
+    "search_analyzer": "synopsis-v2",
+    "bounded_read_bytes": 65536,
+    "source_digest": "streamed full content SHA256",
+    "index_access": "guarded artifact copy into private SQLite stages; immutable reader snapshots; cooperating publishers use stable flock and guarded atomic replace",
+    "python": "3.12.14",
+    "sqlite": "3.53.1",
+    "platform": "Linux",
+    "architecture": "x86_64"
+  },
+  "checks": [
+    {
+      "command": "uv run python -m unittest discover -s tests -p test_repo_graph.py -v",
+      "exit_code": 0,
+      "seconds": 0.1726,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "aa2f32b8167d48709b343da411ea6aa59ddfe6e755e1cd4f87f751e86e961927",
+      "summary": [
+        "----------------------------------------------------------------------",
+        "Ran 11 tests in 0.024s",
+        "",
+        "OK"
+      ]
+    },
+    {
+      "command": "uv run python -m unittest discover -s tests -p test_search.py -v",
+      "exit_code": 0,
+      "seconds": 1.9552,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "4aa805799b179782a6f4f1a42a09bcd413d41e5cae761b5f16fdcf62b29f187d",
+      "summary": [
+        "----------------------------------------------------------------------",
+        "Ran 20 tests in 1.786s",
+        "",
+        "OK"
+      ]
+    },
+    {
+      "command": "uv run python -m unittest discover -s tests -v",
+      "exit_code": 0,
+      "seconds": 3.0493,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "9b43531e258d63f189345d16f613f74301b24269905ec01942fdabcfe9dddef6",
+      "summary": [
+        "----------------------------------------------------------------------",
+        "Ran 44 tests in 2.863s",
+        "",
+        "OK"
+      ]
+    },
+    {
+      "command": "uv run python -m unittest tests.test_repo_graph tests.test_search -v",
+      "exit_code": 0,
+      "seconds": 1.9285,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "70ebbd8f43f6f43f03cd7929f6454ef25f20e9fa00273af251ff2c82bd15146b",
+      "summary": [
+        "----------------------------------------------------------------------",
+        "Ran 31 tests in 1.762s",
+        "",
+        "OK"
+      ]
+    },
+    {
+      "command": "uv run python -m unittest tests.test_search -v",
+      "exit_code": 0,
+      "seconds": 1.9122,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "1f9b8739ba7ac4cf092bdc616da18cb56971b25301d0a9c8a1cb016be60be3d6",
+      "summary": [
+        "----------------------------------------------------------------------",
+        "Ran 20 tests in 1.748s",
+        "",
+        "OK"
+      ]
+    }
+  ],
+  "full_suite": {
+    "tests": 44,
+    "failed": 0,
+    "skipped": 0
+  },
+  "tasks": {
+    "T040": {
+      "status": "passed",
+      "acceptance": "pending independent bundle review",
+      "source_identity": {
+        "ref": "source_identity",
+        "sha256": "63fbfb0c9fcce5bb420ff89a0f641571687851dab7b44beca463fdcccf44a6a7"
+      },
+      "case_results": [
+        {
+          "case": "test_inventory_imports_and_manifest_reject_ancestor_symlinks_even_with_warm_cache",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_import_read_pins_directory_during_ancestor_swap",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_root_acquisition_rejects_ancestor_swap_after_resolution",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_unsupported_safe_reads_keep_metadata_map_and_refuse_source_bytes",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        }
+      ]
+    },
+    "T041": {
+      "status": "passed",
+      "acceptance": "pending independent bundle review",
+      "source_identity": {
+        "ref": "source_identity",
+        "sha256": "63fbfb0c9fcce5bb420ff89a0f641571687851dab7b44beca463fdcccf44a6a7"
+      },
+      "case_results": [
+        {
+          "case": "test_catalogue_and_http_inspection_reject_source_and_artifact_symlinks",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_catalogue_pins_directory_during_ancestor_swap",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_sqlite_owner_rejects_file_and_directory_substitution_for_read_and_write",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_private_sqlite_snapshots_prevent_directory_aba_reads_and_writes",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_unsupported_safe_reads_preserve_existing_index_without_opening_sqlite",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_index_publication_cas_interruption_and_durability_uncertainty",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_legacy_hot_journal_refused_before_native_open_without_recovery_or_deletion",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_immutable_readers_keep_snapshot_during_atomic_remap_and_repeated_connections",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_failed_native_open_cleans_uncached_private_snapshot",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        }
+      ]
+    },
+    "T042": {
+      "status": "passed",
+      "acceptance": "pending independent bundle review",
+      "source_identity": {
+        "ref": "source_identity",
+        "sha256": "63fbfb0c9fcce5bb420ff89a0f641571687851dab7b44beca463fdcccf44a6a7"
+      },
+      "case_results": [
+        {
+          "case": "test_inventory_imports_and_manifest_reject_ancestor_symlinks_even_with_warm_cache",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_import_read_pins_directory_during_ancestor_swap",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_root_acquisition_rejects_ancestor_swap_after_resolution",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_unsupported_safe_reads_keep_metadata_map_and_refuse_source_bytes",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_catalogue_and_http_inspection_reject_source_and_artifact_symlinks",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_catalogue_pins_directory_during_ancestor_swap",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_sqlite_owner_rejects_file_and_directory_substitution_for_read_and_write",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_private_sqlite_snapshots_prevent_directory_aba_reads_and_writes",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_unsupported_safe_reads_preserve_existing_index_without_opening_sqlite",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_index_publication_cas_interruption_and_durability_uncertainty",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_legacy_hot_journal_refused_before_native_open_without_recovery_or_deletion",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_immutable_readers_keep_snapshot_during_atomic_remap_and_repeated_connections",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_failed_native_open_cleans_uncached_private_snapshot",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        }
+      ]
+    },
+    "T001": {
+      "status": "passed",
+      "acceptance": "pending independent bundle review",
+      "source_identity": {
+        "ref": "source_identity",
+        "sha256": "63fbfb0c9fcce5bb420ff89a0f641571687851dab7b44beca463fdcccf44a6a7"
+      },
+      "case_results": [
+        {
+          "case": "test_inventory_imports_and_manifest_reject_ancestor_symlinks_even_with_warm_cache",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_import_read_pins_directory_during_ancestor_swap",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_root_acquisition_rejects_ancestor_swap_after_resolution",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_unsupported_safe_reads_keep_metadata_map_and_refuse_source_bytes",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_catalogue_and_http_inspection_reject_source_and_artifact_symlinks",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_catalogue_pins_directory_during_ancestor_swap",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_sqlite_owner_rejects_file_and_directory_substitution_for_read_and_write",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_private_sqlite_snapshots_prevent_directory_aba_reads_and_writes",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_unsupported_safe_reads_preserve_existing_index_without_opening_sqlite",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_index_publication_cas_interruption_and_durability_uncertainty",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_legacy_hot_journal_refused_before_native_open_without_recovery_or_deletion",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_immutable_readers_keep_snapshot_during_atomic_remap_and_repeated_connections",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_failed_native_open_cleans_uncached_private_snapshot",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        }
+      ]
+    },
+    "T002": {
+      "status": "passed",
+      "acceptance": "pending independent bundle review",
+      "source_identity": {
+        "ref": "source_identity",
+        "sha256": "63fbfb0c9fcce5bb420ff89a0f641571687851dab7b44beca463fdcccf44a6a7"
+      },
+      "case_results": [
+        {
+          "case": "test_import_cache_identity_uses_root_content_config_and_version",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_catalogue_identity_content_and_failed_migration",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_content_identity_includes_bytes_beyond_excerpt_limit",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_incremental_index_invalidation_deletion_and_safe_paths",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        }
+      ]
+    },
+    "T003": {
+      "status": "passed",
+      "acceptance": "pending independent bundle review",
+      "source_identity": {
+        "ref": "source_identity",
+        "sha256": "63fbfb0c9fcce5bb420ff89a0f641571687851dab7b44beca463fdcccf44a6a7"
+      },
+      "case_results": [
+        {
+          "case": "test_stale_embedding_compare_and_set_and_keyword_independence",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_legacy_keyword_data_survives_embedding_identity_refusal",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_real_vector_ranking_fusion_and_partial_index_refusal",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_vector_scan_keeps_ties_prefix_boundaries_and_stale_final_block",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        },
+        {
+          "case": "test_failed_embedding_job_keeps_previously_published_vectors",
+          "result": "passed",
+          "command": "uv run python -m unittest discover -s tests -v"
+        }
+      ]
+    }
+  },
+  "platform_limits": [
+    "Executed on Linux x86_64 with descriptor-relative no-symlink file access and flock; other native platforms are not qualified. Platforms without guarded reads retain metadata-only maps and refuse search.",
+    "Index snapshots are closed artifacts. Legacy journal/WAL/SHM sidecars are refused without recovery or deletion. Remap into a new output after stopping the legacy writer.",
+    "Publication serializes cooperating Repo Graph writers through one persistent lock inode. Arbitrary external in-place SQLite writers are unsupported; sidecars and mutation during copy are rejected.",
+    "Readers stream one private disk copy per artifact revision and reuse it for warm queries. Cold copy cost, peak disk and large-repository resource limits remain unmeasured.",
+    "Atomic replace is the publication point. Directory fsync failure reports published data with uncertain crash durability; it does not claim rollback.",
+    "Product writers finish statements before publication. A writer closed with an active UPDATE RETURNING cursor is refused without publishing; arbitrary unfinished DBAPI write-cursor lifecycles are not qualified."
+  ],
+  "failure_history": [
+    {
+      "stage": "initial tests",
+      "outcome": "failed",
+      "reason": "Race test mock rejected tempfile open mode; preserved in Anvil evidence."
+    },
+    {
+      "stage": "later focused tests",
+      "outcome": "failed",
+      "reason": "Closed descriptor fixture and incorrectly tokenized synthetic legacy terms; preserved in Anvil evidence."
+    },
+    {
+      "stage": "independent review",
+      "outcome": "changes requested",
+      "reason": "Root acquisition race, SQLite bypass, incomplete legacy embedding identity; regression repairs applied."
+    },
+    {
+      "stage": "independent probes",
+      "outcome": "changes requested",
+      "reason": "Directory ABA and existing-index platform fallback; actual descriptor checks and fail-closed reads applied."
+    },
+    {
+      "stage": "independent native descriptor review",
+      "outcome": "rejected",
+      "reason": "File-descriptor reuse allows ABA bypass and rejects normal concurrent readers. Failed FD-delta design must be replaced before acceptance."
+    },
+    {
+      "stage": "native write probe",
+      "outcome": "rejected",
+      "reason": "A real hot journal was recovered before moved-file refusal; foreign bytes changed. No native write-probe candidate is retained."
+    },
+    {
+      "stage": "native VFS feasibility",
+      "outcome": "rejected for this environment",
+      "reason": "Built-in CPython SQLite exposes no supported same-instance VFS registry; a separate system SQLite library is not the DBAPI owner."
+    },
+    {
+      "stage": "snapshot transitional tests",
+      "outcome": "failed",
+      "tests": 27,
+      "failures": 4,
+      "errors": 1,
+      "reason": "Tests asserted the rejected descriptor/lock mechanism instead of invariants; raw transitional log was not retained. Diagnostic summary retained, then corrected invariant tests rerun."
+    }
+  ],
+  "remaining_gates": {
+    "engine": "pending",
+    "shared_facts": "pending",
+    "workflows": "pending",
+    "scale": "pending",
+    "agent": "pending",
+    "independent_human": "pending",
+    "distribution": "pending",
+    "release": "pending"
+  }
+}

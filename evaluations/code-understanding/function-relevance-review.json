@@ -1,0 +1,1007 @@
+{
+  "admission_is_task_acceptance": false,
+  "admission_recommendation": "admit_exact_frozen_source_key_for_existing_native_keyword_comparison_after_coordinator_task_preflight",
+  "adversarial": {
+    "blocking_findings": [],
+    "predicted_misses_not_measured": [
+      "FR004:file synopsis",
+      "FR008:both keyword shortlists"
+    ],
+    "reporting_constraints": [
+      "Copy exactly the four listed relative paths and bytes into one isolated source root; do not flatten names or scan unrelated worktree files. Catalog only those paths, then refresh the same StructuralIndex root/output with the frozen file inventory.",
+      "Use existing Search.run(kind=\"files\", mode=\"keyword\", limit=10, reranker=None) and Search.run(kind=\"functions\", mode=\"keyword\", limit=10, reranker=None, limits=frozen_function_limits). Do not give function limits to file search: that API rejects them. No embedder or reranker is required.",
+      "Retain catalog receipt/generation and docs content digests from the same captured output, structural repository/source/generation/analyzer/config identities, function evidence generation and projection configuration, and all actual per-question responses. Catalog and structural generation hashes are different domains; require matching repository and raw file inventory, not equality of those generation strings.",
+      "File Search responses do not expose the function-style identities/truncation/deadline/entity/byte receipt. Retain native fields as emitted and mark unavailable fields explicitly. Equal top_k counts different return units and does not establish matched latency, work, or byte budgets.",
+      "Score function physical-member recall over the frozen 12 question/function pairs and per-question denominators, with exact-ID presence/source affinity for four queries. Score file-presence proxy separately. Never compare the two as the same recall metric or compare raw rank-fusion scores across arms.",
+      "Evaluate evidence coverage against the declaration plus all supporting source statements recorded per target in this receipt, with original path/line or captured byte-range affinity. A declaration or matching comment alone is not implementation evidence. For file synopsis preserve its L-number references and account for stripped indentation. Parent text can expose a child body even if the child handle was not returned; retain that evidence-coverage/handle-recall difference.",
+      "Count context families independently of physical handles: FR002 has two positive IDs and one family, FR006 has four positive IDs/families/languages. Do not promote the one FR005 supporting ID to relevant or treat the 96 unjudged question/function pairs as negatives; full precision is unavailable.",
+      "FR004 and FR008 are predictions, not measured failures. Preserve every actual hit/miss, extraction mismatch, returned distractor, truncation and deadline. Unexpected hits require explanation rather than data edits or forced misses. Missing native IDs/ranges are extraction/source-affinity failures and do not justify rewriting this key.",
+      "The 0.5-second function deadline is a frozen query configuration, not a measured performance guarantee. A timeout remains an individual result; do not silently retry or increase budgets to obtain intended recall.",
+      "This admits only finite native keyword comparison of synthetic source. Richer context, package routing, diversification, cached encoder, reranking and ANN remain deferred. Actual runtime backend availability, extraction completeness and search results remain unobserved by this reviewer."
+    ],
+    "source_key_changes_required": false,
+    "status": "approved_bounded_comparison_with_reporting_constraints"
+  },
+  "correctness": {
+    "blocking_findings": [],
+    "status": "approved_source_judgments"
+  },
+  "denominators": {
+    "candidate_miss_questions": 2,
+    "distractor_question_function_pairs": 11,
+    "diversity_questions": 1,
+    "exact_identifier_questions": 4,
+    "full_precision_denominator_available": false,
+    "languages": 4,
+    "nested_overlap_questions": 1,
+    "physical_functions": 15,
+    "questions": 8,
+    "relevant_question_function_pairs": 12,
+    "source_files": 4,
+    "supporting_question_function_pairs": 1,
+    "unique_relevant_function_ids": 10,
+    "unjudged_question_function_pairs": 96
+  },
+  "higher_qualification": false,
+  "implementation_approval": false,
+  "input_manifest": {
+    "bytes": 23254,
+    "path": "evaluations/code-understanding/function-relevance-inputs.json",
+    "sha256": "bd2291fd403411a276e268564145844f0be4bc68b0632597784dc8cba9befe00"
+  },
+  "limitations": [
+    "No producer, search, model, scale or human UX was executed by source review.",
+    "Admission precedes committed inputs and actual comparison; task acceptance remains separate."
+  ],
+  "physical_anchor_dispositions": [
+    {
+      "boundary_anchors": {
+        "end": "    return caf\u00e9_total(items)",
+        "start": "def checkout_total(items):"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+      "id": "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+      "kind": "function",
+      "label": "PY.checkout_total",
+      "lexical_parent_id": null,
+      "name": "checkout_total",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 257,
+        "end_line": 6,
+        "start_byte": 0,
+        "start_line": 1
+      },
+      "raw_sha256": "d03c556367f8faec827d29e79399bf4a418f40ca65c6e85e6245f595b84d6b8c",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 26,
+            "end_line": 1,
+            "start_byte": 0,
+            "start_line": 1
+          },
+          "raw_sha256": "120e4bc2a12e4cbf3f884a8786453db596ac82ce90dee1e1e4a73fde4009a108",
+          "text": "def checkout_total(items):"
+        },
+        {
+          "range": {
+            "end_byte": 227,
+            "end_line": 5,
+            "start_byte": 181,
+            "start_line": 5
+          },
+          "raw_sha256": "763cff60ac2e60acf2d17d078d57adf34c3e4ef99dd85b15219207d66cbfa366",
+          "text": "return sum(value[\"price\"] for value in values)"
+        },
+        {
+          "range": {
+            "end_byte": 257,
+            "end_line": 6,
+            "start_byte": 232,
+            "start_line": 6
+          },
+          "raw_sha256": "e40431845f9960368032aa53ff481cbef7c66b9a4a0968edf0fd89370ffe0bcb",
+          "text": "return caf\u00e9_total(items)"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "        return sum(value[\"price\"] for value in values)",
+        "start": "def caf\u00e9_total(values):"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+      "id": "tests/fixtures/code-understanding/retrieval/python.py:95:227",
+      "kind": "function",
+      "label": "PY.caf\u00e9_total",
+      "lexical_parent_id": "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+      "name": "checkout_total.caf\u00e9_total",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 227,
+        "end_line": 5,
+        "start_byte": 95,
+        "start_line": 3
+      },
+      "raw_sha256": "3c6a52b6d16eb4be6d7416a6239379221c5784e070af898a1de8ca1e201f3ce9",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 119,
+            "end_line": 3,
+            "start_byte": 95,
+            "start_line": 3
+          },
+          "raw_sha256": "24968e0388e1b1763cc1ffc8654d38a2cadae355aba04f8a47e5cb218a6fa6bf",
+          "text": "def caf\u00e9_total(values):"
+        },
+        {
+          "range": {
+            "end_byte": 227,
+            "end_line": 5,
+            "start_byte": 181,
+            "start_line": 5
+          },
+          "raw_sha256": "763cff60ac2e60acf2d17d078d57adf34c3e4ef99dd85b15219207d66cbfa366",
+          "text": "return sum(value[\"price\"] for value in values)"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "    return \"price\"",
+        "start": "def checkout_preview(items):"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/python.py:260:371",
+      "id": "tests/fixtures/code-understanding/retrieval/python.py:260:371",
+      "kind": "function",
+      "label": "PY.checkout_preview",
+      "lexical_parent_id": null,
+      "name": "checkout_preview",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 371,
+        "end_line": 11,
+        "start_byte": 260,
+        "start_line": 9
+      },
+      "raw_sha256": "2c9e600eec1c0fcd4980be7b91cc72716eae52aed1f4f2b369e11e86c251989c",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 288,
+            "end_line": 9,
+            "start_byte": 260,
+            "start_line": 9
+          },
+          "raw_sha256": "1b79cc6e8ac2a48d969f06081052c3e26b5eb6b15b4295258aab92dd80dce282",
+          "text": "def checkout_preview(items):"
+        },
+        {
+          "range": {
+            "end_byte": 371,
+            "end_line": 11,
+            "start_byte": 357,
+            "start_line": 11
+          },
+          "raw_sha256": "e4557ce2b7cbbd7f92ae0455f7a39362511a3441b81d8174a17bb6c3ba44fee4",
+          "text": "return \"price\""
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "    return balance - amount",
+        "start": "def refund_balance(balance, amount):"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/python.py:374:496",
+      "id": "tests/fixtures/code-understanding/retrieval/python.py:374:496",
+      "kind": "function",
+      "label": "PY.refund_balance",
+      "lexical_parent_id": null,
+      "name": "refund_balance",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 496,
+        "end_line": 16,
+        "start_byte": 374,
+        "start_line": 14
+      },
+      "raw_sha256": "f54722936eb81f8ed38d1bd60fa58b9eea5a16f71e8195119ff35493ae5864e0",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 410,
+            "end_line": 14,
+            "start_byte": 374,
+            "start_line": 14
+          },
+          "raw_sha256": "11d3d01ece6986f66a7cb0d0bc43f9314660466a0cd6cafc210912659a328a53",
+          "text": "def refund_balance(balance, amount):"
+        },
+        {
+          "range": {
+            "end_byte": 496,
+            "end_line": 16,
+            "start_byte": 473,
+            "start_line": 16
+          },
+          "raw_sha256": "3538d4c622c71ce081e444f2df571d015a574d0b507955ebdf38dc120ce5c55e",
+          "text": "return balance - amount"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "    del cache[key]",
+        "start": "def invalidate_cache(cache, key):"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+      "id": "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+      "kind": "function",
+      "label": "PY.invalidate_cache",
+      "lexical_parent_id": null,
+      "name": "invalidate_cache",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 592,
+        "end_line": 21,
+        "start_byte": 499,
+        "start_line": 19
+      },
+      "raw_sha256": "6bd4c568ddcc123572f74bb9d64be5359d9a0074cb85219dae688e661aef1635",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 532,
+            "end_line": 19,
+            "start_byte": 499,
+            "start_line": 19
+          },
+          "raw_sha256": "49b177583a56b064507dc49fad922b2ce2de094f7d1a6c73d1adb4f020d8cbca",
+          "text": "def invalidate_cache(cache, key):"
+        },
+        {
+          "range": {
+            "end_byte": 592,
+            "end_line": 21,
+            "start_byte": 578,
+            "start_line": 21
+          },
+          "raw_sha256": "d83d4a53cf05d83b250cef51b2a262bffcf204422b6887bcbcd00ed172fbe753",
+          "text": "del cache[key]"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "\tdelete(cache, workspace)\n}",
+        "start": "func EvictWorkspace(cache map[string]int, workspace string) {"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+      "id": "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+      "kind": "function",
+      "label": "GO.EvictWorkspace",
+      "lexical_parent_id": null,
+      "name": "EvictWorkspace",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 152,
+        "end_line": 6,
+        "start_byte": 19,
+        "start_line": 3
+      },
+      "raw_sha256": "c3bd0725c9ee2ea7121b8c03c67ae18156e05eeeef960fc3b5dd7d379e044346",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 80,
+            "end_line": 3,
+            "start_byte": 19,
+            "start_line": 3
+          },
+          "raw_sha256": "e9ccd70c7345ee49d5c45a231e928e28fca17de1bf4547fdf470ca7a52d54dd8",
+          "text": "func EvictWorkspace(cache map[string]int, workspace string) {"
+        },
+        {
+          "range": {
+            "end_byte": 150,
+            "end_line": 5,
+            "start_byte": 126,
+            "start_line": 5
+          },
+          "raw_sha256": "748bff4a51ae92de4f05763006e986f62df08ae26f36720a93d0b79a3375cbf2",
+          "text": "delete(cache, workspace)"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "\treturn workspace\n}",
+        "start": "func EvictWorkspacePreview(workspace string) string {"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/go.go:154:286",
+      "id": "tests/fixtures/code-understanding/retrieval/go.go:154:286",
+      "kind": "function",
+      "label": "GO.EvictWorkspacePreview",
+      "lexical_parent_id": null,
+      "name": "EvictWorkspacePreview",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 286,
+        "end_line": 11,
+        "start_byte": 154,
+        "start_line": 8
+      },
+      "raw_sha256": "eed4700b56b4e6fa0fe9cf27c0950393bc4881e9625683cc1b39012600c4e3a6",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 207,
+            "end_line": 8,
+            "start_byte": 154,
+            "start_line": 8
+          },
+          "raw_sha256": "21e7288c47c1c56788f1b2358cd4261134dc3b1feb5105efae447a7f7e1ce8c6",
+          "text": "func EvictWorkspacePreview(workspace string) string {"
+        },
+        {
+          "range": {
+            "end_byte": 284,
+            "end_line": 10,
+            "start_byte": 268,
+            "start_line": 10
+          },
+          "raw_sha256": "c6ced9908ed5c7de489849a9c101ce9c78bbbf405aae39946153c54cd0f8e50a",
+          "text": "return workspace"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "\treturn marker\n}",
+        "start": "func ArchiveCache() string {"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/go.go:288:364",
+      "id": "tests/fixtures/code-understanding/retrieval/go.go:288:364",
+      "kind": "function",
+      "label": "GO.ArchiveCache",
+      "lexical_parent_id": null,
+      "name": "ArchiveCache",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 364,
+        "end_line": 16,
+        "start_byte": 288,
+        "start_line": 13
+      },
+      "raw_sha256": "b2a2acb9a025d213300d57513ba0d1810d3f7170fb7657662dfb392dad6bec71",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 316,
+            "end_line": 13,
+            "start_byte": 288,
+            "start_line": 13
+          },
+          "raw_sha256": "eac65d90c1c7665ba608286cd6618424dc35e6d9260eeadbbfdb1deeebd292be",
+          "text": "func ArchiveCache() string {"
+        },
+        {
+          "range": {
+            "end_byte": 347,
+            "end_line": 14,
+            "start_byte": 318,
+            "start_line": 14
+          },
+          "raw_sha256": "0c8cc88149357fa426ccf527641f5246f830737d17b74ce962bf0953ee8ac6b7",
+          "text": "marker := \"archive tombstone\""
+        },
+        {
+          "range": {
+            "end_byte": 362,
+            "end_line": 15,
+            "start_byte": 349,
+            "start_line": 15
+          },
+          "raw_sha256": "4ed491a6d4008b78573b74941e813e16009759f449f2d0e158bd75222e222234",
+          "text": "return marker"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "  return entries.map(readAmount);\n}",
+        "start": "function decodeLedger(entries) {"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/javascript.js:0:183",
+      "id": "tests/fixtures/code-understanding/retrieval/javascript.js:0:183",
+      "kind": "function",
+      "label": "JS.decodeLedger",
+      "lexical_parent_id": null,
+      "name": "decodeLedger",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 183,
+        "end_line": 7,
+        "start_byte": 0,
+        "start_line": 1
+      },
+      "raw_sha256": "783511fa0bd42a42d001306928cf1f1f62bc7a45a4165845fc353542ab223dba",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 32,
+            "end_line": 1,
+            "start_byte": 0,
+            "start_line": 1
+          },
+          "raw_sha256": "2487959403d0a62ae555cda9489ea9502ba114cd24a5c71275567af7082f6c8c",
+          "text": "function decodeLedger(entries) {"
+        },
+        {
+          "range": {
+            "end_byte": 143,
+            "end_line": 4,
+            "start_byte": 123,
+            "start_line": 4
+          },
+          "raw_sha256": "539193eb80d1f2d3d7a1a2f259c4302c10f45d2c87604d977bf14cf14768b8e2",
+          "text": "return entry.amount;"
+        },
+        {
+          "range": {
+            "end_byte": 181,
+            "end_line": 6,
+            "start_byte": 150,
+            "start_line": 6
+          },
+          "raw_sha256": "71c2677144d97db00565479b90ce017989d9a217bb1ab1bc3013bef96d700960",
+          "text": "return entries.map(readAmount);"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "    return entry.amount;\n  }",
+        "start": "function readAmount(entry) {"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/javascript.js:0:183",
+      "id": "tests/fixtures/code-understanding/retrieval/javascript.js:90:147",
+      "kind": "function",
+      "label": "JS.readAmount",
+      "lexical_parent_id": "tests/fixtures/code-understanding/retrieval/javascript.js:0:183",
+      "name": "decodeLedger.readAmount",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 147,
+        "end_line": 5,
+        "start_byte": 90,
+        "start_line": 3
+      },
+      "raw_sha256": "6c021d2ae3b62e10d0881c40a05bd337b7985057fb526fe0087e7ed9d9262dce",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 118,
+            "end_line": 3,
+            "start_byte": 90,
+            "start_line": 3
+          },
+          "raw_sha256": "34406675a24a4711c3a02e2a370748d2786d40854fa016a2299b8b96ae0b54f7",
+          "text": "function readAmount(entry) {"
+        },
+        {
+          "range": {
+            "end_byte": 143,
+            "end_line": 4,
+            "start_byte": 123,
+            "start_line": 4
+          },
+          "raw_sha256": "539193eb80d1f2d3d7a1a2f259c4302c10f45d2c87604d977bf14cf14768b8e2",
+          "text": "return entry.amount;"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "  return \"amount\";\n}",
+        "start": "function decodeLedgerGuide() {"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/javascript.js:185:290",
+      "id": "tests/fixtures/code-understanding/retrieval/javascript.js:185:290",
+      "kind": "function",
+      "label": "JS.decodeLedgerGuide",
+      "lexical_parent_id": null,
+      "name": "decodeLedgerGuide",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 290,
+        "end_line": 12,
+        "start_byte": 185,
+        "start_line": 9
+      },
+      "raw_sha256": "3c568c5385eb80d2238c089e4e439b1f4f9c85dff972ee63a7da9d2784a09259",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 215,
+            "end_line": 9,
+            "start_byte": 185,
+            "start_line": 9
+          },
+          "raw_sha256": "e9cbb75fc421b04a460a3360c0da4bafedf60e36778552c4f020c4e4df9664ed",
+          "text": "function decodeLedgerGuide() {"
+        },
+        {
+          "range": {
+            "end_byte": 288,
+            "end_line": 11,
+            "start_byte": 272,
+            "start_line": 11
+          },
+          "raw_sha256": "b80ea1aee273e28cf3b33afe61fdd466bf69ee784b95c09b76cb4c532f1a16d2",
+          "text": "return \"amount\";"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "  delete cache[tenant];\n}",
+        "start": "function invalidateTenantCache(cache, tenant) {"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+      "id": "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+      "kind": "function",
+      "label": "JS.invalidateTenantCache",
+      "lexical_parent_id": null,
+      "name": "invalidateTenantCache",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 407,
+        "end_line": 17,
+        "start_byte": 292,
+        "start_line": 14
+      },
+      "raw_sha256": "e9fe3d7d60f92f97377b36a0032f1857f1dd0817672c5d8563491506387f6081",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 339,
+            "end_line": 14,
+            "start_byte": 292,
+            "start_line": 14
+          },
+          "raw_sha256": "7fcb079c4d58d9024a7afc2feefd98e42a82002fbb984134e08dfb22743ba4de",
+          "text": "function invalidateTenantCache(cache, tenant) {"
+        },
+        {
+          "range": {
+            "end_byte": 405,
+            "end_line": 16,
+            "start_byte": 384,
+            "start_line": 16
+          },
+          "raw_sha256": "ebf930adaf382dde3f222964ab8b2dd2653f535db07665bccf119eaf3ad8d25b",
+          "text": "delete cache[tenant];"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "  return profiles[id];\n}",
+        "start": "function lookupProfileById(profiles: Record<string, Profile>, id: string): Profile | undefined {"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168",
+      "id": "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168",
+      "kind": "function",
+      "label": "TS.lookupProfileById",
+      "lexical_parent_id": null,
+      "name": "lookupProfileById",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 168,
+        "end_line": 5,
+        "start_byte": 47,
+        "start_line": 3
+      },
+      "raw_sha256": "10795946d3b4eb0e86b25ffb4decc5d3d9e75d20e9892e537f074c7259d1cfc3",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 143,
+            "end_line": 3,
+            "start_byte": 47,
+            "start_line": 3
+          },
+          "raw_sha256": "453b5830fb2a2ade18eec0cb0f39243de0e55e0ccb66dad9503d4ba180a85682",
+          "text": "function lookupProfileById(profiles: Record<string, Profile>, id: string): Profile | undefined {"
+        },
+        {
+          "range": {
+            "end_byte": 166,
+            "end_line": 4,
+            "start_byte": 146,
+            "start_line": 4
+          },
+          "raw_sha256": "31b83a840001bac600ec939a88e3d41588467244cf3cea4b0e9bf363cb98b293",
+          "text": "return profiles[id];"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "  return \"profile:\" + id;\n}",
+        "start": "function lookupProfileExample(id: string): string {"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249",
+      "id": "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249",
+      "kind": "function",
+      "label": "TS.lookupProfileExample",
+      "lexical_parent_id": null,
+      "name": "lookupProfileExample",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 249,
+        "end_line": 9,
+        "start_byte": 170,
+        "start_line": 7
+      },
+      "raw_sha256": "a91ab0123f71663243e5b5fdfa2d410015d5c363b7369f9d84f408000faf1f37",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 221,
+            "end_line": 7,
+            "start_byte": 170,
+            "start_line": 7
+          },
+          "raw_sha256": "8c10c944c10e4dbaf4b3e52f1ba3cefa5420dd0f0545f21b6285470b3e7c0044",
+          "text": "function lookupProfileExample(id: string): string {"
+        },
+        {
+          "range": {
+            "end_byte": 247,
+            "end_line": 8,
+            "start_byte": 224,
+            "start_line": 8
+          },
+          "raw_sha256": "7429ae84a5e6ec26083285b240b653b92ecc792476701b1d49618e3e12922ca5",
+          "text": "return \"profile:\" + id;"
+        }
+      ],
+      "utf8_disposition": "pass"
+    },
+    {
+      "boundary_anchors": {
+        "end": "  delete profiles[id];\n}",
+        "start": "function invalidateProfileCache(profiles: Record<string, Profile>, id: string): void {"
+      },
+      "boundary_disposition": "pass",
+      "context_family": "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405",
+      "id": "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405",
+      "kind": "function",
+      "label": "TS.invalidateProfileCache",
+      "lexical_parent_id": null,
+      "name": "invalidateProfileCache",
+      "physical_id_disposition": "pass",
+      "range": {
+        "end_byte": 405,
+        "end_line": 14,
+        "start_byte": 251,
+        "start_line": 11
+      },
+      "raw_sha256": "9500650507d346fdf89a682e22da3e326e5789a6e41f4cd1e9d5140671a263cc",
+      "source_complete_range_disposition": "pass_by_byte_inspection_not_producer_execution",
+      "supporting_source_statements": [
+        {
+          "range": {
+            "end_byte": 337,
+            "end_line": 11,
+            "start_byte": 251,
+            "start_line": 11
+          },
+          "raw_sha256": "fe53405d4f779f854c8c09601e35fcaea190f9eda8fd2554ce30d1c4186a8743",
+          "text": "function invalidateProfileCache(profiles: Record<string, Profile>, id: string): void {"
+        },
+        {
+          "range": {
+            "end_byte": 403,
+            "end_line": 13,
+            "start_byte": 383,
+            "start_line": 13
+          },
+          "raw_sha256": "6bdda38afbf8226b07ce54e0f71dde90416b48e634456d6d15cabcbd7f04bad7",
+          "text": "delete profiles[id];"
+        }
+      ],
+      "utf8_disposition": "pass"
+    }
+  ],
+  "question_dispositions": [
+    {
+      "context_family_denominator": 1,
+      "disposition": "source_grounded_judgments_approved",
+      "distractor_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:260:371"
+      ],
+      "evidence_anchor_refs": [
+        "PY.caf\u00e9_total"
+      ],
+      "id": "FR001",
+      "measured_retrieval_outcome": null,
+      "predicted_control": null,
+      "query": "caf\u00e9_total",
+      "rationale": "The named nested helper contains the sum of each price. Preview returns the field string. Outer wrapper is unjudged for this question, not automatically irrelevant.",
+      "relevant_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+      ],
+      "relevant_pair_denominator": 1,
+      "supporting_anchor_refs": [],
+      "supporting_ids": [],
+      "unjudged_count": 13
+    },
+    {
+      "context_family_denominator": 1,
+      "disposition": "source_grounded_judgments_approved",
+      "distractor_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:260:371"
+      ],
+      "evidence_anchor_refs": [
+        "PY.checkout_total",
+        "PY.caf\u00e9_total"
+      ],
+      "id": "FR002",
+      "measured_retrieval_outcome": null,
+      "predicted_control": null,
+      "query": "cart subtotal",
+      "rationale": "The parent invokes its nested helper and the child sums prices. Both physical IDs are relevant, but their overlapping text is one context family. Preview computes no subtotal.",
+      "relevant_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+        "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+      ],
+      "relevant_pair_denominator": 2,
+      "supporting_anchor_refs": [],
+      "supporting_ids": [],
+      "unjudged_count": 12
+    },
+    {
+      "context_family_denominator": 1,
+      "disposition": "source_grounded_judgments_approved",
+      "distractor_ids": [
+        "tests/fixtures/code-understanding/retrieval/go.go:154:286"
+      ],
+      "evidence_anchor_refs": [
+        "GO.EvictWorkspace"
+      ],
+      "id": "FR003",
+      "measured_retrieval_outcome": null,
+      "predicted_control": null,
+      "query": "EvictWorkspace",
+      "rationale": "EvictWorkspace deletes the requested workspace map key. Preview only returns workspace and is a valid distractor.",
+      "relevant_ids": [
+        "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+      ],
+      "relevant_pair_denominator": 1,
+      "supporting_anchor_refs": [],
+      "supporting_ids": [],
+      "unjudged_count": 13
+    },
+    {
+      "context_family_denominator": 1,
+      "disposition": "source_grounded_judgments_approved",
+      "distractor_ids": [
+        "tests/fixtures/code-understanding/retrieval/go.go:154:286"
+      ],
+      "evidence_anchor_refs": [
+        "GO.ArchiveCache"
+      ],
+      "id": "FR004",
+      "measured_retrieval_outcome": null,
+      "predicted_control": {
+        "basis": "tombstone appears only in a plain body assignment, outside the current synopsis declaration/comment selection; verify rather than rewrite this expectation.",
+        "expected_miss": "file_synopsis"
+      },
+      "query": "tombstone",
+      "rationale": "ArchiveCache assigns the archive tombstone string and returns that same marker. Both statements are required for implementation evidence; declaration alone is insufficient. The file-synopsis miss is a source/code-derived prediction only.",
+      "relevant_ids": [
+        "tests/fixtures/code-understanding/retrieval/go.go:288:364"
+      ],
+      "relevant_pair_denominator": 1,
+      "supporting_anchor_refs": [],
+      "supporting_ids": [],
+      "unjudged_count": 13
+    },
+    {
+      "context_family_denominator": 1,
+      "disposition": "source_grounded_judgments_approved",
+      "distractor_ids": [
+        "tests/fixtures/code-understanding/retrieval/javascript.js:185:290"
+      ],
+      "evidence_anchor_refs": [
+        "JS.decodeLedger"
+      ],
+      "id": "FR005",
+      "measured_retrieval_outcome": null,
+      "predicted_control": null,
+      "query": "decodeLedger",
+      "rationale": "decodeLedger maps entries through readAmount, whose body returns entry.amount. Parent is the sole relevant target and child is supporting. Guide returns a field-name string without mapping entries.",
+      "relevant_ids": [
+        "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+      ],
+      "relevant_pair_denominator": 1,
+      "supporting_anchor_refs": [
+        "JS.readAmount"
+      ],
+      "supporting_ids": [
+        "tests/fixtures/code-understanding/retrieval/javascript.js:90:147"
+      ],
+      "unjudged_count": 12
+    },
+    {
+      "context_family_denominator": 4,
+      "disposition": "source_grounded_judgments_approved",
+      "distractor_ids": [
+        "tests/fixtures/code-understanding/retrieval/go.go:154:286",
+        "tests/fixtures/code-understanding/retrieval/javascript.js:185:290",
+        "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+      ],
+      "evidence_anchor_refs": [
+        "PY.invalidate_cache",
+        "GO.EvictWorkspace",
+        "JS.invalidateTenantCache",
+        "TS.invalidateProfileCache"
+      ],
+      "id": "FR006",
+      "measured_retrieval_outcome": null,
+      "predicted_control": null,
+      "query": "invalidate cache",
+      "rationale": "Four explicit deletions cover generic key, workspace, tenant and profile contexts. These are four disjoint physical families in four languages. Listed previews/guides do not delete. This is finite synthetic diversity, not general package diversity.",
+      "relevant_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+        "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+        "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+        "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+      ],
+      "relevant_pair_denominator": 4,
+      "supporting_anchor_refs": [],
+      "supporting_ids": [],
+      "unjudged_count": 8
+    },
+    {
+      "context_family_denominator": 1,
+      "disposition": "source_grounded_judgments_approved",
+      "distractor_ids": [
+        "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+      ],
+      "evidence_anchor_refs": [
+        "TS.lookupProfileById"
+      ],
+      "id": "FR007",
+      "measured_retrieval_outcome": null,
+      "predicted_control": null,
+      "query": "lookupProfileById",
+      "rationale": "The specified function returns profiles[id]. The example concatenates a display string and is a valid distractor.",
+      "relevant_ids": [
+        "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168"
+      ],
+      "relevant_pair_denominator": 1,
+      "supporting_anchor_refs": [],
+      "supporting_ids": [],
+      "unjudged_count": 13
+    },
+    {
+      "context_family_denominator": 1,
+      "disposition": "source_grounded_judgments_approved",
+      "distractor_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:260:371",
+        "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+      ],
+      "evidence_anchor_refs": [
+        "PY.refund_balance"
+      ],
+      "id": "FR008",
+      "measured_retrieval_outcome": null,
+      "predicted_control": {
+        "basis": "Neither reverse nor remittance occurs in source paths or source bytes. Reranking cannot recover a function absent from the offered shortlist.",
+        "expected_miss": "both_keyword_shortlists"
+      },
+      "query": "reverse remittance",
+      "rationale": "The detailed question is grounded in balance - amount. Reverse remittance is deliberately lexically absent but is not a uniquely validated natural-language semantic equivalent. Admit as a synthetic candidate-miss control only; do not infer semantic-model quality. Both listed distractors lack the operation.",
+      "relevant_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:374:496"
+      ],
+      "relevant_pair_denominator": 1,
+      "supporting_anchor_refs": [],
+      "supporting_ids": [],
+      "unjudged_count": 12
+    }
+  ],
+  "review": {
+    "authorization": "explicit_user_override",
+    "configured_reasoning_effort": "xhigh",
+    "human": false,
+    "independent": true,
+    "kind": "independent_ai_source_review",
+    "model": "gpt-6-astra",
+    "receipt_sha256": "388dcdc6616954d221d7a5deabaa8e34e57011980b9049f287fcc7a6b951c6d6",
+    "served_model_telemetry": "not_exposed"
+  },
+  "review_kind": [
+    "independent_source_key_correctness",
+    "independent_adversarial_comparison_scope"
+  ],
+  "review_report_sha256": "b3e1d1d8b3d3b7cc95aafbebbc13727860fdf8c20c5b5faed106ad1d64586f4e",
+  "reviewed_at_utc": "2026-10-08T00:30:34.907507+00:00",
+  "schema_version": 1,
+  "source_files": [
+    {
+      "bytes": 593,
+      "language": "python",
+      "path": "tests/fixtures/code-understanding/retrieval/python.py",
+      "sha256": "6ad715939587fd255cb9e6f5eeb491f95e09ce7fc01dfdb328a3d9b584becfcd"
+    },
+    {
+      "bytes": 365,
+      "language": "go",
+      "path": "tests/fixtures/code-understanding/retrieval/go.go",
+      "sha256": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b"
+    },
+    {
+      "bytes": 408,
+      "language": "javascript",
+      "path": "tests/fixtures/code-understanding/retrieval/javascript.js",
+      "sha256": "8c23afc39757e66f8679ac473dca7b5ec792df7f90dce5ae3978c072038740f0"
+    },
+    {
+      "bytes": 406,
+      "language": "typescript",
+      "path": "tests/fixtures/code-understanding/retrieval/typescript.ts",
+      "sha256": "af6e4caf3690f296f722f99f1d7afc61a0822b10043357f46cebdfbf6a8aee89"
+    }
+  ],
+  "status": "admitted_frozen_synthetic_source_key",
+  "task": "T047"
+}

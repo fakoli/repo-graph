@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "supplemental_source_location_lock",
+  "status": "locked_independently_reviewed",
+  "scope": "same_sixteen_T004_sites",
+  "parent_input_lock_sha256": "418f5274d6c1d4c6f596f48b1485518cf5ec59d74a6006b7b64706d2b4d442a1",
+  "sha256": {
+    "evaluations/code-understanding/input-lock.json": "418f5274d6c1d4c6f596f48b1485518cf5ec59d74a6006b7b64706d2b4d442a1",
+    "evaluations/code-understanding/source-review.json": "ec360ca62426f69cfef6c801597968efc716dbe4c49e14caf43a907487dcca5d",
+    "evaluations/code-understanding/source-review-policy.json": "52fff0d8379c7bbd6c52dfbaba203d7349fdfb9f25d33c447f1cb650fbf0d35c",
+    "evaluations/code-understanding/real-calls.json": "0617c74053f358547b190c9be046c356e8d1f6675d0bd16dcfaab408b5fa624d",
+    "evaluations/code-understanding/corpora.json": "6cd298996ef57d02ac5d6b718e844e88b806c01e8b13637842c6296c3481fb8d",
+    "evaluations/code-understanding/source-target-locations.json": "d80e6db580d9b9ca7a6639e1f0611dd1460ea1327785bf2fd1c348afea319a5e"
+  },
+  "source_review": {
+    "kind": "independent_ai",
+    "model": "gpt-6-astra",
+    "authorization": "explicit_user_override_for_T004_source_judgment",
+    "human_evaluation": false,
+    "human_ux_gate": "T027_required"
+  },
+  "freeze_review": {
+    "kind": "independent_technical_input_audit",
+    "decision": "approve_supplement_for_lock_and_commit",
+    "checks_passed": 253,
+    "checks_failed": 0
+  },
+  "limitations": [
+    "Supplemental declaration positions are a grading key, not engine structural facts.",
+    "The original sixteen targets, certainty, supported labels and assumptions remain unchanged.",
+    "Original v1 input freeze and ungraded comparisons remain valid historical evidence.",
+    "Committed supplemental key and lock are required before revised grading."
+  ]
+}

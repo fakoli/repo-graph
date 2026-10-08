@@ -14,11 +14,13 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from urllib.parse import urlsplit
 from repo_graph import jev
 from repo_graph.jev import typesafe_key
+from repo_graph.source import SourceRoot
 
 
 PAGE_SIZE = 24
@@ -28,7 +30,7 @@ CODE_EXTENSIONS = {".go", ".py", ".js", ".jsx", ".ts", ".tsx"}
 ROLES = ("application", "library", "infrastructure", "tests", "documentation", "examples", "tooling", "other")
 
 
-def repo_files(root: Path) -> list[str]:
+def repo_files(root: Path, *, coverage: dict | None = None) -> list[str]:
     command = ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"]
     result = subprocess.run(command, cwd=root, capture_output=True, check=False) if shutil.which("git") else None
     if result is not None and result.returncode == 0:
@@ -38,9 +40,21 @@ def repo_files(root: Path) -> list[str]:
         for base, dirs, files in os.walk(root):
             dirs[:] = [name for name in dirs if name not in SKIP_DIRS and not name.startswith(".")]
             paths.extend((Path(base) / name).relative_to(root) for name in files)
-    return sorted({path.as_posix() for path in paths
-                   if path.parts and not any(part.startswith(".") or part in SKIP_DIRS for part in path.parts)
-                   and (root / path).is_file() and not (root / path).is_symlink()})
+    valid, failures = set(), []
+    with SourceRoot(root) as source:
+        for path in paths:
+            if not path.parts or any(part.startswith('.') or part in SKIP_DIRS for part in path.parts):
+                continue
+            try:
+                source.info(path.as_posix())
+                valid.add(path.as_posix())
+            except OSError as error:
+                failures.append({'path': path.as_posix(), 'reason': error.strerror})
+                continue
+        if coverage is not None:
+            coverage.update(identity=source.identity, secure_reads=source.secure,
+                            failed=len(failures), failures=failures[:50])
+    return sorted(valid)
 
 
 def tree_index(files: list[str]) -> dict[str, dict]:
@@ -122,13 +136,29 @@ def local_target(path: str, imported: str, module: str, tree: dict[str, dict]) -
 
 
 def extract_dependencies(root: Path, files: list[str], tree: dict[str, dict], cache_path: Path) -> tuple[list[dict], dict]:
+    with SourceRoot(root) as source:
+        return _extract_dependencies(source, files, tree, cache_path)
+
+
+def _extract_dependencies(source: SourceRoot, files: list[str], tree: dict[str, dict], cache_path: Path):
     module = ""
-    if (root / "go.mod").is_file():
-        match = re.search(r"(?m)^module\s+(\S+)", (root / "go.mod").read_text(encoding="utf-8", errors="replace")[:4096])
-        module = match.group(1) if match else ""
+    failures = []
     try:
-        old = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        data, _, _ = source.read('go.mod', 4096, hash_full=False)
+        match = re.search(r"(?m)^module\s+(\S+)", data.decode('utf-8', errors='replace'))
+        module = match.group(1) if match else ""
+    except FileNotFoundError:
+        pass
+    except OSError as error:
+        failures.append({'path': 'go.mod', 'reason': error.strerror})
+    identity = {'schema': 2, 'repository': source.identity, 'analyzer': 'imports-v2',
+                'read_limit': READ_LIMIT, 'extensions': sorted(CODE_EXTENSIONS)}
+    try:
+        with SourceRoot(cache_path.parent) as cache_root, cache_root.open(cache_path.name) as stream:
+            cached = json.load(stream)
+        old = cached['files'] if all(cached.get(k) == v for k, v in identity.items()) else {}
+        if not isinstance(old, dict): old = {}
+    except (OSError, ValueError, KeyError, AttributeError):
         old = {}
     current, edges = {}, Counter()
     scanned = reused = truncated = 0
@@ -138,30 +168,32 @@ def extract_dependencies(root: Path, files: list[str], tree: dict[str, dict], ca
             if posixpath.splitext(file)[1] not in CODE_EXTENSIONS:
                 continue
             try:
-                stat = (root / file).stat()
-                stamp = [stat.st_mtime_ns, stat.st_size]
+                data, digest, stat = source.read(file, READ_LIMIT)
                 cached = old.get(file)
-                if cached and cached[:2] == stamp:
-                    imports = cached[2]
+                if (isinstance(cached, dict) and cached.get('digest') == digest
+                        and isinstance(cached.get('imports'), list) and all(isinstance(i, str) for i in cached['imports'])):
+                    imports = cached['imports']
                     reused += 1
                 else:
-                    with (root / file).open("rb") as stream:
-                        source = stream.read(READ_LIMIT).decode("utf-8", errors="replace")
-                    imports = imports_from(file, source)
+                    imports = imports_from(file, data.decode('utf-8', errors='replace'))
                     scanned += 1
                 truncated += stat.st_size > READ_LIMIT
-            except OSError:
+            except OSError as error:
+                failures.append({'path': file, 'reason': error.strerror})
                 continue
-            current[file] = [*stamp, imports]
+            current[file] = {'digest': digest, 'imports': imports}
             source_dir = posixpath.dirname(file)
             for imported in imports:
                 target_dir = local_target(file, imported, module, tree)
                 if target_dir is not None and target_dir != source_dir:
                     edges[source_dir, target_dir] += 1
-    cache_path.write_text(json.dumps(current, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    with SourceRoot(cache_path.parent) as cache_root:
+        if cache_root.secure:
+            cache_root.write_json(cache_path.name, dict(identity, files=current))
     return ([{"source": a, "target": b, "count": n, "relation": "imports"}
              for (a, b), n in sorted(edges.items())],
-            {"scanned": scanned, "reused": reused, "truncated": truncated, "code_files": len(current)})
+            {"scanned": scanned, "reused": reused, "truncated": truncated, "code_files": len(current),
+             'identity': identity, 'failed': len(failures), 'failures': failures[:50], 'secure_reads': source.secure})
 
 
 def scope_edges(dependencies: list[dict]) -> dict[str, list[dict]]:
@@ -288,12 +320,148 @@ def system_view(tree: dict[str, dict], dependencies: list[dict], roles: dict[str
                                       for (a, b), n in sorted(edges.items(), key=lambda item: (-item[1], item[0]))]}
 
 
+def offline_index_status(output: Path) -> dict:
+    """Export captured readiness and counts, without facts or raw diagnostics."""
+    from repo_graph.search import index_status
+    captured = index_status(output)
+    result = {key: captured[key] for key in ('status', 'error_kind') if key in captured}
+    result['capture_kind'] = 'offline'
+    fields = ('state', 'artifact_ready', 'query_available', 'freshness', 'freshness_basis',
+              'identities', 'receipt_knowledge', 'attempt_attribution', 'model', 'backend_available',
+              'keyword_query_available', 'semantic_artifact_ready', 'semantic_query_available', 'semantic_state')
+    for name in ('structural', 'semantic_index', 'function_evidence'):
+        component = captured[name]
+        row = {key: component[key] for key in fields if key in component}
+        receipt = component.get('receipt') or {}
+        row['receipt'] = {}
+        for key, allowed in (('versions', ('schema', 'rules', 'grammars')),
+                             ('revision_dirty', ('revision', 'dirty', 'knowledge', 'content_identity'))):
+            if key in receipt:
+                row['receipt'][key] = {field: receipt[key][field] for field in allowed if field in receipt[key]}
+        if 'coverage' in receipt:
+            allowed = ('files_total', 'files_supported', 'files_unsupported', 'status_counts', 'file_status',
+                       'by_language', 'language_overflow', 'sites_by_role_certainty', 'parser_error_count',
+                       'parser_error_samples_truncated', 'inventory_scope', 'discovery_skipped_files',
+                       'discovery_skip_knowledge')
+            row['receipt']['coverage'] = {key: receipt['coverage'][key] for key in allowed if key in receipt['coverage']}
+            if 'by_language' in row['receipt']['coverage']:
+                row['receipt']['coverage']['by_language'] = {language:
+                    {field: data[field] for field in ('files_total', 'file_status') if field in data}
+                    for language, data in row['receipt']['coverage']['by_language'].items()}
+            if 'language_overflow' in row['receipt']['coverage']:
+                overflow = row['receipt']['coverage']['language_overflow']
+                row['receipt']['coverage']['language_overflow'] = {field: overflow[field]
+                    for field in ('languages', 'files_total', 'file_status') if field in overflow}
+        attempt = component.get('last_attempt')
+        row['last_attempt'] = ({key: attempt[key] for key in ('status', 'error_kind') if key in attempt}
+                               if attempt else None)
+        if component.get('catalog_receipt'):
+            row['catalog_receipt'] = {key: component['catalog_receipt'][key]
+                for key in ('documents', 'truncated', 'failed', 'scanned', 'reused', 'deleted')
+                if key in component['catalog_receipt']}
+        if component.get('impact'):
+            from repo_graph.search import _portable_impact_receipt
+            impact = component['impact']
+            row['impact'] = {key: impact[key] for key in ('state', 'query_available') if key in impact}
+            row['impact']['receipt'] = (_portable_impact_receipt(impact['receipt']) if impact.get('receipt') else None)
+        result[name] = row
+    if len(json.dumps(result, ensure_ascii=False, separators=(',', ':')).encode()) > 65536:
+        raise ValueError('Offline index status exceeds 65536 bytes')
+    return result
+
+
+def captured_map(root: Path, output: Path):
+    """Render admitted inventory/imports from one accepted structural snapshot."""
+    from repo_graph.analysis_queries import SQLSnapshot, Limits
+    status = offline_index_status(output)
+    component = status['structural']
+    identities = component.get('identities', {})
+    if status['status'] != 'ok':
+        with SourceRoot(root) as source:
+            if source.secure:
+                raise ValueError('Structural status unavailable; refresh before exporting its map')
+        return None  # Descriptor-less platforms retain the metadata-only map.
+    if not identities.get('generation'):
+        return None  # Core mapping remains available before structural capture.
+    if not component['artifact_ready']:
+        raise ValueError('Structural capture unavailable; refresh before exporting its map')
+    started, size = time.monotonic(), 0
+    def check():
+        if time.monotonic() - started >= 5:
+            raise TimeoutError('Captured map export deadline exceeded')
+    def progress():
+        return int(time.monotonic() - started >= 5)
+    def charge(*paths):
+        nonlocal size
+        check()
+        size += sum(len(path.encode()) for path in paths)
+        if size > 16 * 1024 * 1024:
+            raise ValueError('Captured map path-byte ceiling exceeded')
+    # ponytail: finite offline projection, 100000 inventory/import rows and 16MiB
+    # paths; use paged local queries when this export ceiling is exceeded.
+    with SourceRoot(root) as owner, SQLSnapshot(output, owner.identity,
+            limits=Limits(timeout_seconds=5)) as snapshot:
+        snapshot._check = check
+        current = {key: getattr(snapshot, key) for key in
+            ('repository_identity', 'source_identity', 'analyzer_identity', 'config_identity', 'generation')}
+        if identities != current:
+            raise ValueError('Structural generation changed during map capture; retry export')
+        snapshot._require_impact()
+        snapshot.db.set_progress_handler(progress, 64)
+        files, links, certainty, unresolved = [], Counter(), Counter(), 0
+        for row in snapshot.db.execute('SELECT path FROM structural_files ORDER BY path LIMIT 100001'):
+            path = row['path']; SourceRoot.parts(path); charge(path)
+            files.append(path)
+            if len(files) > 100000:
+                raise ValueError('Captured map inventory ceiling exceeded')
+        admitted = set(files)
+        for count, row in enumerate(snapshot.db.execute('''SELECT path,target_path,certainty
+                FROM structural_import_relationships ORDER BY id,target_path LIMIT 100001'''), 1):
+            source, target = row['path'], row['target_path']; charge(source, target)
+            if count > 100000:
+                raise ValueError('Captured map import-row ceiling exceeded')
+            if source not in admitted or target and target not in admitted or row['certainty'] not in ('resolved', 'candidate', 'unresolved'):
+                raise ValueError('Foreign or invalid captured import projection')
+            certainty[row['certainty']] += 1
+            if not target:
+                unresolved += 1
+                continue
+            links[posixpath.dirname(source), posixpath.dirname(target)] += 1
+        check()
+        dependencies = [{'source': a, 'target': b, 'count': n, 'relation': 'imports'}
+                        for (a, b), n in sorted(links.items())]
+    return files, dependencies, {'scanned': 0, 'reused': len(files), 'truncated': 0,
+        'code_files': (component.get('receipt', {}).get('coverage') or {}).get('files_supported', 0),
+        'secure_reads': False, 'captured_secure_facts': True, 'basis': 'shared_structural_index',
+        'source_reads_during_map': 0, 'identities': current,
+        'import_certainty_counts': {key: certainty[key] for key in ('resolved', 'candidate', 'unresolved')},
+        'unresolved_import_bindings': unresolved, 'inventory': {'scope': 'captured_admitted_inventory'},
+        'limits': {'files': 100000, 'import_rows': 100000, 'path_bytes': 16 * 1024 * 1024,
+                   'deadline_seconds': 5, 'qualified': False}}, status
+
+
+def write_text(path: Path, content: str) -> None:
+    """Replace artifacts without following an existing source-linked leaf."""
+    with SourceRoot(path.parent) as owner:
+        if owner.secure:
+            with owner.atomic_writer(path.name, text=True) as stream:
+                stream.write(content)
+            return
+    # Metadata-only core maps remain available without descriptor source reads.
+    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', dir=path.parent, delete=False) as stream:
+        temporary = Path(stream.name)
+        try:
+            stream.write(content); stream.close(); os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 def write_page(path: Path, data: dict) -> None:
     template = Path(__file__).resolve().parent / "assets" / "diagram.html"
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     payload = payload.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     html = template.read_text(encoding="utf-8").replace("__VIEW_HELPERS__", template.with_name("views.js").read_text(encoding="utf-8"))
-    path.write_text(html.replace("__REPO_GRAPH_DATA__", payload), encoding="utf-8")
+    write_text(path, html.replace("__REPO_GRAPH_DATA__", payload))
 
 
 def source_root(value: str, cache: Path, refresh: bool = False) -> Path:
@@ -340,7 +508,9 @@ def main(argv=None) -> int:
     if output == root or root in output.parents:
         parser.error("output directory must be outside the repository")
     output.mkdir(parents=True, exist_ok=True)
-    files = repo_files(root)
+    captured = captured_map(root, output)
+    inventory = {}
+    files = captured[0] if captured else repo_files(root, coverage=inventory)
     if not files:
         raise RuntimeError("No readable repository files found.")
     tree = tree_index(files)
@@ -370,33 +540,48 @@ def main(argv=None) -> int:
                         result["roles"] = {}
                 worker = threading.Thread(target=classify, daemon=True)
                 worker.start()
-    dependencies, scan = extract_dependencies(root, files, tree, output / "scan-cache.json")
+    if captured:
+        _, dependencies, scan, captured_status = captured
+    else:
+        dependencies, scan = extract_dependencies(root, files, tree, output / "scan-cache.json")
+        scan.update(inventory=inventory, basis='legacy_import_map', structural_facts=False)
     if worker:
         worker.join(timeout=max(0, 3.2 - (time.monotonic() - started)))
         if not worker.is_alive():
             roles = result.get("roles", {})
             jev_status = f"unavailable: {result['error']}" if "error" in result else "used" if roles else "no confident roles"
             if "error" not in result:
-                role_cache.write_text(json.dumps({"key": role_key, "roles": roles}), encoding="utf-8")
+                write_text(role_cache, json.dumps({"key": role_key, "roles": roles}))
         else:
             jev_status = "timed out"
     from repo_graph.search import catalog
-    search = catalog(root, files, output)
+    search = {'documents': 0, 'scanned': 0, 'reused': 0, 'secure_reads': False,
+              'status': 'unavailable', 'reason': 'Secure source reads unavailable; metadata-only offline map'}
+    if captured:
+        search.update(documents=None, status='captured', kind='functions',
+            reason='Captured function evidence; see index coverage for availability. File catalogue not rescanned')
+    elif scan['secure_reads']:
+        try:
+            search = catalog(root, files, output)
+        except OSError:
+            search['reason'] = 'Secure index access unavailable; offline map preserved'
     edges = scope_edges(dependencies)
     display_name = Path(urlsplit(args.repo).path.rstrip("/")).name.removesuffix(".git") if args.repo.startswith("https://") else root.name
     graph = {"schema": 1, "name": display_name, "file_count": len(files), "files": files,
              "tree": tree, "dependencies": dependencies, "scope_edges": edges,
              "scan": scan, "jev": jev_status, "roles": roles,
-             "system": system_view(tree, dependencies, roles), "search": search}
+             "system": system_view(tree, dependencies, roles), "search": search,
+             "index_status": captured_status if captured else offline_index_status(output)}
     graph_path = output / "graph.json"
-    graph_path.write_text(json.dumps(graph, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    view = {key: graph[key] for key in ("name", "file_count", "tree", "scope_edges", "scan", "jev", "roles", "system", "search")}
+    write_text(graph_path, json.dumps(graph, ensure_ascii=False, separators=(",", ":")))
+    view = {key: graph[key] for key in ("name", "file_count", "tree", "scope_edges", "scan", "jev", "roles", "system", "search", "index_status")}
     for name in ("architecture.html", "graph.html"):
         write_page(output / name, view)
     diagram = mermaid(tree, edges)
-    (output / "architecture.mmd").write_text(diagram, encoding="utf-8")
-    (output / "architecture.md").write_text("# Repository architecture\n\n```mermaid\n" + diagram + "```\n", encoding="utf-8")
-    print(f"Search: {search['documents']} documents, {search['scanned']} indexed, {search['reused']} reused")
+    write_text(output / "architecture.mmd", diagram)
+    write_text(output / "architecture.md", "# Repository architecture\n\n```mermaid\n" + diagram + "```\n")
+    print('Search: captured function evidence; no source reindexing' if search.get('kind') == 'functions' else
+          f"Search: {search['documents']} documents, {search['scanned']} indexed, {search['reused']} reused")
     print(f"{len(files)} files, {len(tree) - 1} directories, {len(dependencies)} local import links; "
           f"{scan['scanned']} scanned, {scan['reused']} cached, {scan['truncated']} truncated; Jev: {jev_status}")
     for label, name in (("Diagram", "architecture.html"), ("Graph", "graph.html"),

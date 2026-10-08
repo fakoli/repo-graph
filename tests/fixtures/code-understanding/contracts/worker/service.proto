@@ -1,0 +1,11 @@
+// Original source witness. No compiler or generator has been run.
+syntax = "proto3";
+package fixture.worker;
+
+message EchoRequest { string value = 1; }
+message EchoReply { string value = 1; }
+
+service EchoService {
+  rpc Echo(EchoRequest) returns (EchoReply);
+  rpc Duplicate(EchoRequest) returns (EchoReply);
+}

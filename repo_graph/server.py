@@ -1,10 +1,24 @@
 """Opt-in loopback UI. No arbitrary file serving, origins or repository writes."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
-from contextlib import closing
-from .search import connect
+import sqlite3
 from urllib.parse import urlsplit
 from threading import BoundedSemaphore
+from .source import SourceRoot
+from .search import CapturedSourceConflict
+
+
+class Server(ThreadingHTTPServer):
+    def server_close(self):
+        try:
+            super().server_close()
+        finally:
+            if hasattr(self, 'artifacts'):
+                self.artifacts.__exit__()
+            if hasattr(self, 'engine'):
+                self.engine.close()
+            if hasattr(self, 'queries'):
+                self.queries.close()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -33,26 +47,62 @@ class Handler(BaseHTTPRequestHandler):
         if not self.trusted(): self.respond(403, {'error':'Untrusted origin'}); return
         name = urlsplit(self.path).path
         if name == '/api/status':
-            with closing(connect(self.server.engine.output, readonly=True)) as db:
-                total, ready = db.execute('SELECT count(*),sum(vector IS NOT NULL) FROM docs').fetchone()
-            self.respond(200, {'semantic':self.server.engine.embedder is not None and total > 0 and total == ready,
-                'rerankers':['none'] + (['local'] if self.server.local_reranker else []) + (['jev'] if self.server.allow_jev else [])}); return
+            try:
+                from .search import index_status
+                result = index_status(self.server.engine.output, owner=self.server.engine.owner,
+                    backend_available=self.server.engine.embedder is not None,
+                    backend_model=getattr(self.server.engine.embedder, 'name', None))
+            except (OSError, RuntimeError, sqlite3.Error):
+                self.respond(409, {'error': 'Index owner unavailable; reopen the original output'}); return
+            result['semantic'] = result['semantic_index']['query_available']
+            result['rerankers'] = ['none'] + (['local'] if self.server.local_reranker else []) + (['jev'] if self.server.allow_jev else [])
+            self.respond(200 if result['status'] == 'ok' else 503 if result['status'] == 'bounded_stop' else 409, result); return
         if name not in {'/', '/architecture.html', '/graph.html', '/graph.json', '/architecture.mmd', '/architecture.md'}:
             self.respond(404, {'error':'Not found'}); return
         file = self.server.engine.output / ('architecture.html' if name == '/' else name[1:])
         mime = 'text/html; charset=utf-8' if file.suffix == '.html' else 'application/json' if file.suffix == '.json' else 'text/plain; charset=utf-8'
-        self.respond(200, file.read_bytes(), mime)
+        try:
+            with self.server.artifacts.open(file.name) as stream:
+                body = stream.read()
+        except OSError:
+            self.respond(404, {'error': 'Artifact unavailable'}); return
+        self.respond(200, body, mime)
 
     def do_POST(self):
         if not self.trusted(): self.respond(403, {'error':'Untrusted origin'}); return
-        if self.path != '/api/search': self.respond(404, {'error':'Not found'}); return
+        if self.path not in ('/api/search', '/api/query', '/api/source'): self.respond(404, {'error':'Not found'}); return
         if self.headers.get('Content-Type') != 'application/json':
             self.respond(415, {'error':'Use application/json'}); return
         try:
             length = int(self.headers.get('Content-Length', '0'))
             if not 0 < length <= 8192: raise ValueError('Request must be 1–8192 bytes')
-            payload = json.loads(self.rfile.read(length))
+            body = self.rfile.read(length)
+            if self.path == '/api/source':
+                def unique(pairs):
+                    value = {}
+                    for key, item in pairs:
+                        if key in value: raise ValueError('Duplicate source request field')
+                        value[key] = item
+                    return value
+                payload = json.loads(body, object_pairs_hook=unique)
+                if self.headers.get('X-Repo-Graph-Output', self.server.engine.owner) != self.server.engine.owner:
+                    self.respond(409, {'error': 'Source server belongs to another output directory'}); return
+                from .search import captured_source, _evidence_encoded
+                result = captured_source(self.server.engine, payload)
+                self.respond(200, _evidence_encoded(result)); return
+            payload = json.loads(body)
+            if self.path == '/api/query':
+                if self.headers.get('X-Repo-Graph-Output', self.server.engine.owner) != self.server.engine.owner:
+                    self.respond(409, {'error': 'Query server belongs to another output directory'}); return
+                from .analysis_queries import encoded
+                result = self.server.queries.run(payload)
+                self.respond(200, encoded(result)); return
             query = payload['query']; mode = payload.get('mode', 'hybrid')
+            kind = payload.get('kind', 'files')
+            if kind not in ('files', 'functions'):
+                raise ValueError('Unknown search kind')
+            if kind == 'files' and 'limits' in payload:
+                raise ValueError('Search limits apply to functions')
             if not isinstance(query, str) or not isinstance(payload.get('prefix', ''), str):
                 raise ValueError('Query and prefix must be text')
             method = payload.get('rerank', 'none')
@@ -70,17 +120,39 @@ class Handler(BaseHTTPRequestHandler):
             if expensive and not acquired:
                 self.respond(429, {'error':'A model search is running. Try again shortly or use keywords without reranking.'}); return
             try:
-                result = self.server.engine.run(query, mode=mode, limit=10, prefix=payload.get('prefix', ''), reranker=reranker)
+                options = dict(mode=mode, limit=payload.get('limit', 10), prefix=payload.get('prefix', ''), reranker=reranker)
+                if kind == 'functions':
+                    options.update(kind=kind, limits=payload.get('limits'))
+                result = self.server.engine.run(query, **options)
             finally:
                 if acquired: self.server.search_slot.release()
-            self.respond(200, result)
-        except (ValueError, KeyError, TypeError, RuntimeError) as error:
-            self.respond(400, {'error':str(error)})
+            if kind == 'functions':
+                from .analysis_queries import encoded
+                self.respond(200, encoded(result))
+            else:
+                self.respond(200, result)
+        except CapturedSourceConflict:
+            self.respond(409, {'error': 'Captured source generation or output changed'})
+        except InterruptedError:
+            self.respond(503 if self.path == '/api/source' else 409, {'error': 'Captured request stopped; retry'})
+        except OSError:
+            self.respond(409, {'error': 'Index owner unavailable; reopen the original output'})
+        except (ValueError, KeyError, TypeError, RuntimeError, sqlite3.Error) as error:
+            self.respond(400, {'error': 'Invalid captured source request or evidence' if self.path == '/api/source' else str(error)})
 
 
 def create_server(engine, port=0, *, local_reranker=None, allow_jev=False):
-    server = ThreadingHTTPServer(('127.0.0.1', port), Handler)
+    server = Server(('127.0.0.1', port), Handler)
+    try:
+        server.artifacts = SourceRoot(engine.output)
+        if server.artifacts.identity != engine.owner:
+            raise RuntimeError('Index output owner changed; reopen the original output directory')
+    except (OSError, RuntimeError):
+        server.server_close()
+        raise
     server.engine = engine
+    from .analysis_queries import Queries
+    server.queries = Queries(engine.output, owner=engine.owner)
     server.local_reranker, server.allow_jev = local_reranker, allow_jev
     # ponytail: one expensive search at a time; status, artifacts and plain keywords remain responsive.
     server.search_slot = BoundedSemaphore(1)

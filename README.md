@@ -102,7 +102,117 @@ schema is feasible; each language and framework still needs resolution rules.
 Version 0.6.0 does **not** add function call graphs. Existing diagrams show
 source structure and heuristic imports.
 
+### Experimental structural queries
+
+The optional native analysis extra captures Python, Go and JavaScript/TypeScript
+definitions, references, call sites and supported possible targets in the shared
+SQLite index. Unsupported bindings remain unresolved; this is static source
+evidence, with the limits in [the coverage matrix](docs/coverage.md).
+Merged source remains experimental. Representative scale measurements, actual
+agent comparisons, the independent human study and clean Pi/Codex/Claude analysis
+installation still need qualification before a feature release.
+
+These development commands are undergoing qualification and are not in 0.6.0:
+
+```bash
+uv run --extra analysis repo-graph analyze . --output ../repo-graph-output
+uv run repo-graph query ../repo-graph-output --operation symbol
+uv run repo-graph status ../repo-graph-output
+uv run repo-graph serve ../repo-graph-output
+```
+
+Choose an output outside the source root. Repeating `analyze` updates the same
+index; `--mode queued --workers 2` enables bounded parallel collection. `query`
+supports `symbol`, `reference`, `call`, `callees`, `callers`, `reachable` and
+`impact`; traversal requires `--seed` with a returned symbol ID. `--scope` filters
+source paths and `--prefix` filters full target names. Possible calls and source
+impact do not prove a runtime path or business effect.
+
+Each query defaults to depth 2, 50 entities, 100 edges, 32 KiB total output,
+8 KiB excerpts, 10,000 examined relationships and a 500 ms cooperative deadline,
+including snapshot copy and storage setup. Current queries return source handles
+without excerpts. Counts explicitly say `exact`, `lower_bound` or `unknown`;
+truncation is observable. Blocking operating-system I/O cannot be forcibly
+preempted by this cooperative deadline. `--limits` accepts a JSON object within
+the documented finite product ceilings.
+Overrides are capped at depth 32, 256 entities and edges, 100,000 examined
+relationships, 1 MiB output, 64 KiB excerpts and 30 seconds. At most four
+snapshots and 32 continuation cursors are retained, with 60-second expiry.
+The entity budget covers every distinct returned caller/target symbol, including
+the seed when present. `returned_symbol_handles` reports that count;
+`returned_entities` keeps the seed-excluded count used by the frozen queries.
+
+A one-page local command closes its snapshot and returns no continuation cursor.
+`query OUTPUT --stdio` accepts JSON requests, one per line, keeping a bounded
+local session alive. The server accepts the same requests at `POST /api/query`.
+Use `query OUTPUT --server http://127.0.0.1:PORT` and `--cursor CURSOR` to continue
+across CLI calls; retain the original operation, seed and filters. Cursors expire,
+are consumed once, and cannot be moved to another server or changed query.
+Pagination continues the captured generation when a newer index is published.
+This API uses no model or Jev calls.
+
+`status OUTPUT` and `GET /api/status` read the same captured receipts. They show
+admitted files by parser status and language, call/reference uncertainty, parser
+error ranges, applied versions and captured Git revision/dirty knowledge. Files
+excluded before admission are outside this denominator. Large error samples and
+language groups are capped with explicit omitted counts.
+
+Published coverage stays attached to its generation. A separate persisted attempt
+shows updating, failed, interrupted or uncertain publication while keeping the
+previous artifact available. Unobserved live-source freshness is `unknown`;
+`status OUTPUT --expect-source SHA256` compares a caller-provided source identity.
+Status performs no source or Git rescan and loads no model. Semantic artifacts
+declare their keyword-document generation basis; backend availability is separate
+and structural-generation affinity remains unknown until explicitly captured.
+Git revision and admitted-source content identity are captured during indexing.
+The Git dirty boolean is unknown: repository-configured Git status can execute
+project filters, so this source-only analysis does not run it.
+
+### Function evidence in the development branch
+
+The same structural refresh derives searchable bodies for supported functions,
+methods and callable values. It retains source ranges, file digests, symbol
+membership and extraction status; bodyless signatures are excluded. Keyword
+search uses no embedding backend:
+
+```bash
+uv run repo-graph search ../repo-graph-output 'First.run' --kind functions --mode keyword
+uv run repo-graph index ../repo-graph-output --kind functions --semantic
+uv run repo-graph search ../repo-graph-output 'cache invalidation' --kind functions --mode hybrid
+```
+
+`--prefix` selects a source file or area. Overlapping retrieved bodies appear
+once while retaining each symbol member. Excerpts carry their actual source
+range and digest, plus explicit redaction or clipping flags. Search hits and
+model rankings do not create structural facts or prove a business path.
+
+Function queries cap distinct symbol handles and passages at 50, complete JSON
+at 32 KiB, excerpts at 8 KiB and cooperative storage work at 500 ms, including
+snapshot setup. `--limits` may reduce `max_entities`, `max_response_bytes`,
+`max_excerpt_bytes` and `timeout_seconds`. Blocking model encoding is measured
+separately and cannot be preempted by that storage deadline. These are finite
+configuration ceilings; large-repository capacity and ranking quality remain
+unqualified. The API accepts the same `kind: "functions"` and `limits` at
+`POST /api/search`.
+
+`status` separates function keyword readiness from vector artifacts and observed
+backend availability. A structural generation change clears function vectors;
+repeat function indexing before semantic search. Ordinary file keyword search
+and vectors retain their separate generation. Older outputs without function
+evidence require `analyze` before selecting this scope. A failed staged
+projection preserves the previous complete index. A missing cached backend
+leaves the server's keyword search available; requested semantic searches fail
+explicitly. The server loads one cached embedding model; scopes requiring a
+different model report unavailable and can be queried through the CLI.
+
 ## Views and search
+
+After `analyze`, run `map` with the same `--output` to capture index readiness
+and coverage in the offline view. The coverage panel distinguishes failed
+attempts from retained ready artifacts, shows supported and unsupported files,
+and preserves unknown live freshness. A served view reads current captured
+status from the same index; an offline export contains bounded counts and
+versions, without symbol facts, parser snippets or raw diagnostics.
 
 System groups up to 12 source areas and their observed imports. Explore offers
 card, tree, radial and file-count treemap layouts. Data includes a table and
@@ -114,6 +224,16 @@ area. Click a breadcrumb or **Root** to move through the map. Selected files are
 centered, focused and named in the inspector; Escape closes details. Focus the
 canvas to pan with arrows, zoom with +/− or fit with F. Tabs also work with arrow
 keys. Narrow layouts stack controls and retain full component navigation.
+
+Calls uses the same captured structural queries as `repo-graph query`. Find a
+symbol by name prefix and source path, then inspect incoming or outgoing calls,
+expand a declaration, or open its captured source. Each scene contains at most
+24 declarations and physical callsites. Unknown callback and receiver targets
+remain unresolved; possible calls describe static analysis, without proving
+runtime execution. Source inspection checks snapshot, range and digest identity
+and returns bounded, redacted excerpts. Cancel stops the browser waiting and
+discards late responses; bounded server work may finish. Calls requires
+`repo-graph serve OUTPUT`; offline exports retain System and coverage.
 
 ### Optional reranking
 

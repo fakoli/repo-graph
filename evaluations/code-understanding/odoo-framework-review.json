@@ -1,0 +1,82 @@
+{
+  "admission_is_task_acceptance": false,
+  "human_ux_approval": false,
+  "implementation_approval": false,
+  "input_manifest": {
+    "bytes": 224307,
+    "path": "evaluations/code-understanding/odoo-framework-inputs.json",
+    "sha256": "8d1ecb870da5d346e4b774a821ef02c0f0ae91d010bdd8d07ddeedaed664b824"
+  },
+  "review": {
+    "authorization": "D010_explicit_user_override",
+    "configured_reasoning_effort": "xhigh",
+    "human": false,
+    "independent": true,
+    "kind": "independent_ai_source_review",
+    "model": "gpt-6-astra",
+    "receipt_sha256": "8a9f927353738dea10686888b99fff7c43e393a9908a4b0322ee2b4602de30ab",
+    "served_model_telemetry": null
+  },
+  "schema_version": 1,
+  "source_key_disposition": {
+    "adversarial": {
+      "checks": [
+        {
+          "detail": "T019-SR-01 resolved: OD-SYN-ROUTE-STACKED-DECORATOR physically places @extra_wrapper above a literal @http.route on its local method. The frozen expectation requires an unresolved boundary with zero source and runtime targets.",
+          "status": "passed"
+        },
+        {
+          "detail": "T019-SR-01 resolved: OD-SYN-ORM-UNSUPPORTED-DECORATOR physically places @api.depends(\"total\") on a local method beneath a direct models.Model base and literal model label. It explicitly requires zero targets, no framework identity assertion and no lexical-call promotion.",
+          "status": "passed"
+        },
+        {
+          "detail": "T019-SR-02 resolved: path ordering, row fields, encoding, delimiters and terminator treatment are explicit and match independently constructed bytes. Across all 10 commitments, newline, BOM, escaped-string, spaced and reversed-order alternatives produce different digests.",
+          "status": "passed"
+        },
+        {
+          "detail": "Both controls are included in ownership, acceptance questions and zero-target evaluation expectations, and remain present through every mutation/restoration. Original provider, foreign-owner, configuration and production-oracle boundaries remain unchanged. Target totals remain routes 2, ORM 10 and jobs 4; every runtime callable target list remains empty.",
+          "status": "passed"
+        }
+      ],
+      "verdict": "passed"
+    },
+    "blockers": [],
+    "correctness": {
+      "checks": [
+        {
+          "detail": "Exact packet hashes, preserved original input/key/review commitments and correction commitments match. Final input/key readback remained unchanged.",
+          "status": "passed"
+        },
+        {
+          "detail": "All 33 original case objects, 16 pinned source-key cases, semantic anchors and eight mutation operations remain unchanged. Differences are confined to the two controls and their ownership, evaluation and inventory commitments.",
+          "status": "passed"
+        },
+        {
+          "detail": "All 15 synthetic files match physical hashes and lengths; the original 14 remain byte-identical. Streaming hash checks of the 20 selected corpus files match the previously reviewed inventory, preserving the original source observations.",
+          "status": "passed"
+        },
+        {
+          "detail": "The 404-byte decorator fixture and all 22 new range occurrences match full/slice hashes, UTF-8 boundaries, line numbers and byte columns. Input and source-key controls agree.",
+          "status": "passed"
+        },
+        {
+          "detail": "Independently reconstructed all 10 canonical inventories using stdlib: baseline, selected corpus and eight mutation results. Embedded bytes, lengths and digests match. All eight mutations and reverse restorations reproduce exact paths and bytes; all 16 starting/restoration references resolve correctly.",
+          "status": "passed"
+        }
+      ],
+      "verdict": "passed"
+    },
+    "decision": "admit_source_key",
+    "input_sha256": "8d1ecb870da5d346e4b774a821ef02c0f0ae91d010bdd8d07ddeedaed664b824",
+    "limitations": [
+      "Admission applies only to the exact corrected input and source-key hashes above.",
+      "The original 208 range observations were reused after unchanged metadata and physical file-hash checks; no broad corpus or design review was repeated.",
+      "Runtime extraction, clean/incremental parity, budgets, cancellation and cursors were not measured. This grants no task acceptance, runtime qualification or human UX approval.",
+      "No author helper, producer/comparison, Odoo parser/import/execution, build or installation was run. No shared ~/.env access, provider/state mutation or artifact write was performed."
+    ],
+    "source_key_sha256": "bdc3234e61c684e19c341c7d78b4eb7fb0f93bbfa66c2f00dce1709ed68f2c9b",
+    "task": "code-understanding:T019"
+  },
+  "status": "admitted_frozen_source_key",
+  "task": "T019"
+}

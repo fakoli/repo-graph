@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "status": "human_pending",
+  "corpora": [
+    {
+      "id": "django",
+      "repository_url": "https://github.com/django/django",
+      "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+      "language": "python",
+      "role": "python_framework"
+    },
+    {
+      "id": "odoo",
+      "repository_url": "https://github.com/odoo/odoo",
+      "revision": "2d9fd5562a0ef1f7f587eb393cc3bd293b047cca",
+      "language": "python",
+      "role": "large_python_monolith"
+    },
+    {
+      "id": "aws",
+      "repository_url": "https://github.com/hashicorp/terraform-provider-aws",
+      "revision": "82532de7103d4dbabe384749cfaf09fc4c0692ad",
+      "language": "go",
+      "role": "large_go_provider"
+    },
+    {
+      "id": "kubernetes",
+      "repository_url": "https://github.com/kubernetes/kubernetes",
+      "revision": "35fc3af13807e70534fb11736bcccc013631efde",
+      "language": "go",
+      "role": "large_go_system"
+    },
+    {
+      "id": "viewer",
+      "repository_url": "https://github.com/fakoli/repo-graph",
+      "revision": "b21a7c19fc3f068d3b0227ba1fa6acd5eda17280",
+      "language": "javascript",
+      "role": "javascript_product"
+    },
+    {
+      "id": "extensions",
+      "repository_url": "https://github.com/fakoli/anvil-extensions",
+      "revision": "260a06f7394d56521e0d0d2a04cf58abe858cd56",
+      "language": "typescript",
+      "role": "typescript_consumer"
+    }
+  ]
+}

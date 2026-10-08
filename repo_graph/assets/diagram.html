@@ -36,10 +36,18 @@
   .eyebrow { color:var(--muted); font:700 10px/1.2 "SFMono-Regular",Consolas,monospace; letter-spacing:.16em; text-transform:uppercase; }
   .side-title { font:600 23px/1.15 Georgia,"Iowan Old Style",serif; letter-spacing:-.035em; margin:9px 0 10px; }
   .side-copy { color:var(--muted); font-size:12px; line-height:1.65; margin:0 0 18px; }
+  .index-status { margin:0 0 20px; padding:12px; border:1px solid var(--line); border-radius:9px; background:#f8f9fc; font-size:11px; overflow-wrap:anywhere; }
+  .index-status h3 { margin:0 0 7px; font-size:12px; }
+  .index-status p { margin:5px 0; }
+  .index-status .index-errors { color:#8c302b; }
+  .index-status summary { min-height:44px; display:flex; align-items:center; cursor:pointer; color:#354bab; }
+  .index-status ul { padding-left:17px; margin:0; }
+  .index-status li { margin:6px 0; }
+  .index-status details { max-height:360px; overflow:auto; }
   .view-options { display:grid; gap:9px; margin-bottom:20px; }
   .view-options label { display:grid; grid-template-columns:42px minmax(0,1fr); gap:6px; align-items:center; color:var(--muted); font-size:11px; }
   .view-options select { width:100%; min-height:33px; border:1px solid var(--line); border-radius:8px; background:#f8f9fc; padding:5px 8px; color:var(--ink); font:inherit; }
-  .view-tabs { display:flex; gap:5px; margin-bottom:15px; }
+  .view-tabs { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:15px; }
   .view-tabs button { flex:1; min-height:40px; border:1px solid var(--line); border-radius:8px; padding:8px 4px; background:#fff; color:#53607a; font:700 11px "Segoe UI",sans-serif; }
   .view-tabs button[aria-selected="true"] { background:#273469; border-color:#273469; color:#fff; }
   .search-view .view-options label:not(:first-child),.search-view .stat-grid,.search-view .navigation,.search-view .section-line,.search-view .pages,.search-view .component-list,.search-view .side-foot { display:none; }
@@ -57,6 +65,29 @@
   .search-result h2 { font:600 14px monospace; overflow-wrap:anywhere; margin:0 0 8px; }
   .search-result pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.6 monospace; color:#53607a; max-height:160px; overflow:auto; }
   .search-result button { border:1px solid var(--line); border-radius:8px; padding:8px 12px; background:var(--accent-pale); }
+  .calls-panel { padding:20px; }
+  .calls-panel form,.calls-tools { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
+  .calls-panel label { display:grid; gap:5px; color:var(--muted); font-size:12px; min-width:0; flex:1; }
+  .impact-panel label { flex:1 1 190px; }
+  .calls-panel input,.calls-panel select,.calls-panel button { min-height:44px; min-width:0; max-width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  .calls-status { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+  .calls-matches { display:grid; gap:8px; margin:12px 0; }
+  .calls-matches button { text-align:left; overflow-wrap:anywhere; }
+  .calls-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+  .call-element { border:1px solid var(--line); border-radius:9px; background:#fff; padding:12px; margin:10px 0; height:220px; overflow:auto; overflow-wrap:anywhere; }
+  .call-element h3 { margin:0 0 7px; font-size:14px; }
+  .call-element p { margin:6px 0; font-size:12px; }
+  .call-element button { margin:4px 4px 0 0; color:#354bab; }
+  .impact-cards { position:relative; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 16px; }
+  .impact-element[aria-current="true"] { border:2px solid #354bab; }
+  .path-element { height:auto; }
+  .path-witnesses { margin-top:8px; }
+  .saved-view { margin:12px 0; font-size:11px; color:var(--muted); }
+  .saved-view p { margin:0 0 6px; overflow-wrap:anywhere; }
+  .saved-view button { min-height:44px; padding:7px; border:1px solid var(--line); background:#fff; border-radius:7px; color:var(--ink); cursor:pointer; }
+  .saved-view input { width:100%; min-height:44px; margin-top:5px; border:1px solid var(--line); border-radius:7px; padding:7px; font:inherit; }
+  .call-evidence pre { white-space:pre-wrap; overflow-wrap:anywhere; font:12px/1.5 monospace; max-height:320px; overflow:auto; }
+  @media (max-width:720px) { .calls-columns,.impact-cards { grid-template-columns:1fr; } .calls-panel { padding:12px; } .calls-panel label { flex:1 1 100%; } }
   .data-panel[hidden] { display:none; }
   .data-panel table { border-collapse:collapse; width:100%; font-size:12px; }
   .data-panel th,.data-panel td { padding:12px; text-align:left; border-bottom:1px solid #e8ecf3; white-space:nowrap; }
@@ -182,12 +213,20 @@
       <div class="eyebrow">01 / Overview</div>
       <h2 class="side-title">Explore the repository.</h2>
       <p class="side-copy">A grounded map of files and relationships. Select a component to follow its connections.</p>
-      <div class="view-tabs" role="tablist" aria-label="Repository views"><button type="button" role="tab" id="tab-system" aria-selected="false">System</button><button type="button" role="tab" id="tab-explore" aria-selected="true">Explore</button><button type="button" role="tab" id="tab-data" aria-selected="false">Data</button><button type="button" role="tab" id="tab-search" aria-selected="false">Search</button></div>
+      <section class="index-status" aria-labelledby="index-heading"><h3 id="index-heading">Index coverage</h3><div id="index-summary" role="status" aria-live="polite"></div><p id="index-errors" class="index-errors"></p><details><summary>Coverage and snapshot details</summary><ul id="index-details"></ul></details></section>
+      <div class="view-tabs" role="tablist" aria-label="Repository views"><button type="button" role="tab" id="tab-system" aria-selected="false">System</button><button type="button" role="tab" id="tab-explore" aria-selected="true">Explore</button><button type="button" role="tab" id="tab-data" aria-selected="false">Data</button><button type="button" role="tab" id="tab-search" aria-selected="false">Search</button><button type="button" role="tab" id="tab-calls" aria-selected="false">Calls</button><button type="button" role="tab" id="tab-impact" aria-selected="false">Impact</button><button type="button" role="tab" id="tab-paths" aria-selected="false">Paths</button></div>
       <div class="view-options">
-        <label>View<select id="view-mode"><option value="system">System overview</option><option value="atlas" selected>Card diagram</option><option value="tree">Top-down tree</option><option value="radial">Radial map</option><option value="treemap">File-count treemap</option><option value="table">Data table</option><option value="matrix">Dependency matrix</option><option value="search">Repository search</option></select></label>
+        <label>View<select id="view-mode"><option value="system">System overview</option><option value="atlas" selected>Card diagram</option><option value="tree">Top-down tree</option><option value="radial">Radial map</option><option value="treemap">File-count treemap</option><option value="table">Data table</option><option value="matrix">Dependency matrix</option><option value="search">Repository search</option><option value="calls">Calls</option><option value="impact">Impact</option><option value="paths">Entrypoints and possible paths</option></select></label>
         <label>Sort<select id="sort-mode"><option value="name">Name</option><option value="files">Most files</option><option value="imports">Most imports</option></select></label>
         <label>Show<select id="kind-filter"><option value="all">Directories and files</option><option value="directory">Directories</option><option value="file">Files</option></select></label>
       </div>
+      <section class="saved-view" aria-label="Saved view">
+        <p id="saved-view-status" role="status" aria-live="polite">Saved in this tab only. Query text is excluded.</p>
+        <button id="clear-saved-view" type="button">Clear saved view</button>
+        <button id="copy-view-bookmark" type="button">Copy bookmark</button>
+        <button id="cancel-saved-restore" type="button" hidden>Cancel restore</button>
+        <label id="bookmark-field" hidden>Bookmark link<input id="bookmark-url" aria-label="Bookmark URL" readonly></label>
+      </section>
       <div class="stat-grid"><div class="stat"><strong id="stat-components">0</strong><span>Parts</span></div><div class="stat"><strong id="stat-links">0</strong><span>Links</span></div><div class="stat"><strong id="stat-files">0</strong><span>Files</span></div></div>
       <nav class="navigation" aria-label="Directory navigation"><button id="home" type="button" aria-label="Repository root">Root</button><button id="up" type="button" aria-label="Go up one directory">↑ Up</button><div class="breadcrumb" id="breadcrumb" aria-label="Current directory"></div></nav>
       <div class="section-line"><h2>Components</h2><span id="list-count"></span></div>
@@ -235,9 +274,29 @@ __VIEW_HELPERS__
   document.getElementById('repo-name').textContent = data.name;
   document.getElementById('stat-files').textContent = data.file_count.toLocaleString();
 
+  function renderIndexStatus(raw, captured=true, notice='') {
+    const status = RepoViews.indexStatus(raw,captured);
+    document.getElementById('index-heading').textContent = captured ? 'Index coverage · captured export' : 'Index coverage · local index';
+    const host = document.getElementById('index-summary'); host.replaceChildren();
+    for (const line of status.summary) { const p = document.createElement('p'); p.textContent = line; host.appendChild(p); }
+    document.getElementById('index-errors').textContent = [notice,...status.errors].filter(Boolean).join(' ');
+    const details = document.getElementById('index-details'); details.replaceChildren();
+    for (const line of status.details) { const li = document.createElement('li'); li.textContent = line; details.appendChild(li); }
+  }
+  renderIndexStatus(data.index_status);
+  const online = location.protocol === 'http:' && location.hostname === '127.0.0.1';
+  let observedStatus=null;
+  const statusRequest = online ? fetch('/api/status').then(response => response.json()).then(state => {
+    observedStatus=state;renderIndexStatus(state,false); return state;
+  }).catch(() => {
+    renderIndexStatus(data.index_status,true,'Live status unavailable. Showing captured export status.'); return null;
+  }) : Promise.resolve(null);
+
   function renderScope() {
-    document.getElementById('workspace').classList.toggle('search-view',viewMode === 'search');
-    for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) {
+    scheduleSavedView();
+    document.getElementById('workspace').classList.toggle('search-view',['search','calls','impact','paths'].includes(viewMode));
+    document.getElementById('copy-view-bookmark').disabled=viewMode==='paths';
+    for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-calls',viewMode === 'calls'],['tab-impact',viewMode === 'impact'],['tab-paths',viewMode === 'paths'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) {
       const tab = document.getElementById(id); tab.setAttribute('aria-selected',String(active)); tab.setAttribute('tabindex',active ? '0' : '-1'); tab.setAttribute('aria-controls','view-panel');
       if (active) document.getElementById('view-panel').setAttribute('aria-labelledby',id);
     }
@@ -245,10 +304,14 @@ __VIEW_HELPERS__
     document.getElementById('selection-location').hidden = true;
     document.getElementById('inspector').classList.remove('open');
     document.getElementById('inspector-toggle').setAttribute('aria-expanded','false');
-    document.getElementById('sort-mode').disabled = ['system','search'].includes(viewMode);
-    document.getElementById('kind-filter').disabled = ['system','search'].includes(viewMode);
-    document.getElementById('search').hidden = viewMode === 'search';
+    document.getElementById('sort-mode').disabled = ['system','search','calls','impact','paths'].includes(viewMode);
+    document.getElementById('kind-filter').disabled = ['system','search','calls','impact','paths'].includes(viewMode);
+    document.getElementById('search').hidden = ['search','calls','impact','paths'].includes(viewMode);
+    document.getElementById('data-panel').className='data-panel';
     if (viewMode === 'search') { renderSearch(); return; }
+    if (viewMode === 'calls') { renderCalls(); return; }
+    if (viewMode === 'impact') { renderImpact(); return; }
+    if (viewMode === 'paths') { renderPaths(); return; }
     if (viewMode === 'system') { renderSystem(); return; }
     document.getElementById('export-csv').disabled = false;
     const branch = data.tree[scopePath];
@@ -296,6 +359,8 @@ __VIEW_HELPERS__
 
   let lastSearch = '', lastResults = null, searchRequest = 0, lastSearchMode = 'hybrid', lastRerank = 'none', lastPrefix = '';
   function renderSearch() {
+    const nativeSearch=data.scan?.basis==='shared_structural_index', captured=data.scan?.identities;
+    const setup=nativeSearch ? 'repo-graph index OUTPUT --kind functions --semantic' : 'repo-graph index OUTPUT --semantic';
     selected = null; parts = []; links = []; scopeEntries = [];
     renderInspector();
     document.getElementById('map-title').textContent = 'Search the repository';
@@ -335,39 +400,66 @@ __VIEW_HELPERS__
     const results = document.createElement('div'); panel.appendChild(results);
     const show = response => {
       results.replaceChildren();
-      status.textContent = response.results.length ? `${response.results.length} results · ${response.documents.toLocaleString()} indexed files · ${Math.round(response.seconds*1000)} ms` : 'No matching files. Try another description or use keywords.';
-      if (response.rerank) status.textContent += ` · Reranker: ${response.rerank.status}${response.rerank.status === 'fallback' ? ' (local order retained)' : ''}`;
+      if(nativeSearch) {
+        RepoViews.functionSearch(response,captured);
+        const documents=response.counts.documents;
+        status.textContent=`${response.counts.returned_passages} function passages · ${response.counts.returned_symbol_handles} declaration handles · ${documents.knowledge==='exact' ? documents.value.toLocaleString()+' captured passages (exact)' : 'captured passage count unknown for this scope'} · ${Math.round(response.storage.elapsed_seconds*1000)} ms`;
+        status.textContent+=response.truncated ? ` · Partial evidence: ${(response.stop_reason || 'bounded stop').replaceAll('_',' ')}` : ' · bounded search complete';
+        if(!response.results.length)status.textContent+=' · No matching captured functions.';
+        if(rerank.value!=='none')status.textContent+=` · Rerank work: ${Math.round(response.storage.rerank_seconds*1000)} ms (order may be retained)`;
+      } else {
+        status.textContent = response.results.length ? `${response.results.length} results · ${response.documents.toLocaleString()} indexed files · ${Math.round(response.seconds*1000)} ms` : 'No matching files. Try another description or use keywords.';
+        if (response.rerank) status.textContent += ` · Reranker: ${response.rerank.status}${response.rerank.status === 'fallback' ? ' (local order retained)' : ''}`;
+      }
       for (const hit of response.results) {
         const article = document.createElement('article'); article.className = 'search-result';
         const heading = document.createElement('h2'); heading.textContent = hit.path;
-        const evidence = document.createElement('pre'); evidence.textContent = hit.evidence;
+        const evidence = document.createElement('pre'); evidence.textContent = nativeSearch ? hit.text : hit.evidence;
+        if(nativeSearch) {
+          const detail=document.createElement('p');detail.textContent=`Static syntax · lines ${hit.range.start_line}–${hit.range.end_line} · bytes ${hit.range.start_byte}–${hit.range.end_byte} · ${hit.extraction_state.replaceAll('_',' ')} · ${hit.redacted ? 'redacted' : 'captured excerpt'}${hit.excerpt_truncated ? ' · excerpt truncated' : ''}`;
+          const members=document.createElement('p');members.textContent=hit.members.map(member=>`${member.name} (${member.kind}, lines ${member.range.start_line}–${member.range.end_line})`).join(' · ');
+          article.append(heading,detail,members,evidence);
+        } else article.append(heading,evidence);
         const open = document.createElement('button'); open.type = 'button'; open.textContent = 'Open in diagram →';
-        open.addEventListener('click',() => { searchRequest++; viewMode = 'atlas'; document.getElementById('view-mode').value = 'atlas'; document.getElementById('export-csv').disabled = false; enter(hit.path.split('/').slice(0,-1).join('/')); focusPath('file:'+hit.path); });
-        article.append(heading,evidence,open); results.appendChild(article);
+        open.addEventListener('click',() => {
+          try {
+            if(nativeSearch)RepoViews.functionSearch(response,captured);
+            const parent=hit.path.split('/').slice(0,-1).join('/');
+            if(nativeSearch && !data.tree[parent]?.direct.includes(hit.path))throw new Error('Function source is absent from this captured map');
+            searchRequest++; viewMode = 'atlas'; document.getElementById('view-mode').value = 'atlas'; document.getElementById('export-csv').disabled = false; enter(parent); focusPath('file:'+hit.path);
+          } catch(error) {lastResults=null;results.replaceChildren();status.textContent=error.message;}
+        });
+        article.append(open); results.appendChild(article);
       }
     };
-    const online = location.protocol === 'http:' && location.hostname === '127.0.0.1';
     if (!online) {
       submit.disabled = true; input.disabled = true; prefix.disabled = true; mode.disabled = true; rerank.disabled = true;
-      status.textContent = 'To search this map, run repo-graph serve with the output directory shown by the scan, then open its local URL. Build meaning search once with repo-graph index OUTPUT --semantic. Offline diagrams remain available in the other tabs.';
+      status.textContent = `To search this map, run repo-graph serve with the output directory shown by the scan, then open its local URL. Build meaning search once with ${setup}. Offline diagrams remain available in the other tabs.`;
     } else {
       status.textContent = 'Search the whole repository. Meaning search needs a locally embedded index.';
-      fetch('/api/status').then(response => response.json()).then(state => {
+      statusRequest.then(state => {
+        if (!state) { status.textContent = 'Search service is unavailable. Restart repo-graph serve.'; return; }
+        if(nativeSearch && (data.search?.kind!=='functions' || state.function_evidence?.keyword_query_available!==true ||
+            !RepoViews.sameSnapshot(captured,RepoViews.capturedSnapshot(state)))) {
+          lastResults=null;results.replaceChildren();submit.disabled=true;status.textContent='Captured function evidence unavailable or index changed; refresh this map.';return;
+        }
         for (const option of rerank.options) option.disabled = !(state.rerankers || ['none']).includes(option.value);
         rerank.value = (state.rerankers || ['none']).includes(lastRerank) ? lastRerank : 'none'; explain();
-        if (!state.semantic) { mode.value = 'keyword'; mode.options[0].disabled = true; mode.options[1].disabled = true; if (!lastResults) status.textContent = 'Keyword index ready. Enable meaning search with repo-graph index OUTPUT --semantic, then restart this viewer.'; }
+        if (!(nativeSearch ? state.function_evidence.semantic_query_available===true : state.semantic)) { mode.value = 'keyword'; mode.options[0].disabled = true; mode.options[1].disabled = true; if (!lastResults) status.textContent = `Keyword index ready. Enable meaning search with ${setup}, then restart this viewer.`; }
       }).catch(() => { status.textContent = 'Search service is unavailable. Restart repo-graph serve.'; });
-      if (lastResults) show(lastResults);
+      if (lastResults)try {show(lastResults);}catch(error){lastResults=null;status.textContent=error.message;}
       form.addEventListener('submit',async event => {
         event.preventDefault(); const request = ++searchRequest;
         lastSearch = input.value.trim(); if (!lastSearch) return;
         lastSearchMode = mode.value; lastRerank = rerank.value;
-        submit.disabled = true; status.textContent = 'Searching…'; results.replaceChildren();
+        submit.disabled = true; status.textContent = 'Searching…'; results.replaceChildren();lastResults=null;
         try {
-          const response = await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:lastSearch,mode:mode.value,rerank:rerank.value,prefix:prefix.value.trim()})});
-          const body = await response.json(); if (request !== searchRequest || viewMode !== 'search') return;
-          if (!response.ok) throw new Error(body.error || 'Search failed');
-          lastResults = body; show(body);
+          const payload={query:lastSearch,mode:mode.value,rerank:rerank.value,prefix:prefix.value.trim()};
+          if(nativeSearch)Object.assign(payload,{kind:'functions',limit:10,limits:{max_entities:24,max_response_bytes:32768,max_excerpt_bytes:8192,timeout_seconds:.5}});
+          const response = await fetch('/api/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+          const body = nativeSearch ? await callsJSON(response) : await response.json(); if (request !== searchRequest || viewMode !== 'search') return;
+          if (!response.ok) throw new Error('Search unavailable');
+          show(body);lastResults = body;
         } catch (error) { if (request === searchRequest && viewMode === 'search') status.textContent = error.message; }
         finally { submit.disabled = false; }
       });
@@ -417,14 +509,603 @@ __VIEW_HELPERS__
     positions = RepoViews.layout(parts,viewMode,links).boxes;
   }
 
+  let callsState={lookup:null,matches:[],selected:null,captured:null,scene:null,branch:null,page:null,prefix:'',scope:'',size:8,intents:[],saveBlocked:false};
+  let callsUI=null,callsController=null,callsEpoch=0;
+  let impactState={selector:null,relations:['call','import'],services:null,protocols:null,namespaces:null,certainties:['candidate','resolved','unresolved'],depth:2,size:8,captured:null,page:null,scene:null,selected:null,intents:[],saveBlocked:false};
+  let impactUI=null;
+  let pathsState={operation:'framework',scope:'',size:4,captured:null,page:null},pathsUI=null;
+  let savedStorage=null,savedBooting=true,savedScheduled=false,savedControl=null,savedCleared=false;
+  const savedKey='repo-graph:view:'+location.pathname;
+  const callElement=(tag,text='',className='')=>{const el=document.createElement(tag);el.textContent=text;el.className=className;return el;};
+  const callButton=(text,action)=>{const button=callElement('button',text);button.type='button';button.addEventListener('click',action);return button;};
+  function stopCalls(announce=true) {
+    callsEpoch++; callsController?.abort(); callsController=null;
+    for(const ui of [callsUI,impactUI,pathsUI])if(ui)ui.cancel.disabled=true;
+    const ui=viewMode==='paths' ? pathsUI : viewMode==='impact' ? impactUI : callsUI;
+    if(ui && announce)ui.status.textContent='Stopped waiting. Bounded server work may finish; late responses will not be shown.';
+    if(announce && savedControl)cancelSavedRestore('Restore partial: cancelled. Bounded server work may finish; late responses are ignored.');
+  }
+  async function callsJSON(response) {
+    const reader=response.body.getReader();let size=0,bytes=[];
+    try { while(true) {const next=await reader.read();if(next.done)break;size+=next.value.byteLength;
+      if(size>32768)throw new Error('Response exceeds the bounded page');bytes.push(next.value);} }
+    catch(error){await reader.cancel();throw error;}
+    const result=new Uint8Array(size);let offset=0;for(const chunk of bytes){result.set(chunk,offset);offset+=chunk.length;}
+    let value;try {value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(result));}
+    catch {if(response.ok)throw new Error('Invalid bounded response');}
+    if(!response.ok)throw new Error(response.status===409 ? 'Stale source or index; select a symbol again' :
+      response.status===400 && value?.error==='Unknown, expired, consumed or foreign session cursor' ?
+        'Snapshot/query pagination expired, consumed or unavailable. Start a fresh query.' : 'Captured query or source unavailable');
+    return value;
+  }
+  async function callsRequest(endpoint,payload,publish,replay=false,mode='calls') {
+    const ui=mode==='paths' ? pathsUI : mode==='impact' ? impactUI : callsUI;
+    if(savedControl && !replay)cancelSavedRestore('Restore partial: another action stopped replay.');
+    stopCalls(false);const epoch=callsEpoch,controller=new AbortController();callsController=controller;
+    ui.cancel.disabled=false;ui.status.textContent='Reading bounded captured evidence…';
+    try {
+      const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),signal:controller.signal});
+      const result=await callsJSON(response);
+      if(epoch!==callsEpoch || viewMode!==mode)return false;
+      await publish(result,()=>epoch===callsEpoch && viewMode===mode);
+      return true;
+    } catch(error) {
+      if(epoch===callsEpoch && viewMode===mode)ui.status.textContent=error.name==='AbortError' ? 'Stopped waiting; late responses will not be shown.' : error.message;
+      if(replay)throw error;
+      return false;
+    } finally {if(epoch===callsEpoch){callsController=null;ui.cancel.disabled=true;}}
+  }
+  function callStatus(page) {
+    const count=page.total_count;
+    return `${page.rows.length} rows in this page · observed matches ${count.kind==='lower_bound' ? 'at least ' : ''}${count.value ?? 'unknown'} (${count.kind.replaceAll('_',' ')}) · ${page.truncated ? 'bounded continuation' : 'query complete'}${page.stop_reason ? ' · '+page.stop_reason.replaceAll('_',' ') : ''}`;
+  }
+  function callLimits(reset=false) {
+    const remaining=reset ? 23 : 24-(callsState.scene?.handles.length || 1)-(callsState.scene?.sites.length || 0);
+    const edges=Math.min(callsState.size,Math.max(1,remaining));
+    return {max_entities:Math.min(8,Math.max(1,remaining-edges+1)),max_edges:edges,max_response_bytes:32768,max_excerpt_bytes:0};
+  }
+  function showCallSource(handle,button,mode='calls') {
+    const captured=mode==='paths' ? pathsState.captured : mode==='impact' ? impactState.captured : callsState.captured,ui=mode==='paths' ? pathsUI : mode==='impact' ? impactUI : callsUI;
+    ui.evidence.hidden=true;ui.evidence.replaceChildren();
+    callsRequest('/api/source',{generation:captured.generation,handle:RepoViews.sourceHandle(handle),max_excerpt_bytes:4096},async(result,current)=>{
+      RepoViews.sourceEvidence(result,handle,captured);
+      if(mode==='paths' && result.identities.config_identity!==captured.config_identity)throw new Error('Source evidence configuration mismatch');
+      if(new TextEncoder().encode(result.text).length>4096)throw new Error('Source excerpt exceeds requested budget');
+      if(!result.redacted) {
+        const raw=new TextEncoder().encode(result.text);
+        const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',raw))].map(x=>x.toString(16).padStart(2,'0')).join('');
+        if(digest!==result.raw_digest || raw.length!==result.range.end_byte-result.range.start_byte)throw new Error('Source excerpt digest mismatch');
+      }
+      if(!current())return;
+      const evidence=ui.evidence;evidence.replaceChildren();evidence.hidden=false;
+      const close=callButton('Close source',()=>{evidence.hidden=true;button.focus();});
+      evidence.append(close,callElement('h2',handle.path),callElement('p',`Static syntax · lines ${result.range.start_line}–${result.range.end_line} · ${result.redacted ? 'redacted; raw digest validated by captured index' : 'excerpt digest verified'}${result.truncated ? ' · excerpt truncated' : ''}`),
+        callElement('p',`Source SHA256: ${handle.source_sha256}`),callElement('p',`Excerpt SHA256: ${result.raw_digest}`),callElement('pre',result.text));
+      evidence.onkeydown=event=>{if(event.key==='Escape'){event.preventDefault();evidence.hidden=true;button.focus();}};
+      close.focus();close.scrollIntoView({block:'nearest'});ui.status.textContent='Captured source inspected; source handle and snapshot identities verified.';
+    },false,mode);
+  }
+  function showCallScene(reset=false) {
+    const scene=callsState.scene;if(!scene)return;
+    if(reset){callsUI.symbols.replaceChildren();callsUI.sites.replaceChildren();}
+    for(const handle of scene.handles) {
+      if([...callsUI.symbols.children].some(card=>card.dataset.id===handle.id))continue;
+      const card=callElement('article','','call-element call-symbol');card.dataset.id=handle.id;
+      card.append(callElement('h3',handle.name || handle.id),callElement('p',`${handle.path}:${handle.range.start_line}–${handle.range.end_line}`));
+      const inspect=callButton('Inspect declaration',()=>showCallSource(handle,inspect));
+      const expand=callButton('Expand outgoing',()=>loadCalls(handle,'callees',null,false));
+      const incoming=callButton('Expand incoming',()=>loadCalls(handle,'callers',null,false));
+      const start=callButton('New view here',()=>chooseCallSymbol(handle,callsState.captured));
+      card.append(inspect,expand,incoming,start);callsUI.symbols.appendChild(card);
+      if(RepoViews.capturedImpact(observedStatus)?.contracts_available)card.appendChild(callButton('Explore source contracts',()=>openSourcePaths(handle.path,callsState.captured,'contract')));
+    }
+    for(const row of scene.sites) {
+      let card=[...callsUI.sites.children].find(card=>card.dataset.id===row.site.id);
+      if(!card){card=callElement('article','','call-element call-site');card.dataset.id=row.site.id;callsUI.sites.appendChild(card);}
+      // Fixed-height keyed cards keep earlier positions stable as alternative targets arrive.
+      const focused=document.activeElement?.dataset?.site===row.site.id;
+      card.replaceChildren(callElement('h3',`${row.certainty} callsite · ${row.site.path}:${row.site.range.start_line}`),
+        callElement('p',`${row.caller?.name || 'Unknown caller'} → ${row.targets.map(handle=>handle.name || handle.id).join(' / ') || 'Unresolved target'}`),
+        callElement('p',`Targets ${row.targets_exhaustive ? 'reported exhaustive' : 'not exhaustive'} in static analysis. ${row.reason || 'No resolution explanation supplied.'}${row.reason_truncated ? ' (reason truncated)' : ''}`));
+      const inspect=callButton('Inspect callsite',()=>showCallSource(row.site,inspect));inspect.dataset.site=row.site.id;
+      card.append(inspect);if(focused)inspect.focus({preventScroll:true});
+    }
+    const size=scene.handles.length+scene.sites.length;
+    callsUI.capture.textContent=`${size} / 24 elements · static syntax · snapshot ${callsState.captured.generation} · analyzer ${callsState.captured.analyzer_identity}`;
+    callsUI.more.disabled=!callsState.page?.cursor;
+    callsUI.more.textContent=size>=23 || callsState.page?.rows.length===0 ? 'Next page (replace scene)' : 'More callsites';
+  }
+  function loadCalls(seed,operation,cursor=null,reset=false,replay=false,limits=null) {
+    const size=(callsState.scene?.handles.length || 1)+(callsState.scene?.sites.length || 0);
+    if(!reset && size>=24){callsUI.status.textContent='24 element limit reached. Start a new view to expand this symbol.';return;}
+    const captured=callsState.captured;
+    callsUI.evidence.hidden=true;callsUI.evidence.replaceChildren();
+    const payload={operation,seed:seed.id,depth:1,prefix:'',scope:'',role:'call',limits:limits || callLimits(reset)};
+    if(cursor)payload.cursor=cursor;
+    return callsRequest('/api/query',payload,page=>{
+      RepoViews.queryPage(page,operation,seed.id,captured);
+      const scene=RepoViews.callScene(reset ? null : callsState.scene,page,seed);
+      callsState.scene=scene;callsState.branch={seed,operation};callsState.page=page;
+      if(callsState.intents.length<24)callsState.intents.push({seed:seed.id,operation,continuation:cursor!==null,reset,limits:{...payload.limits}});
+      else callsState.saveBlocked=true;
+      showCallScene(reset);callsUI.status.textContent=callStatus(page);callsUI.matches.replaceChildren();callsUI.moreMatches.disabled=true;
+      saveView(true);
+    },replay);
+  }
+  function chooseCallSymbol(handle,captured) {
+    callsUI.evidence.hidden=true;callsUI.evidence.replaceChildren();
+    callsState.selected=handle;callsState.captured=captured;callsState.scene={handles:[handle],sites:[]};callsState.page=null;
+    callsState.intents=[];callsState.saveBlocked=false;
+    callsUI.matches.replaceChildren();showCallScene(true);loadCalls(handle,callsUI.direction.value);
+  }
+  function findCallSymbols(cursor=null) {
+    callsUI.evidence.hidden=true;callsUI.evidence.replaceChildren();
+    const query={operation:'symbol',seed:null,depth:1,prefix:callsState.prefix,scope:callsState.scope,role:'call',limits:{max_entities:8,max_edges:8,max_response_bytes:32768,max_excerpt_bytes:0}};
+    if(cursor)query.cursor=cursor;
+    callsRequest('/api/query',query,page=>{
+      RepoViews.queryPage(page,'symbol',null,cursor ? callsState.lookup : null);
+      callsState.lookup=page;callsState.matches=page.rows;callsUI.matches.replaceChildren();
+      for(const handle of page.rows)callsUI.matches.appendChild(callButton(`${handle.name} · ${handle.path}:${handle.range.start_line}`,()=>chooseCallSymbol(handle,page)));
+      callsUI.moreMatches.disabled=!page.cursor;callsUI.status.textContent=callStatus(page);
+      // Symbol selection and a call scene are separate bounded pages.
+      callsState.scene=null;callsState.selected=null;callsState.captured=null;callsState.branch=null;callsState.page=null;
+      callsState.intents=[];callsState.saveBlocked=false;
+      callsUI.symbols.replaceChildren();callsUI.sites.replaceChildren();callsUI.more.disabled=true;callsUI.capture.textContent='Select one declaration to inspect its calls.';
+      saveView(true);
+    });
+  }
+  function renderCalls() {
+    selected=null;parts=[];links=[];scopeEntries=[];renderInspector();
+    document.getElementById('map-title').textContent='Calls from captured source';
+    document.getElementById('map-subtitle').textContent='Static possible calls with source evidence. Unknown targets remain explicit; these are not runtime executions.';
+    renderBreadcrumb(true);svg.style.display='none';document.querySelector('.controls').style.display='none';document.querySelector('.legend').style.display='none';document.querySelector('.stage-hint').style.display='none';
+    for(const id of ['up','previous','next','export-svg','export-csv'])document.getElementById(id).disabled=true;
+    document.getElementById('component-list').replaceChildren();
+    const panel=document.getElementById('data-panel');panel.replaceChildren();panel.hidden=false;panel.className='data-panel calls-panel';
+    if(!online){panel.appendChild(callElement('p','Calls require the local structural index through repo-graph serve. Offline exports retain the captured coverage and System overview.','calls-status'));return;}
+    const form=callElement('form'),prefix=callElement('input'),scope=callElement('input');prefix.value=callsState.prefix;scope.value=callsState.scope;prefix.maxLength=256;scope.maxLength=4096;
+    prefix.setAttribute('aria-label','Symbol name prefix');scope.setAttribute('aria-label','Symbol path scope');
+    for(const [label,input] of [['Symbol name prefix',prefix],['Symbol path scope',scope]]){const field=callElement('label',label);field.appendChild(input);form.appendChild(field);}
+    const submit=callElement('button','Find symbols');submit.type='submit';form.appendChild(submit);
+    const cancel=callButton('Cancel request',()=>stopCalls());cancel.disabled=true;form.appendChild(cancel);
+    const status=callElement('p','Find declarations by exact name prefix and optional source path.','calls-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+    const matches=callElement('div','','calls-matches'),moreMatches=callButton('More symbols',()=>findCallSymbols(callsState.lookup?.cursor));moreMatches.disabled=true;
+    const tools=callElement('div','','calls-tools'),direction=callElement('select');direction.setAttribute('aria-label','Call direction');
+    for(const [value,label] of [['callees','Outgoing calls'],['callers','Incoming calls']]){const option=callElement('option',label);option.value=value;direction.appendChild(option);}direction.value=callsState.branch?.operation || 'callees';
+    const size=callElement('select');size.setAttribute('aria-label','Callsite rows per page');for(const n of [1,4,8]){const option=callElement('option',String(n));option.value=String(n);size.appendChild(option);}size.value=String(callsState.size);
+    for(const [label,control] of [['Direction',direction],['Rows per page',size]]){const field=callElement('label',label);field.appendChild(control);tools.appendChild(field);}
+    const more=callButton('More callsites',()=>{const branch=callsState.branch;if(branch && callsState.page?.cursor)loadCalls(branch.seed,branch.operation,callsState.page.cursor,((callsState.scene?.handles.length || 0)+(callsState.scene?.sites.length || 0))>=23 || callsState.page.rows.length===0);});more.disabled=true;
+    const start=callButton('New view at selected symbol',()=>{if(callsState.selected)chooseCallSymbol(callsState.selected,callsState.captured);});tools.append(more,start);
+    const capture=callElement('p','','calls-status'),columns=callElement('div','','calls-columns'),symbolColumn=callElement('div'),siteColumn=callElement('div'),symbols=callElement('div'),sites=callElement('div');
+    symbolColumn.append(callElement('h2','Declarations'),symbols);siteColumn.append(callElement('h2','Physical callsites'),sites);columns.append(symbolColumn,siteColumn);
+    const evidence=callElement('section','','call-evidence');evidence.hidden=true;panel.append(form,status,matches,moreMatches,tools,capture,evidence,columns);
+    callsUI={panel,status,matches,moreMatches,direction,cancel,more,capture,symbols,sites,evidence};
+    form.addEventListener('submit',event=>{event.preventDefault();callsState.prefix=prefix.value.trim();callsState.scope=scope.value.trim();findCallSymbols();});
+    direction.addEventListener('change',()=>{if(callsState.selected)chooseCallSymbol(callsState.selected,callsState.captured);});
+    size.addEventListener('change',()=>{callsState.size=Number(size.value);if(callsState.selected)chooseCallSymbol(callsState.selected,callsState.captured);});
+    if(callsState.scene)showCallScene(true);
+  }
+
+  function openPathDeclaration(handle,captured) {
+    if(!RepoViews.sameSnapshot(captured,RepoViews.capturedSnapshot(observedStatus))) {
+      pathsUI.status.textContent='Captured declaration snapshot differs from the index status. Reload before opening Calls.';return;
+    }
+    callsState.scene=null;callsState.selected=null;
+    changeView('calls');chooseCallSymbol(handle,captured);
+    callsUI.symbols.querySelector('button')?.focus();
+  }
+  function openSourcePaths(path,captured,operation='framework') {
+    if(!RepoViews.sameSnapshot(captured,RepoViews.capturedSnapshot(observedStatus))) {
+      const ui=viewMode==='paths' ? pathsUI : callsUI;ui.status.textContent='Captured source snapshot differs from the index. Reload before exploring its registrations.';return;
+    }
+    pathsState={...pathsState,operation,scope:path,captured:null,page:null};changeView('paths');loadPaths();
+  }
+  function openContractImpact(row,captured) {
+    const projection=RepoViews.capturedImpact(observedStatus);
+    if(!projection?.contracts_available || !RepoViews.sameSnapshot(captured,projection)) {
+      pathsUI.status.textContent='Captured contract membership differs from Impact. Reload before exploring its source relations.';return;
+    }
+    impactState={...impactState,selector:{kind:'source_area',paths:[row.site.path]},relations:['contract'],services:[row.service_id],protocols:[row.protocol],namespaces:row.namespace ? [row.namespace] : null,
+      captured:null,page:null,scene:null,selected:null,intents:[],saveBlocked:false};changeView('impact');startImpact();
+  }
+  function openFileDeclarations(path) {
+    if(!RepoViews.sameSnapshot(RepoViews.capturedSnapshot(data.index_status),RepoViews.capturedSnapshot(observedStatus))) {
+      document.getElementById('inspector-content').appendChild(callElement('p','Captured file map differs from the index. Reload before finding its declarations.'));return;
+    }
+    callsState={...callsState,prefix:'',scope:path,scene:null,selected:null,captured:null,page:null,lookup:null,intents:[],saveBlocked:false};
+    changeView('calls');findCallSymbols();callsUI.panel.querySelector('input')?.focus();
+  }
+  function showPathsPage() {
+    const page=pathsState.page;if(!page)return;
+    pathsUI.cards.replaceChildren();pathsUI.evidence.hidden=true;
+    const scope=pathsState.operation==='framework' ? page.coverage.scope || 'Framework enrollment unavailable' : 'Explicit imported contract membership';
+    pathsUI.capture.textContent=`${scope} · snapshot ${page.generation} · source ${page.source_identity} · analyzer ${page.analyzer_identity} · config ${page.config_identity}`;
+    pathsUI.status.textContent=page.coverage?.status==='unavailable' ? 'Framework entrypoints unavailable: this captured index has no framework enrollment. No runtime targets are qualified.' : callStatus(page);
+    pathsUI.more.disabled=!page.cursor;
+    for(const row of page.rows) {
+      const card=callElement('article','','call-element path-element');card.dataset.id=row.site.id;card.dataset.family=row.family;card.dataset.relation=row.relation_kind;
+      const declaration=RepoViews.pathDeclaration(row),boundary=row.family.endsWith('_boundary');
+      card.append(callElement('h3',`${boundary ? 'Unresolved stop point' : 'Source declaration'} · ${row.candidate_relation_kind || row.relation_kind}`),
+        callElement('p',`${row.site.path}:${row.site.range.start_line}–${row.site.range.end_line}${row.target ? ' · '+row.target.name : ' · target unknown'}`),
+        callElement('p',`${row.certainty} · source targets ${row.targets_exhaustive ? 'exhaustive within the declared scope' : 'not exhaustive'}. ${row.reason}${row.reason_truncated ? ' (reason truncated)' : ''}`),
+        callElement('p','Runtime dispatch unknown · no runtime callable targets qualified.'));
+      if(row.consumer_id)card.append(callElement('p',`Consumer ${row.consumer_id} · service ${row.service_id} · configuration namespace ${row.configuration_namespace ?? 'unassigned'}`));
+      if(row.family.startsWith('contract'))card.append(callElement('p',`Origin service ${row.service_id} · ${row.protocol} · namespace ${row.namespace ?? 'unassigned'}. Imported membership has no runtime transport or ordering proof.`),callButton('Explore contract impact',()=>openContractImpact(row,pathsState.captured)));
+      const inspect=callButton('Inspect registration source',()=>showCallSource(row.site,inspect,'paths'));card.appendChild(inspect);
+      if(row.target) {
+        const target=callButton(declaration ? 'Inspect entrypoint declaration' : 'Inspect declared source value',()=>showCallSource(row.target,target,'paths'));card.appendChild(target);
+      }
+      if(declaration)card.appendChild(callButton('Explore possible calls',()=>openPathDeclaration(declaration,pathsState.captured)));
+      const witnesses=[...new Map(row.evidence.map(item=>[(item.id || item.path)+'|'+item.source_role,item])).values()],host=callElement('div','','path-witnesses');
+      const showWitnesses=offset=>{
+        host.replaceChildren(callElement('p',`Supporting witnesses ${witnesses.length ? offset+1 : 0}–${Math.min(offset+4,witnesses.length)} / ${witnesses.length}`));
+        for(const witness of witnesses.slice(offset,offset+4)) {
+          if(!witness.id){host.appendChild(callElement('p',`File affinity only · ${witness.source_role} · ${witness.path} · SHA256 ${witness.source_sha256}${witness.partial ? ' · partial source' : ''}`));continue;}
+          const button=callButton(`Inspect witness ${witness.source_role} · ${witness.path}:${witness.range.start_line}`,()=>showCallSource(witness,button,'paths'));host.appendChild(button);
+        }
+        for(const [label,next] of [['Previous witnesses',offset-4],['More witnesses',offset+4]])if(next>=0 && next<witnesses.length)host.appendChild(callButton(label,()=>{showWitnesses(next);host.querySelector('button')?.focus();}));
+      };
+      showWitnesses(0);card.appendChild(host);pathsUI.cards.appendChild(card);
+    }
+    if(!page.rows.length && page.coverage?.status!=='unavailable')pathsUI.cards.appendChild(callElement('p',page.cursor ? 'No matching rows in this bounded page. Continue explicitly to examine the next page.' : 'No matching source declarations in this query. This does not establish business completeness.'));
+  }
+  async function loadPaths(cursor=null) {
+    const status=cursor ? null : await statusRequest,snapshot=cursor ? pathsState.captured : RepoViews.capturedSnapshot(status),projection=cursor ? null : RepoViews.capturedImpact(status);
+    const captured=projection && RepoViews.sameSnapshot(snapshot,projection) ? {...snapshot,impact_identity:projection.impact_identity} : snapshot;
+    if(viewMode!=='paths')return;
+    if(!captured){pathsUI.status.textContent='Captured structural snapshot unavailable. Analyze and reload before exploring paths.';return;}
+    if(!cursor){pathsState.captured=captured;pathsState.page=null;pathsUI.cards.replaceChildren();pathsUI.more.disabled=true;}
+    pathsUI.evidence.hidden=true;
+    const operation=pathsState.operation,payload={operation,seed:null,depth:1,scope:pathsState.scope,prefix:'',role:'all',limits:{max_entities:8,max_edges:pathsState.size,max_response_bytes:32768,max_excerpt_bytes:0}};
+    if(cursor)payload.cursor=cursor;
+    return callsRequest('/api/query',payload,page=>{
+      RepoViews.queryPage(page,operation,null,captured);
+      if(page.rows.some(row=>!row.site.path.startsWith(pathsState.scope)))throw new Error('Captured path scope mismatch');
+      pathsState.page=page;showPathsPage();
+    },false,'paths');
+  }
+  function renderPaths() {
+    selected=null;parts=[];links=[];scopeEntries=[];renderInspector();renderBreadcrumb(true);
+    document.getElementById('map-title').textContent='Entrypoints and possible paths';
+    document.getElementById('map-subtitle').textContent='Follow captured source declarations into possible Calls branches. Unresolved boundaries stop qualification; runtime sequence, deployment and business completeness are unknown. Semantic rankings are not structural facts.';
+    svg.style.display='none';for(const selector of ['.controls','.legend','.stage-hint'])document.querySelector(selector).style.display='none';
+    for(const id of ['up','previous','next','export-svg','export-csv'])document.getElementById(id).disabled=true;
+    document.getElementById('component-list').replaceChildren();
+    const panel=document.getElementById('data-panel');panel.replaceChildren();panel.hidden=false;panel.className='data-panel calls-panel paths-panel';
+    if(!online){panel.appendChild(callElement('p','Paths require the local captured structural index through repo-graph serve. Offline exports retain captured coverage and System source areas.','calls-status'));return;}
+    const available=RepoViews.capturedImpact(observedStatus || data.index_status)?.contracts_available===true;
+    if(pathsState.operation==='contract' && !available){pathsState.operation='framework';pathsState.page=null;}
+    const form=callElement('form'),operation=callElement('select'),scope=callElement('input'),size=callElement('select');
+    operation.setAttribute('aria-label','Path evidence family');scope.setAttribute('aria-label','Entrypoint source path scope');size.setAttribute('aria-label','Entrypoint rows per page');scope.maxLength=4096;scope.value=pathsState.scope;
+    for(const [value,label] of [['framework','Framework source hooks'],['contract',available ? 'Imported contracts' : 'Imported contracts unavailable']]){const option=callElement('option',label);option.value=value;option.disabled=value==='contract' && !available;operation.appendChild(option);}operation.value=pathsState.operation;
+    for(const count of [1,4,8]){const option=callElement('option',String(count));option.value=String(count);size.appendChild(option);}size.value=String(pathsState.size);
+    for(const [label,control] of [['Captured evidence',operation],['Source path prefix',scope],['Rows per page',size]]){const field=callElement('label',label);field.appendChild(control);form.appendChild(field);}
+    const submit=callElement('button','Find entrypoints');submit.type='submit';const cancel=callButton('Cancel request',()=>stopCalls());cancel.disabled=true;form.append(submit,cancel);
+    const status=callElement('p','Choose captured source hooks or imported contracts, then find entrypoints. Each page and Calls expansion is an explicit bounded action.','calls-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+    const more=callButton('Next entrypoint page',()=>{if(pathsState.page?.cursor)loadPaths(pathsState.page.cursor);});more.disabled=true;
+    const capture=callElement('p','','calls-status'),cards=callElement('div','','path-cards'),evidence=callElement('section','','call-evidence');evidence.hidden=true;
+    panel.append(form,status,more,capture,evidence,cards);pathsUI={panel,status,cancel,more,capture,cards,evidence};
+    const invalidate=()=>{stopCalls(false);pathsState.page=null;pathsState.captured=null;cards.replaceChildren();evidence.hidden=true;more.disabled=true;status.textContent='Selection changed. Find entrypoints starts a fresh captured query; prior continuation is unavailable.';};
+    for(const control of [operation,scope,size])control.addEventListener('change',invalidate);
+    form.addEventListener('submit',event=>{event.preventDefault();pathsState.operation=operation.value;pathsState.scope=scope.value.trim();pathsState.size=Number(size.value);loadPaths();});
+    if(pathsState.page)showPathsPage();
+  }
+
+  const impactCount=scene=>scene ? scene.files.length+scene.symbols.length+scene.sites.length+scene.unavailable.length : 0;
+  function selectImpact(id) {
+    impactState.selected=id;
+    for(const card of impactUI.cards.children)card.setAttribute('aria-current',String(card.dataset.id===id));
+    saveView(true);
+  }
+  function openImpactFile(value) {
+    if(!RepoViews.sameSnapshot(RepoViews.capturedSnapshot(data.index_status),impactState.captured)) {
+      impactUI.status.textContent='Captured map snapshot differs from Impact. Refresh the map before opening this file; current source is not fetched.';return;
+    }
+    const directory=value.path.split('/').slice(0,-1).join('/');
+    if(!data.tree[directory]?.direct.includes(value.path)){impactUI.status.textContent='File absent from the captured map (deleted or not mapped). Current source is not fetched.';return;}
+    stopCalls(false);viewMode='atlas';document.getElementById('view-mode').value='atlas';kindFilter='all';document.getElementById('kind-filter').value='all';
+    enter(directory);focusPath('file:'+value.path);
+  }
+  function showImpactScene(reset=false) {
+    const scene=impactState.scene;if(!scene)return;
+    if(reset)impactUI.cards.replaceChildren();
+    const items=[...scene.files.map(value=>({type:'file',value})),...scene.symbols.map(value=>({type:'symbol',value})),...scene.sites.map(value=>({type:'site',value})),...scene.unavailable.map(value=>({type:'unavailable',value}))];
+    for(const {type,value} of items) {
+      const id=type==='site' ? value.site.id : value.id;
+      let card=[...impactUI.cards.children].find(card=>card.dataset.id===id);
+      const signature=JSON.stringify(value);if(card?.dataset.signature===signature)continue;
+      const focused=card?.contains(document.activeElement) ? document.activeElement.textContent : null;
+      if(!card){card=callElement('article','','call-element impact-element');card.dataset.id=id;card.dataset.type=type;impactUI.cards.appendChild(card);}
+      card.dataset.signature=signature;card.replaceChildren();card.setAttribute('aria-current',String(impactState.selected===id));
+      if(type==='site') {
+        card.dataset.relation=value.relation;
+        card.append(callElement('h3',`${value.relation==='contract' ? 'Imported contract' : value.relation==='import' ? 'Import' : 'Call'} · ${value.certainty} · ${value.site.path}:${value.site.range.start_line}`),
+          callElement('p',`${value.caller?.name || value.importer?.path || 'Unknown caller'} → ${value.targets.map(target=>target.name || target.path).join(' / ') || 'Unresolved target'}`),
+          callElement('p',`Static possibilities; targets ${value.targets_exhaustive ? 'reported exhaustive' : 'not exhaustive'}. ${value.reason}${value.reason_truncated ? ' (reason truncated)' : ''}`));
+        if(value.relation==='contract') {
+          card.append(callElement('p',`Origin service: ${value.service_id} · ${value.endpoint_role} · ${value.protocol} · Namespace: ${value.namespace || 'unspecified'}. Contract owner: ${value.contract_identity.contract_service_id ?? 'computed'}. Origin witness: ${value.boundary_origin.replaceAll('_',' ')}. Identity ${value.contract_identity_asserted ? 'source asserted' : 'unasserted'}; ${value.partial ? 'partial source' : 'captured source'}; runtime unqualified.`));
+          card.append(callElement('p',Object.entries(value.contract_identity).map(([key,text])=>`${key.replaceAll('_',' ')}: ${text ?? 'computed'}`).join(' · ')));
+          for(const witness of value.evidence.filter(witness=>witness.source_role!=='structural_declaration')) {
+            const source=callButton(`Inspect witness ${witness.path}:${witness.range.start_line} (${witness.source_role.replaceAll('_',' ')})`,()=>{selectImpact(id);showCallSource(witness,source,'impact');});card.appendChild(source);
+          }
+        }
+        const inspect=callButton(value.relation==='contract' ? 'Inspect contract origin' : value.relation==='import' ? 'Inspect import' : 'Inspect callsite',()=>{selectImpact(id);showCallSource(value.site,inspect,'impact');});card.appendChild(inspect);
+      } else if(type==='symbol') {
+        card.append(callElement('h3',value.name || value.id),callElement('p',`${value.source_role==='structural_declaration' ? 'Contract source witness' : 'Captured declaration'} · ${value.path}:${value.range.start_line}–${value.range.end_line}`));
+        const inspect=callButton('Inspect declaration',()=>{selectImpact(id);showCallSource(value,inspect,'impact');});card.appendChild(inspect);
+      } else {
+        card.append(callElement('h3',value.path),callElement('p',type==='unavailable' ? `${value.change_status ? 'Changed path '+value.change_status : 'Unavailable captured source'}: ${value.reason}` : `${value.change_status ? 'Changed path '+value.change_status+' · ' : 'Captured file · '}${value.admission_status}`));
+        card.append(callElement('p',type==='unavailable' ? 'Historical/nonadmitted source: current closure unavailable.' : `Source SHA256: ${value.source_sha256}. File handle is navigation only.`));
+      }
+      card.append(callButton('Select impact item',()=>selectImpact(id)),callButton('Open file in Explore',()=>openImpactFile(type==='site' ? value.site : value)));
+      if(focused)[...card.querySelectorAll('button')].find(button=>button.textContent===focused)?.focus({preventScroll:true});
+    }
+    impactUI.capture.textContent=`${impactCount(scene)} / 24 elements · static captured reachability · snapshot ${impactState.captured.generation} · analyzer ${impactState.captured.analyzer_identity}`;
+    impactUI.more.disabled=!impactState.page?.cursor;
+    impactUI.more.textContent=24-impactCount(scene)<2 || !impactState.page?.rows.length ? 'Next impact page (replace scene)' : 'More impact';
+  }
+  function impactLimits(reset=false) {
+    const remaining=reset ? 24 : 24-impactCount(impactState.scene),entities=Math.min(8,Math.max(1,Math.floor(remaining/2)));
+    return {max_entities:entities,max_edges:Math.min(impactState.size,Math.max(1,remaining-entities)),max_response_bytes:32768,max_excerpt_bytes:0};
+  }
+  function loadImpact(cursor=null,reset=false,replay=false,limits=null) {
+    if(!reset && 24-impactCount(impactState.scene)<2){impactUI.status.textContent='24 element budget: replace the impact page to continue.';return Promise.resolve(false);}
+    const payload={operation:'impact',seed:null,selector:impactState.selector,relations:impactState.relations,certainties:impactState.certainties,
+      ...RepoViews.impactFilters(impactState,impactState.relations),depth:impactState.depth,prefix:'',scope:'',role:'all',limits:limits || impactLimits(reset)};
+    if(cursor)payload.cursor=cursor;
+    impactUI.evidence.hidden=true;impactUI.evidence.replaceChildren();
+    return callsRequest('/api/query',payload,page=>{
+      RepoViews.impactPage(page,payload,impactState.captured);
+      const scene=RepoViews.impactScene(reset ? null : impactState.scene,page);
+      impactState.page=page;impactState.captured=page;impactState.scene=scene;
+      if(![...scene.files,...scene.symbols,...scene.sites.map(row=>row.site),...scene.unavailable].some(value=>value.id===impactState.selected))impactState.selected=null;
+      if(impactState.intents.length<24)impactState.intents.push({continuation:cursor!==null,reset,limits:{...payload.limits}});else impactState.saveBlocked=true;
+      showImpactScene(reset);
+      const count=page.total_count,completion=page.cursor ? 'bounded continuation' : page.truncated ? 'stopped without continuation' : 'captured traversal exhausted';
+      impactUI.status.textContent=`${page.rows.length} physical relations in this page · observed ${count.kind==='lower_bound' ? 'at least ' : ''}${count.value ?? 'unknown'} (${count.kind.replaceAll('_',' ')}) · ${completion}${page.stop_reason ? ' · '+page.stop_reason.replaceAll('_',' ') : ''}. Runtime effects unknown.`;
+      impactUI.boundaries.replaceChildren();
+      for(const [key,count] of Object.entries(page.unknown_boundaries))impactUI.boundaries.appendChild(callElement('li',`${key.replaceAll('_',' ')}: ${count}`));
+      impactUI.basis.textContent=page.selection.selector.kind==='git_change' ? `Committed changed paths from ${page.selection.git_change.base_revision}; worktree byte affinity unobserved. Current captured definitions only; historical call closure unavailable.` : 'Selected admitted source area; current captured definitions only. Unassigned incoming targets cannot be enumerated.';
+      saveView(true);
+    },replay,'impact');
+  }
+  function startImpact() {
+    const captured=RepoViews.capturedImpact(observedStatus);
+    if(!captured) {
+      stopCalls(false);impactUI.status.textContent='Captured impact projection unavailable. Refresh the structural index and reload; Calls may remain available.';return;
+    }
+    try {
+      const selector=RepoViews.impactSelector(impactUI.inputKind.value==='git_change' ? {kind:'git_change',base_revision:impactUI.input.value.trim()} : {kind:'source_area',paths:[impactUI.input.value.trim()]});
+      const relations=impactUI.relation.value==='all' ? ['call','import'] : [impactUI.relation.value],contract=relations.includes('contract');
+      if(contract && !captured.contracts_available)throw new Error('Captured contract membership unavailable');
+      const one=value=>value ? [value] : null;
+      const filters=RepoViews.impactFilters(contract ? {services:one(impactUI.service.value.trim()),protocols:one(impactUI.protocol.value),namespaces:one(impactUI.namespace.value.trim())} : {},relations);
+      impactState={...impactState,selector,relations,...filters,
+        certainties:impactUI.certainty.value==='all' ? ['candidate','resolved','unresolved'] : [impactUI.certainty.value],depth:Number(impactUI.depth.value),size:Number(impactUI.size.value),
+        captured,page:null,scene:null,selected:null,intents:[],saveBlocked:false};
+      impactUI.cards.replaceChildren();impactUI.capture.textContent='';impactUI.more.disabled=true;loadImpact();
+    } catch(error) {impactUI.status.textContent=`Invalid impact selection or contract filter. Use an admitted source path (directory ending /), exact captured Git base, and filters of at most 256 UTF-8 bytes. ${error.message}`;}
+  }
+  function renderImpact() {
+    selected=null;parts=[];links=[];scopeEntries=[];renderInspector();
+    document.getElementById('map-title').textContent='Impact from captured source';document.getElementById('map-subtitle').textContent='Possible reverse import, call and imported contract reachability. Unknown boundaries stay explicit; runtime and business effects are unknown.';
+    renderBreadcrumb(true);svg.style.display='none';document.querySelector('.controls').style.display='none';document.querySelector('.legend').style.display='none';document.querySelector('.stage-hint').style.display='none';
+    for(const id of ['up','previous','next','export-svg','export-csv'])document.getElementById(id).disabled=true;
+    document.getElementById('component-list').replaceChildren();const panel=document.getElementById('data-panel');panel.replaceChildren();panel.hidden=false;panel.className='data-panel calls-panel impact-panel';
+    if(!online){panel.appendChild(callElement('p','Impact requires the local structural index. Offline exports retain captured coverage and System overview.','calls-status'));return;}
+    const form=callElement('form'),field=(label,control)=>{const row=callElement('label',label);row.appendChild(control);form.appendChild(row);};
+    const choice=(label,options,value)=>{const control=callElement('select');control.setAttribute('aria-label',label);for(const [key,text] of options){const option=callElement('option',text);option.value=key;control.appendChild(option);}control.value=String(value);field(label,control);return control;};
+    const capturedGit=observedStatus?.structural?.impact?.receipt?.git_change;
+    const gitReady=observedStatus?.structural?.impact?.state==='ready' && capturedGit?.status==='ready' && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(capturedGit.base_revision || '');
+    const inputKind=choice('Impact input',[['source_area','Source area'],['git_change','Captured Git base']],impactState.selector?.kind || 'source_area');
+    inputKind.querySelector('[value="git_change"]').disabled=!gitReady;
+    const input=callElement('input');input.setAttribute('aria-label','Impact source area or captured base');input.maxLength=4096;input.value=impactState.selector?.kind==='git_change' ? impactState.selector.base_revision : impactState.selector?.paths[0] || (scopePath ? scopePath+'/' : '.');field('Source path (directory ends /) or exact captured Git base',input);
+    input.readOnly=inputKind.value==='git_change';
+    inputKind.addEventListener('change',()=>{input.readOnly=inputKind.value==='git_change';input.value=input.readOnly && gitReady ? capturedGit.base_revision : (scopePath ? scopePath+'/' : '.');});
+    const available=RepoViews.capturedImpact(observedStatus)?.contracts_available===true;
+    const relation=choice('Impact relation',[['all','Imports and calls'],['import','Imports only'],['call','Calls only'],['contract',available ? 'Imported contracts' : 'Contracts unavailable']],impactState.relations.length===2 ? 'all' : impactState.relations[0]);
+    relation.querySelector('[value="contract"]').disabled=!available;
+    const service=callElement('input');service.setAttribute('aria-label','Origin service');service.maxLength=256;service.value=impactState.services?.[0] || '';field('Origin service (optional)',service);
+    const protocol=choice('Contract protocol',[['','All contract protocols'],['http','HTTP'],['rpc','RPC'],['queue','Queue']],impactState.protocols?.[0] || '');
+    const namespace=callElement('input');namespace.setAttribute('aria-label','Contract namespace');namespace.maxLength=256;namespace.value=impactState.namespaces?.[0] || '';field('Namespace (optional)',namespace);
+    const filterNote=callElement('p','','calls-status');
+    const enableFilters=()=>{const enabled=available && relation.value==='contract';for(const control of [service,protocol,namespace])control.disabled=!enabled;
+      filterNote.textContent=!available ? 'Contract filters unavailable: captured enrolled membership is missing or invalid.' : enabled ? 'Filters select captured origin service, protocol and namespace. Runtime transport and ordering remain unknown.' : 'Choose Imported contracts to filter origin service, protocol and namespace.';};enableFilters();relation.addEventListener('change',enableFilters);
+    const certainty=choice('Impact certainty',[['all','All static certainties'],['resolved','Resolved'],['candidate','Candidate'],['unresolved','Unresolved']],impactState.certainties.length===3 ? 'all' : impactState.certainties[0]);
+    const depth=choice('Impact depth',[[1,'1'],[2,'2']],impactState.depth),size=choice('Impact rows per page',[[1,'1'],[4,'4'],[8,'8']],impactState.size);
+    const submit=callElement('button','Find impact');submit.type='submit';const cancel=callButton('Cancel request',()=>stopCalls());cancel.disabled=true;form.append(submit,cancel);
+    const status=callElement('p','Select an admitted source area or an explicitly captured Git base. No source or Git scan runs in this view.','calls-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+    const more=callButton('More impact',()=>{if(impactState.page?.cursor)loadImpact(impactState.page.cursor,24-impactCount(impactState.scene)<2 || !impactState.page.rows.length);});more.disabled=true;
+    const capture=callElement('p','','calls-status'),basis=callElement('p','','calls-status'),unknown=callElement('details'),boundaries=callElement('ul');unknown.append(callElement('summary','Unknown and excluded boundaries'),boundaries);
+    const cards=callElement('div','','impact-cards'),evidence=callElement('section','','call-evidence');evidence.hidden=true;
+    const gitAdvice=gitReady ? 'Git choice uses the explicitly captured base; worktree byte affinity is unobserved.' :
+      capturedGit?.reason==='git_source_root_not_repository_root' ?
+        'Captured Git base unavailable: this source root is inside a Git repository, not its repository root. Analyze from the repository root to capture a base; source-area Impact remains available.' :
+        'Captured Git base unavailable; analyze with an explicit exact base to enable it.';
+    panel.append(form,filterNote,callElement('p',gitAdvice),status,more,capture,basis,unknown,evidence,cards);
+    impactUI={panel,inputKind,input,relation,service,protocol,namespace,certainty,depth,size,status,cancel,more,capture,basis,boundaries,cards,evidence};
+    form.addEventListener('submit',event=>{event.preventDefault();startImpact();});
+    for(const control of [inputKind,input,relation,service,protocol,namespace,certainty,depth,size])control.addEventListener('change',()=>{stopCalls(false);impactState.page=null;more.disabled=true;status.textContent='Selection or filter changed. Find impact starts a fresh captured query; old continuation is unavailable.';});
+    if(impactState.scene)showImpactScene(true);
+  }
+
+  function savedNotice(message) { document.getElementById('saved-view-status').textContent=message; }
+  function scheduleSavedView() {
+    if(savedBooting || savedControl)return;
+    detachBookmark();
+    savedCleared=false;
+    if(savedScheduled)return;
+    savedScheduled=true;Promise.resolve().then(()=>{savedScheduled=false;saveView();});
+  }
+  function saveView(deliberate=false) {
+    if(savedBooting || savedControl || !savedStorage)return;
+    if(viewMode==='paths'){savedNotice('Paths pages are temporary. Open a declaration in Calls to save its bounded expansion.');return;}
+    if(deliberate){savedCleared=false;detachBookmark();}
+    if(savedCleared)return;
+    try {
+      const {record,raw}=currentSavedView();
+      savedStorage.setItem(savedKey,raw);
+      savedNotice(record.snapshot ? 'Saved in this tab only, bound to the captured snapshot. Query text is excluded.' : 'Navigation saved in this tab; snapshot unavailable. Query text is excluded.');
+    } catch(error) {
+      if(['snapshot_unavailable','intents_overflow','saved_state_overflow'].includes(error.message)) {
+        try {savedStorage.removeItem(savedKey);}catch {}
+        savedNotice(error.message==='snapshot_unavailable' ? 'Snapshot unavailable or changed: this structural selection was not saved.' : error.message==='intents_overflow' ? `Saved state incomplete or exceeds 24 ${viewMode==='impact' ? 'Impact' : 'Calls'} intents. Start a new view to save its expansion.` : 'Saved state exceeds 32 KiB. This view was not saved; start a smaller view.');
+      } else savedNotice('Tab storage unavailable. This view was not saved; ordinary navigation remains available.');
+    }
+  }
+  function currentSavedView() {
+    let snapshot=RepoViews.capturedSnapshot(data.index_status),calls=null;
+    if(viewMode==='calls' && callsState.selected) {
+      const current=RepoViews.capturedSnapshot(observedStatus);
+      if(!current || ['generation','repository_identity','source_identity','analyzer_identity'].some(key=>current[key]!==callsState.captured[key]))throw new Error('snapshot_unavailable');
+      if(callsState.saveBlocked || callsState.intents.length===0)throw new Error('intents_overflow');
+      snapshot=current;calls={root:RepoViews.sourceHandle(callsState.selected),direction:callsUI?.direction.value || callsState.branch.operation,size:callsState.size,intents:callsState.intents};
+    }
+    let impact=null;
+    if(viewMode==='impact' && impactState.captured) {
+      const current=RepoViews.capturedSnapshot(observedStatus);
+      if(!current || !RepoViews.sameSnapshot(current,impactState.captured))throw new Error('snapshot_unavailable');
+      if(impactState.saveBlocked || !impactState.intents.length)throw new Error('intents_overflow');
+      snapshot=current;impact={selector:impactState.selector,relations:impactState.relations,certainties:impactState.certainties,depth:impactState.depth,size:impactState.size,
+        identity:impactState.captured.impact_identity,selected:impactState.selected,intents:impactState.intents};
+      if(impactState.relations.includes('contract'))Object.assign(impact,RepoViews.impactFilters(impactState,impactState.relations));
+    }
+    const record=RepoViews.savedView({version:viewMode==='impact' ? impact?.relations.includes('contract') ? 3 : 2 : 1,view:viewMode,scope:scopePath,sort:sortMode,kind:kindFilter,page,selected:['calls','impact'].includes(viewMode) ? null : selected,snapshot,calls,...(viewMode==='impact' ? {impact} : {})});
+    const raw=JSON.stringify(record);
+    if(new TextEncoder().encode(raw).length>32768)throw new Error('saved_state_overflow');
+    return {record,raw};
+  }
+  function detachBookmark() {
+    if(location.hash) {
+      const url=new URL(location.href);url.hash='';history.replaceState(null,'',url.href);
+    }
+    document.getElementById('bookmark-field').hidden=true;document.getElementById('bookmark-url').value='';
+  }
+  async function copyBookmark() {
+    try {
+      if(savedBooting || savedControl)throw new Error('restore_incomplete');
+      const {record}=currentSavedView();
+      if(!record.snapshot)throw new Error('snapshot_unavailable');
+      const url=new URL(location.href);url.search='';url.hash=RepoViews.bookmarkFragment(record);
+      if(new TextEncoder().encode(url.href).length>32768)throw new Error('bookmark_overflow');
+      const field=document.getElementById('bookmark-field'),input=document.getElementById('bookmark-url');field.hidden=false;input.value=url.href;
+      try {
+        await navigator.clipboard.writeText(url.href);savedNotice('Bookmark copied with snapshot, scope and selection. Query text and source excerpts are excluded.');
+      } catch {
+        input.focus();input.select();savedNotice('Clipboard unavailable. Copy the selected bookmark link; query text and source excerpts are excluded.');
+      }
+    } catch(error) {
+      savedNotice(['bookmark_overflow','saved_state_overflow'].includes(error.message) ? 'Bookmark exceeds 32 KiB; it was not copied. Start a smaller view.' : 'Bookmark unavailable for an incomplete view or unknown snapshot. Finish restoring or select again.');
+    }
+  }
+  function cancelSavedRestore(message='Restore partial: cancelled. Late responses are ignored.') {
+    if(!savedControl)return;
+    savedControl.cancelled=true;callsState.saveBlocked=true;impactState.saveBlocked=true;stopCalls(false);
+    savedNotice(message);savedControl.reject(new Error('restore_cancelled'));
+  }
+  async function restoreSavedView() {
+    let record;const fromBookmark=!!location.hash;
+    try {savedStorage=window.sessionStorage;}catch {}
+    try {
+      if(fromBookmark) {
+        if(location.href.length>32768 || new TextEncoder().encode(location.href).length>32768)throw new Error('bookmark_overflow');
+        record=RepoViews.bookmarkView(location.hash);
+      } else {
+        const raw=savedStorage.getItem(savedKey);
+        if(raw===null){savedBooting=false;return;}
+        if(new TextEncoder().encode(raw).length>32768)throw new Error('saved_state_overflow');
+        record=RepoViews.savedView(JSON.parse(raw));
+      }
+      if(!Object.hasOwn(data.tree,record.scope))throw new Error('invalid_scope');
+      if(['atlas','tree','radial','treemap','table','matrix'].includes(record.view)) {
+        const branch=data.tree[record.scope];
+        const entries=(record.kind==='file' ? 0 : branch.children.length)+(record.kind==='directory' ? 0 : branch.direct.length);
+        if(record.page>=Math.max(1,Math.ceil(entries/(graphMode ? 24 : 23))))throw new Error('invalid_page');
+      }
+    } catch(error) {
+      savedBooting=false;
+      savedNotice(fromBookmark ? error.message==='bookmark_overflow' ? 'Bookmark exceeds 32 KiB; it was not restored.' : 'Invalid bookmark; clear it and select again.' : !savedStorage ? 'Tab storage unavailable; reload restoration is unavailable.' : error.message==='saved_state_overflow' ? 'Saved state exceeds 32 KiB; it was not restored.' : 'Invalid saved view; clear it and select again.');return;
+    }
+    const control={cancelled:false,deadline:performance.now()+12000};savedControl=control;
+    const interrupted=new Promise((_,reject)=>{control.reject=reject;});
+    const step=async promise=>{
+      if(control.cancelled || performance.now()>control.deadline)throw new Error('restore_cancelled');
+      return Promise.race([promise,interrupted]);
+    };
+    const cancel=document.getElementById('cancel-saved-restore');cancel.hidden=false;
+    const timer=setTimeout(()=>cancelSavedRestore('Restore partial: 12-second client waiting limit reached. Late responses are ignored.'),12000);
+    savedNotice(fromBookmark ? 'Restoring bookmark against its captured snapshot…' : 'Restoring saved view against its captured snapshot…');
+    try {
+      const status=online ? await step(statusRequest) : data.index_status;
+      if(record.snapshot && !RepoViews.sameSnapshot(record.snapshot,RepoViews.capturedSnapshot(status)))throw new Error('stale_snapshot');
+      if((record.calls || record.impact) && !online)throw new Error('offline_calls');
+      viewMode=record.view;scopePath=record.scope;sortMode=record.sort;kindFilter=record.kind;page=record.page;query='';
+      for(const [id,value] of [['view-mode',viewMode],['sort-mode',sortMode],['kind-filter',kindFilter]])document.getElementById(id).value=value;
+      renderScope();
+      if(record.calls) {
+        callsState.size=record.calls.size;callsUI.direction.value=record.calls.direction;
+        callsUI.panel.querySelector('[aria-label="Callsite rows per page"]').value=String(callsState.size);
+        const lookup={operation:'symbol',seed:record.calls.root.id,depth:1,prefix:'',scope:'',role:'call',limits:{max_entities:1,max_edges:1,max_response_bytes:32768,max_excerpt_bytes:0}};
+        const found=await step(callsRequest('/api/query',lookup,result=>{
+          RepoViews.queryPage(result,'symbol',null,record.snapshot);
+          if(result.rows.length!==1 || JSON.stringify(RepoViews.sourceHandle(result.rows[0]))!==JSON.stringify(record.calls.root))throw new Error('invalid_selection');
+          callsState.selected=result.rows[0];callsState.captured=result;callsState.scene={handles:[result.rows[0]],sites:[]};
+          callsState.page=null;callsState.branch=null;callsState.intents=[];callsState.saveBlocked=false;showCallScene(true);
+        },true));
+        if(!found)throw new Error('restore_cancelled');
+        for(const intent of record.calls.intents) {
+          const seed=callsState.scene.handles.find(handle=>handle.id===intent.seed);
+          if(!seed)throw new Error('invalid_selection');
+          let cursor=null;
+          if(intent.continuation) {
+            if(callsState.branch?.seed.id!==seed.id || callsState.branch.operation!==intent.operation || !callsState.page?.cursor)throw new Error('invalid_continuation');
+            cursor=callsState.page.cursor;
+          }
+          savedNotice(`Restoring Calls ${callsState.intents.length+1} / ${record.calls.intents.length} against the saved snapshot…`);
+          if(!await step(loadCalls(seed,intent.operation,cursor,intent.reset,true,intent.limits)))throw new Error('restore_cancelled');
+        }
+        callsUI.symbols.querySelector('button')?.focus({preventScroll:true});
+        savedNotice(fromBookmark ? 'Restored bookmark: selected symbol, snapshot and stable expansion. Source excerpts stay closed.' : 'Restored selected symbol, snapshot and stable expansion in this tab. Source excerpts stay closed.');
+      } else if(record.impact) {
+        const state=record.impact;
+        const captured=RepoViews.capturedImpact(status);
+        if(!captured || captured.impact_identity!==state.identity || state.relations.includes('contract') && !captured.contracts_available)throw new Error('stale_snapshot');
+        impactState={...impactState,selector:RepoViews.impactSelector(state.selector),relations:state.relations,...RepoViews.impactFilters(state,state.relations),certainties:state.certainties,depth:state.depth,size:state.size,
+          captured,page:null,scene:null,selected:null,intents:[],saveBlocked:false};
+        renderImpact();
+        for(const intent of state.intents) {
+          const cursor=intent.continuation ? impactState.page?.cursor : null;
+          if(intent.continuation && !cursor)throw new Error('invalid_continuation');
+          savedNotice(`Restoring Impact ${impactState.intents.length+1} / ${state.intents.length} against the saved snapshot…`);
+          if(!await step(loadImpact(cursor,intent.reset,true,intent.limits)))throw new Error('restore_cancelled');
+        }
+        if(state.selected) {
+          const card=[...impactUI.cards.children].find(value=>value.dataset.id===state.selected);if(!card)throw new Error('invalid_selection');
+          impactState.selected=state.selected;card.setAttribute('aria-current','true');card.querySelector('button')?.focus({preventScroll:true});
+        } else impactUI.cards.querySelector('button')?.focus({preventScroll:true});
+        savedNotice(fromBookmark ? 'Restored bookmark: Impact selection, filters, snapshot and stable pages. Source excerpts stay closed.' : 'Restored Impact selection, filters, snapshot and stable pages in this tab. Source excerpts stay closed.');
+      } else if(record.selected) {
+        if(!record.snapshot)throw new Error('unknown_snapshot');
+        if(!byId.has(record.selected))focusPath(record.selected);
+        if(!byId.has(record.selected))throw new Error('invalid_selection');
+        select(record.selected,true);savedNotice(fromBookmark ? 'Restored bookmark: view, source area and selection against the captured snapshot.' : 'Restored view, source area and selection against the captured snapshot in this tab.');
+      } else savedNotice(record.snapshot ? fromBookmark ? 'Restored bookmark: view and scope against the captured snapshot.' : 'Restored view and scope against the captured snapshot in this tab.' : 'Restored navigation only; snapshot and selection are unavailable.');
+    } catch(error) {
+      callsState.saveBlocked=true;impactState.saveBlocked=true;
+      if(!control.cancelled)savedNotice(error.message==='stale_snapshot' || /Index changed|Impact capture changed/.test(error.message) ? fromBookmark ? 'Bookmark snapshot is stale or unavailable. Select again; the old selection was not restored.' : 'Saved snapshot is stale or unavailable. Select again; the old selection was not restored.' : error.message==='offline_calls' ? 'Saved structural selection unavailable offline. Serve the structural index to restore it.' : 'Restore partial: invalid selection or unavailable captured evidence. Clear the saved view or select again.');
+    } finally {
+      clearTimeout(timer);cancel.hidden=true;savedControl=null;savedBooting=false;
+    }
+  }
+
   function renderSystem() {
     document.getElementById('export-csv').disabled = false;
     scopePath = ''; page = 0;
-    parts = (data.system?.nodes || []).filter(node => (node.name + ' ' + node.summary).toLowerCase().includes(query));
+    const overview = RepoViews.systemOverview(data.system,query);
+    parts = overview.nodes;
     scopeEntries = parts;
     byId = new Map(parts.map((node,index) => [node.id,{...node,index}]));
-    const visible = new Set(parts.map(node => node.id));
-    links = (data.system?.edges || []).filter(edge => visible.has(edge.source) && visible.has(edge.target)).slice(0,40);
+    links = overview.edges;
     counts = RepoViews.metrics(data.system?.edges || []);
     selected = null;
     renderBreadcrumb(true);
@@ -432,7 +1113,9 @@ __VIEW_HELPERS__
     document.getElementById('page-label').textContent = 'Whole repository';
     document.getElementById('scope').textContent = 'System overview';
     document.getElementById('map-title').textContent = 'System architecture';
-    document.getElementById('map-subtitle').textContent = `${parts.length} source areas · observed imports · roles inferred from directory structure`;
+    const importCount=value=>Number.isSafeInteger(value) && value>=0 ? value.toLocaleString() : 'unknown';
+    const basis=data.scan?.basis==='shared_structural_index' ? `Shared index: admitted import bindings · ${importCount(data.scan.import_certainty_counts?.candidate)} candidate bindings · ${importCount(data.scan.unresolved_import_bindings)} unresolved bindings (omitted from edges).` : 'Legacy captured import map; structural certainty unavailable.';
+    document.getElementById('map-subtitle').textContent = `${parts.length} source areas${overview.omittedAreas ? ' · '+overview.omittedAreas+' omitted at area limit' : ''} · ${links.length} of ${overview.relations} grouped import relations · ${overview.imports.toLocaleString()} captured imports. ${basis} Directory roles are inferred; calls are not shown.`;
     document.getElementById('stat-components').textContent = parts.length;
     document.getElementById('stat-links').textContent = links.length;
     svg.style.display = 'block'; document.getElementById('data-panel').hidden = true;
@@ -522,9 +1205,10 @@ __VIEW_HELPERS__
       const wire = make('path',attrs,world);
       if (edge.relation === 'imports' && edge.count > 1) {
         const point = wire.getPointAtLength(wire.getTotalLength() / 2);
-        const label = `${edge.count} links`;
+        const label = `${edge.count} imports`;
         const g = make('g',{class:'edge-label-wrap','data-source':edge.source,'data-target':edge.target},world);
-        make('rect',{x:point.x - 27,y:point.y - 10,width:54,height:19,rx:9,class:'edge-label'},g);
+        const labelWidth = Math.max(54,label.length*7+16);
+        make('rect',{x:point.x-labelWidth/2,y:point.y-10,width:labelWidth,height:19,rx:9,class:'edge-label'},g);
         const text = make('text',{x:point.x,y:point.y + 3,'text-anchor':'middle',class:'edge-label-text'},g);
         text.textContent = label;
       }
@@ -554,7 +1238,8 @@ __VIEW_HELPERS__
     if (svg.style.display === 'none' || !positions.size) return;
     const boxes = [...positions.values()], x = Math.min(...boxes.map(box => box.x)), y = Math.min(...boxes.map(box => box.y));
     const width = Math.max(...boxes.map(box => box.x+box.width))-x, height = Math.max(...boxes.map(box => box.y+box.height))-y;
-    const top = selected ? 190 : 145, w = svg.clientWidth-64, h = svg.clientHeight-top-70;
+    const heading = document.querySelector('.stage-heading').getBoundingClientRect?.();
+    const top = Math.max(selected ? 190 : 145,heading ? heading.bottom-svg.getBoundingClientRect().top+24 : 0), w = svg.clientWidth-64, h = svg.clientHeight-top-70;
     scale = Math.max(.15,Math.min(1.1,w/width,h/height));
     tx = 32+(w-width*scale)/2-x*scale; ty = top+(h-height*scale)/2-y*scale; transform();
   }
@@ -575,6 +1260,7 @@ __VIEW_HELPERS__
         target?.focus({preventScroll:true});
       }
     });
+    scheduleSavedView();
   }
   function refresh() {
     const matches = new Set(parts.filter(n => n.name.toLowerCase().includes(query) || n.files.some(f => f.toLowerCase().includes(query))).map(n => n.id));
@@ -610,7 +1296,7 @@ __VIEW_HELPERS__
     const rule = document.createElement('div'); rule.className = 'accent-rule'; rule.style.background = color(node.id); host.appendChild(rule);
     const related = (viewMode === 'system' ? data.system.edges : data.scope_edges[scopePath] || []).filter(e => e.source === node.id || e.target === node.id);
     const metrics = document.createElement('div'); metrics.className = 'detail-metrics';
-    for (const [value,label] of [[node.count,'FILES'],[related.length,'CONNECTIONS']]) { const box = document.createElement('div'); const strong = document.createElement('strong'); strong.textContent = value; const span = document.createElement('span'); span.textContent = label; box.append(strong,span); metrics.appendChild(box); }
+    for (const [value,label] of [[node.count,'FILES'],[related.length,'IMPORT RELATIONS'],[related.reduce((sum,edge) => sum+edge.count,0),'CAPTURED IMPORTS']]) { const box = document.createElement('div'); const strong = document.createElement('strong'); strong.textContent = value; const span = document.createElement('span'); span.textContent = label; box.append(strong,span); metrics.appendChild(box); }
     host.appendChild(metrics);
     if (node.role) { const role = document.createElement('p'); role.className = 'eyebrow'; role.textContent = `${node.kind === 'system' ? 'Component role' : 'Jev role'} · ${node.role}`; host.appendChild(role); }
     if (node.kind === 'system') {
@@ -633,6 +1319,7 @@ __VIEW_HELPERS__
       const open = document.createElement('button'); open.type = 'button'; open.className = 'top-button primary';
       open.textContent = 'Explore directory →'; open.addEventListener('click',() => enter(node.id)); host.appendChild(open);
     }
+    if(node.kind==='file' && online)host.appendChild(callButton('Find declarations in Calls',()=>openFileDeclarations(node.name)));
     const addSection = (heading,items,asLinks = false) => {
       const section = document.createElement('section'); section.className = 'detail-section'; const h = document.createElement('h3'); h.textContent = heading; section.appendChild(h);
       if (!items.length) { const empty = document.createElement('p'); empty.textContent = 'No items in the bounded overview.'; section.appendChild(empty); }
@@ -640,7 +1327,7 @@ __VIEW_HELPERS__
       host.appendChild(section);
     };
     addSection('Sample source paths',node.files);
-    addSection('Import connections',related.slice(0,20).map(e => ({id:e.source === node.id ? e.target : e.source,count:e.count,direction:e.source === node.id ? '→' : '←'})),true);
+    addSection(`Import relations (${Math.min(20,related.length)} of ${related.length})`,related.slice(0,20).map(e => ({id:e.source === node.id ? e.target : e.source,count:e.count,direction:e.source === node.id ? '→' : '←'})),true);
   }
   let drag = null;
   svg.addEventListener('pointerdown',event => { if (event.target.closest('.node')) return; drag = {x:event.clientX,y:event.clientY,tx,ty}; svg.setPointerCapture(event.pointerId); svg.classList.add('dragging'); });
@@ -657,6 +1344,8 @@ __VIEW_HELPERS__
   document.getElementById('zoom-out').addEventListener('click',() => zoom(1/1.2));
   document.getElementById('fit').addEventListener('click',fit);
   function changeView(mode) {
+    if(savedControl)cancelSavedRestore('Restore partial: changing view stopped replay.');
+    if(['calls','impact','paths'].includes(viewMode) && mode!==viewMode) stopCalls(false);
     if (viewMode === 'search' && mode !== 'search') searchRequest++;
     if (mode === 'system' || viewMode === 'system') { query = ''; page = 0; document.getElementById('search').value = ''; }
     viewMode = mode; document.getElementById('view-mode').value = mode; renderScope();
@@ -664,7 +1353,7 @@ __VIEW_HELPERS__
   document.getElementById('view-mode').addEventListener('change',event => changeView(event.target.value));
   document.getElementById('sort-mode').addEventListener('change',event => { sortMode = event.target.value; page = 0; renderScope(); });
   document.getElementById('kind-filter').addEventListener('change',event => { kindFilter = event.target.value; page = 0; renderScope(); });
-  for (const [id,mode] of [['tab-system','system'],['tab-explore','atlas'],['tab-data','table'],['tab-search','search']]) document.getElementById(id).addEventListener('click',() => changeView(mode));
+  for (const [id,mode] of [['tab-system','system'],['tab-explore','atlas'],['tab-data','table'],['tab-search','search'],['tab-calls','calls'],['tab-impact','impact'],['tab-paths','paths']]) document.getElementById(id).addEventListener('click',() => changeView(mode));
   document.querySelector('.view-tabs').addEventListener('keydown',event => {
     if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
     event.preventDefault(); const tabs = [...document.querySelectorAll('.view-tabs button')], index = tabs.indexOf(document.activeElement);
@@ -683,12 +1372,21 @@ __VIEW_HELPERS__
   function closeInspector() { document.getElementById('inspector').classList.remove('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded','false'); if (inspectorReturnFocus?.isConnected) inspectorReturnFocus.focus({preventScroll:true}); }
   document.getElementById('inspector-toggle').addEventListener('click',() => { const open = document.getElementById('inspector').classList.toggle('open'); document.getElementById('inspector-toggle').setAttribute('aria-expanded',String(open)); if (open) { inspectorReturnFocus = document.activeElement; document.getElementById('close-inspector').focus(); } else closeInspector(); });
   document.getElementById('close-inspector').addEventListener('click',closeInspector);
-  document.addEventListener('keydown',event => { if (event.key === 'Escape' && window.innerWidth <= 1100) closeInspector(); });
+  document.addEventListener('keydown',event => { if (event.key === 'Escape' && !event.defaultPrevented && window.innerWidth <= 1100) closeInspector(); });
   document.getElementById('previous').addEventListener('click',() => { page--; renderScope(); });
   document.getElementById('next').addEventListener('click',() => { page++; renderScope(); });
   document.getElementById('export-svg').addEventListener('click',() => { const clone = svg.cloneNode(true); clone.setAttribute('xmlns',svgNS); clone.setAttribute('width',String(svg.clientWidth)); clone.setAttribute('height',String(svg.clientHeight)); const styles = document.createElementNS(svgNS,'style'); styles.textContent = [...document.styleSheets].flatMap(sheet => { try { return [...sheet.cssRules].map(rule => rule.cssText); } catch { return []; } }).join('\n'); clone.insertBefore(styles,clone.firstChild); const blob = new Blob([new XMLSerializer().serializeToString(clone)],{type:'image/svg+xml'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${data.name}-${graphMode ? 'dependencies' : 'architecture'}.svg`; a.click(); setTimeout(() => URL.revokeObjectURL(url),1000); });
   window.addEventListener('resize',() => selected ? centerNode(selected) : fit());
+  window.addEventListener('hashchange',()=>{stopCalls(false);location.reload();});
+  document.getElementById('cancel-saved-restore').addEventListener('click',()=>cancelSavedRestore());
+  document.getElementById('copy-view-bookmark').addEventListener('click',copyBookmark);
+  document.getElementById('clear-saved-view').addEventListener('click',()=>{
+    cancelSavedRestore();stopCalls(false);savedCleared=true;detachBookmark();
+    try {savedStorage?.removeItem(savedKey);savedNotice('Saved view cleared from this tab. The next reload starts with ordinary navigation.');}
+    catch {savedNotice('Tab storage unavailable; the saved view could not be cleared.');}
+  });
   renderScope();
+  restoreSavedView();
 })();
 </script>
 </body>

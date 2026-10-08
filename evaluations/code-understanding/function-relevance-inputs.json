@@ -1,0 +1,569 @@
+{
+  "schema_version": 1,
+  "status": "synthetic_relevance_freeze_preparation",
+  "origin": "Original public synthetic source; no real-source corpus or session content.",
+  "review": {
+    "status": "pending_independent_source_key_review",
+    "kind": "source_grounded_synthetic_author_key",
+    "independent_human_review": false,
+    "producer_outputs_used": false,
+    "search_outputs_used": false,
+    "model_scores_used": false
+  },
+  "range_convention": {
+    "bytes": "zero-based half-open original UTF-8 bytes",
+    "lines": "one-based inclusive lines touched by range; end_byte is exclusive",
+    "physical_id": "path:start_byte:end_byte"
+  },
+  "judgment_scope": "Only listed relevant, supporting and distractor IDs are judged. Other functions are unjudged; do not derive full precision from omitted labels. Relevance is static source evidence, not proof of runtime results or model quality.",
+  "files": [
+    {
+      "path": "tests/fixtures/code-understanding/retrieval/python.py",
+      "language": "python",
+      "sha256": "6ad715939587fd255cb9e6f5eeb491f95e09ce7fc01dfdb328a3d9b584becfcd",
+      "bytes": 593
+    },
+    {
+      "path": "tests/fixtures/code-understanding/retrieval/go.go",
+      "language": "go",
+      "sha256": "71ebf44c012f6ae1f074c215a5be03ba3a313bcdca7b0e3f9e92f3182b92004b",
+      "bytes": 365
+    },
+    {
+      "path": "tests/fixtures/code-understanding/retrieval/javascript.js",
+      "language": "javascript",
+      "sha256": "8c23afc39757e66f8679ac473dca7b5ec792df7f90dce5ae3978c072038740f0",
+      "bytes": 408
+    },
+    {
+      "path": "tests/fixtures/code-understanding/retrieval/typescript.ts",
+      "language": "typescript",
+      "sha256": "af6e4caf3690f296f722f99f1d7afc61a0822b10043357f46cebdfbf6a8aee89",
+      "bytes": 406
+    }
+  ],
+  "functions": [
+    {
+      "label": "PY.checkout_total",
+      "id": "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+      "path": "tests/fixtures/code-understanding/retrieval/python.py",
+      "name": "checkout_total",
+      "kind": "function",
+      "range": {
+        "start_byte": 0,
+        "end_byte": 257,
+        "start_line": 1,
+        "end_line": 6
+      },
+      "raw_sha256": "d03c556367f8faec827d29e79399bf4a418f40ca65c6e85e6245f595b84d6b8c",
+      "anchors": {
+        "start": "def checkout_total(items):",
+        "end": "    return café_total(items)"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/python.py:0:257"
+    },
+    {
+      "label": "PY.café_total",
+      "id": "tests/fixtures/code-understanding/retrieval/python.py:95:227",
+      "path": "tests/fixtures/code-understanding/retrieval/python.py",
+      "name": "checkout_total.café_total",
+      "kind": "function",
+      "range": {
+        "start_byte": 95,
+        "end_byte": 227,
+        "start_line": 3,
+        "end_line": 5
+      },
+      "raw_sha256": "3c6a52b6d16eb4be6d7416a6239379221c5784e070af898a1de8ca1e201f3ce9",
+      "anchors": {
+        "start": "def café_total(values):",
+        "end": "        return sum(value[\"price\"] for value in values)"
+      },
+      "lexical_parent_id": "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+      "context_family": "tests/fixtures/code-understanding/retrieval/python.py:0:257"
+    },
+    {
+      "label": "PY.checkout_preview",
+      "id": "tests/fixtures/code-understanding/retrieval/python.py:260:371",
+      "path": "tests/fixtures/code-understanding/retrieval/python.py",
+      "name": "checkout_preview",
+      "kind": "function",
+      "range": {
+        "start_byte": 260,
+        "end_byte": 371,
+        "start_line": 9,
+        "end_line": 11
+      },
+      "raw_sha256": "2c9e600eec1c0fcd4980be7b91cc72716eae52aed1f4f2b369e11e86c251989c",
+      "anchors": {
+        "start": "def checkout_preview(items):",
+        "end": "    return \"price\""
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/python.py:260:371"
+    },
+    {
+      "label": "PY.refund_balance",
+      "id": "tests/fixtures/code-understanding/retrieval/python.py:374:496",
+      "path": "tests/fixtures/code-understanding/retrieval/python.py",
+      "name": "refund_balance",
+      "kind": "function",
+      "range": {
+        "start_byte": 374,
+        "end_byte": 496,
+        "start_line": 14,
+        "end_line": 16
+      },
+      "raw_sha256": "f54722936eb81f8ed38d1bd60fa58b9eea5a16f71e8195119ff35493ae5864e0",
+      "anchors": {
+        "start": "def refund_balance(balance, amount):",
+        "end": "    return balance - amount"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/python.py:374:496"
+    },
+    {
+      "label": "PY.invalidate_cache",
+      "id": "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+      "path": "tests/fixtures/code-understanding/retrieval/python.py",
+      "name": "invalidate_cache",
+      "kind": "function",
+      "range": {
+        "start_byte": 499,
+        "end_byte": 592,
+        "start_line": 19,
+        "end_line": 21
+      },
+      "raw_sha256": "6bd4c568ddcc123572f74bb9d64be5359d9a0074cb85219dae688e661aef1635",
+      "anchors": {
+        "start": "def invalidate_cache(cache, key):",
+        "end": "    del cache[key]"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/python.py:499:592"
+    },
+    {
+      "label": "GO.EvictWorkspace",
+      "id": "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+      "path": "tests/fixtures/code-understanding/retrieval/go.go",
+      "name": "EvictWorkspace",
+      "kind": "function",
+      "range": {
+        "start_byte": 19,
+        "end_byte": 152,
+        "start_line": 3,
+        "end_line": 6
+      },
+      "raw_sha256": "c3bd0725c9ee2ea7121b8c03c67ae18156e05eeeef960fc3b5dd7d379e044346",
+      "anchors": {
+        "start": "func EvictWorkspace(cache map[string]int, workspace string) {",
+        "end": "\tdelete(cache, workspace)\n}"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+    },
+    {
+      "label": "GO.EvictWorkspacePreview",
+      "id": "tests/fixtures/code-understanding/retrieval/go.go:154:286",
+      "path": "tests/fixtures/code-understanding/retrieval/go.go",
+      "name": "EvictWorkspacePreview",
+      "kind": "function",
+      "range": {
+        "start_byte": 154,
+        "end_byte": 286,
+        "start_line": 8,
+        "end_line": 11
+      },
+      "raw_sha256": "eed4700b56b4e6fa0fe9cf27c0950393bc4881e9625683cc1b39012600c4e3a6",
+      "anchors": {
+        "start": "func EvictWorkspacePreview(workspace string) string {",
+        "end": "\treturn workspace\n}"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/go.go:154:286"
+    },
+    {
+      "label": "GO.ArchiveCache",
+      "id": "tests/fixtures/code-understanding/retrieval/go.go:288:364",
+      "path": "tests/fixtures/code-understanding/retrieval/go.go",
+      "name": "ArchiveCache",
+      "kind": "function",
+      "range": {
+        "start_byte": 288,
+        "end_byte": 364,
+        "start_line": 13,
+        "end_line": 16
+      },
+      "raw_sha256": "b2a2acb9a025d213300d57513ba0d1810d3f7170fb7657662dfb392dad6bec71",
+      "anchors": {
+        "start": "func ArchiveCache() string {",
+        "end": "\treturn marker\n}"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/go.go:288:364"
+    },
+    {
+      "label": "JS.decodeLedger",
+      "id": "tests/fixtures/code-understanding/retrieval/javascript.js:0:183",
+      "path": "tests/fixtures/code-understanding/retrieval/javascript.js",
+      "name": "decodeLedger",
+      "kind": "function",
+      "range": {
+        "start_byte": 0,
+        "end_byte": 183,
+        "start_line": 1,
+        "end_line": 7
+      },
+      "raw_sha256": "783511fa0bd42a42d001306928cf1f1f62bc7a45a4165845fc353542ab223dba",
+      "anchors": {
+        "start": "function decodeLedger(entries) {",
+        "end": "  return entries.map(readAmount);\n}"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+    },
+    {
+      "label": "JS.readAmount",
+      "id": "tests/fixtures/code-understanding/retrieval/javascript.js:90:147",
+      "path": "tests/fixtures/code-understanding/retrieval/javascript.js",
+      "name": "decodeLedger.readAmount",
+      "kind": "function",
+      "range": {
+        "start_byte": 90,
+        "end_byte": 147,
+        "start_line": 3,
+        "end_line": 5
+      },
+      "raw_sha256": "6c021d2ae3b62e10d0881c40a05bd337b7985057fb526fe0087e7ed9d9262dce",
+      "anchors": {
+        "start": "function readAmount(entry) {",
+        "end": "    return entry.amount;\n  }"
+      },
+      "lexical_parent_id": "tests/fixtures/code-understanding/retrieval/javascript.js:0:183",
+      "context_family": "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+    },
+    {
+      "label": "JS.decodeLedgerGuide",
+      "id": "tests/fixtures/code-understanding/retrieval/javascript.js:185:290",
+      "path": "tests/fixtures/code-understanding/retrieval/javascript.js",
+      "name": "decodeLedgerGuide",
+      "kind": "function",
+      "range": {
+        "start_byte": 185,
+        "end_byte": 290,
+        "start_line": 9,
+        "end_line": 12
+      },
+      "raw_sha256": "3c568c5385eb80d2238c089e4e439b1f4f9c85dff972ee63a7da9d2784a09259",
+      "anchors": {
+        "start": "function decodeLedgerGuide() {",
+        "end": "  return \"amount\";\n}"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/javascript.js:185:290"
+    },
+    {
+      "label": "JS.invalidateTenantCache",
+      "id": "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+      "path": "tests/fixtures/code-understanding/retrieval/javascript.js",
+      "name": "invalidateTenantCache",
+      "kind": "function",
+      "range": {
+        "start_byte": 292,
+        "end_byte": 407,
+        "start_line": 14,
+        "end_line": 17
+      },
+      "raw_sha256": "e9fe3d7d60f92f97377b36a0032f1857f1dd0817672c5d8563491506387f6081",
+      "anchors": {
+        "start": "function invalidateTenantCache(cache, tenant) {",
+        "end": "  delete cache[tenant];\n}"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/javascript.js:292:407"
+    },
+    {
+      "label": "TS.lookupProfileById",
+      "id": "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168",
+      "path": "tests/fixtures/code-understanding/retrieval/typescript.ts",
+      "name": "lookupProfileById",
+      "kind": "function",
+      "range": {
+        "start_byte": 47,
+        "end_byte": 168,
+        "start_line": 3,
+        "end_line": 5
+      },
+      "raw_sha256": "10795946d3b4eb0e86b25ffb4decc5d3d9e75d20e9892e537f074c7259d1cfc3",
+      "anchors": {
+        "start": "function lookupProfileById(profiles: Record<string, Profile>, id: string): Profile | undefined {",
+        "end": "  return profiles[id];\n}"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168"
+    },
+    {
+      "label": "TS.lookupProfileExample",
+      "id": "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249",
+      "path": "tests/fixtures/code-understanding/retrieval/typescript.ts",
+      "name": "lookupProfileExample",
+      "kind": "function",
+      "range": {
+        "start_byte": 170,
+        "end_byte": 249,
+        "start_line": 7,
+        "end_line": 9
+      },
+      "raw_sha256": "a91ab0123f71663243e5b5fdfa2d410015d5c363b7369f9d84f408000faf1f37",
+      "anchors": {
+        "start": "function lookupProfileExample(id: string): string {",
+        "end": "  return \"profile:\" + id;\n}"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+    },
+    {
+      "label": "TS.invalidateProfileCache",
+      "id": "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405",
+      "path": "tests/fixtures/code-understanding/retrieval/typescript.ts",
+      "name": "invalidateProfileCache",
+      "kind": "function",
+      "range": {
+        "start_byte": 251,
+        "end_byte": 405,
+        "start_line": 11,
+        "end_line": 14
+      },
+      "raw_sha256": "9500650507d346fdf89a682e22da3e326e5789a6e41f4cd1e9d5140671a263cc",
+      "anchors": {
+        "start": "function invalidateProfileCache(profiles: Record<string, Profile>, id: string): void {",
+        "end": "  delete profiles[id];\n}"
+      },
+      "lexical_parent_id": null,
+      "context_family": "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+    }
+  ],
+  "questions": [
+    {
+      "id": "FR001",
+      "category": "exact_identifier",
+      "query": "café_total",
+      "question": "Find the nested café_total function that sums item prices.",
+      "relevant_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+      ],
+      "distractor_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:260:371"
+      ],
+      "relevance_rationale": "The nested body sums value[\"price\"]; checkout_preview only returns the field name.",
+      "exact_identifier": "café_total"
+    },
+    {
+      "id": "FR002",
+      "category": "nested_overlap",
+      "query": "cart subtotal",
+      "question": "Find the checkout wrapper and nested helper that compute a cart subtotal.",
+      "relevant_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:0:257",
+        "tests/fixtures/code-understanding/retrieval/python.py:95:227"
+      ],
+      "distractor_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:260:371"
+      ],
+      "relevance_rationale": "The wrapper invokes its nested helper, which sums prices. The preview describes fields without computing them.",
+      "diversity": {
+        "unit": "nonoverlapping_context_family",
+        "expected_relevant_families": 1,
+        "overlapping_members_count_as_one_family": true
+      }
+    },
+    {
+      "id": "FR003",
+      "category": "exact_identifier",
+      "query": "EvictWorkspace",
+      "question": "Find EvictWorkspace, which removes one workspace cache entry.",
+      "relevant_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/go.go:19:152"
+      ],
+      "distractor_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/go.go:154:286"
+      ],
+      "relevance_rationale": "EvictWorkspace contains delete(cache, workspace); EvictWorkspacePreview only returns the workspace.",
+      "exact_identifier": "EvictWorkspace"
+    },
+    {
+      "id": "FR004",
+      "category": "body_only",
+      "query": "tombstone",
+      "question": "Find the function that returns the archive tombstone marker.",
+      "relevant_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/go.go:288:364"
+      ],
+      "distractor_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/go.go:154:286"
+      ],
+      "relevance_rationale": "ArchiveCache assigns the marker string and returns it. Its declaration does not contain tombstone.",
+      "candidate_miss_control": {
+        "expected_miss": "file_synopsis",
+        "basis": "tombstone appears only in a plain body assignment, outside the current synopsis declaration/comment selection; verify rather than rewrite this expectation."
+      }
+    },
+    {
+      "id": "FR005",
+      "category": "exact_identifier",
+      "query": "decodeLedger",
+      "question": "Find decodeLedger, which maps ledger entries to their amounts.",
+      "relevant_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/javascript.js:0:183"
+      ],
+      "distractor_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/javascript.js:185:290"
+      ],
+      "relevance_rationale": "The parent maps entries with nested readAmount; decodeLedgerGuide only returns a field name.",
+      "exact_identifier": "decodeLedger",
+      "supporting_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/javascript.js:90:147"
+      ]
+    },
+    {
+      "id": "FR006",
+      "category": "diversity",
+      "query": "invalidate cache",
+      "question": "Find the independent functions that remove cache entries for four data contexts.",
+      "relevant_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:499:592",
+        "tests/fixtures/code-understanding/retrieval/go.go:19:152",
+        "tests/fixtures/code-understanding/retrieval/javascript.js:292:407",
+        "tests/fixtures/code-understanding/retrieval/typescript.ts:251:405"
+      ],
+      "distractor_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/go.go:154:286",
+        "tests/fixtures/code-understanding/retrieval/javascript.js:185:290",
+        "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+      ],
+      "relevance_rationale": "These four bodies contain explicit deletion for key, workspace, tenant and profile; four physical files provide independent contexts.",
+      "diversity": {
+        "unit": "nonoverlapping_context_family",
+        "expected_relevant_families": 4,
+        "expected_languages": [
+          "python",
+          "go",
+          "javascript",
+          "typescript"
+        ],
+        "overlapping_members_count_as_one_family": true
+      }
+    },
+    {
+      "id": "FR007",
+      "category": "exact_identifier",
+      "query": "lookupProfileById",
+      "question": "Find lookupProfileById, which retrieves a profile by dictionary key.",
+      "relevant_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/typescript.ts:47:168"
+      ],
+      "distractor_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+      ],
+      "relevance_rationale": "The body returns profiles[id]; lookupProfileExample constructs a display string.",
+      "exact_identifier": "lookupProfileById"
+    },
+    {
+      "id": "FR008",
+      "category": "candidate_miss",
+      "query": "reverse remittance",
+      "question": "Find the function that subtracts a paid amount from a retained balance.",
+      "relevant_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:374:496"
+      ],
+      "distractor_function_ids": [
+        "tests/fixtures/code-understanding/retrieval/python.py:260:371",
+        "tests/fixtures/code-understanding/retrieval/typescript.ts:170:249"
+      ],
+      "relevance_rationale": "refund_balance returns balance - amount. The deliberately paraphrased query has no lexical match in the frozen sources.",
+      "candidate_miss_control": {
+        "expected_miss": "both_keyword_shortlists",
+        "basis": "Neither reverse nor remittance occurs in source paths or source bytes. Reranking cannot recover a function absent from the offered shortlist."
+      }
+    }
+  ],
+  "denominators": {
+    "questions": 8,
+    "languages": 4,
+    "source_files": 4,
+    "physical_functions": 15,
+    "relevant_question_function_pairs": 12,
+    "unique_relevant_function_ids": 10,
+    "exact_identifier_questions": 4,
+    "nested_overlap_questions": 1,
+    "diversity_questions": 1,
+    "candidate_miss_questions": 2
+  },
+  "comparison": {
+    "status": "planned_unexecuted",
+    "source_inventory": "Exactly files listed here, copied byte-for-byte into one isolated source root.",
+    "arms": [
+      "existing file synopsis keyword evidence",
+      "existing captured function keyword evidence"
+    ],
+    "shared_foundation": "Use the same admitted source inventory/output owner, file catalog and structural-v2/function evidence foundation; retain both catalog and all five structural identities.",
+    "query_order": [
+      "FR001",
+      "FR002",
+      "FR003",
+      "FR004",
+      "FR005",
+      "FR006",
+      "FR007",
+      "FR008"
+    ],
+    "mode": "keyword",
+    "reranker": "none",
+    "top_k": 10,
+    "function_limits": {
+      "max_entities": 50,
+      "max_response_bytes": 32768,
+      "max_excerpt_bytes": 8192,
+      "timeout_seconds": 0.5
+    },
+    "function_candidate_recall": "At 10 returned passages, count expected relevant physical IDs present in members; denominator is relevant question/function pairs. Report each question and misses, not only aggregate.",
+    "file_candidate_coverage": "At 10 returned file rows, count expected relevant IDs whose file is returned. This file-presence proxy is not physical function recall or proof that the synopsis contains the implementation.",
+    "evidence_coverage": "Separately record whether returned captured text includes the source anchor supporting each relevance judgment; file presence alone does not count.",
+    "exact_identifier_regression": "For each of four exact queries, retain expected physical target presence and source affinity; also report file-presence evidence separately.",
+    "diversity": "Count relevant context families and languages, with nested/overlapping parent-child IDs counted as one context family. Do not treat distinct members of one merged range as independent passages.",
+    "retain": [
+      "source/config/analyzer/captured generation identities",
+      "all per-question returned physical handles and observed scores",
+      "candidate and evidence misses",
+      "truncation/deadline/byte/entity receipts",
+      "actual API calls",
+      "individual failures"
+    ],
+    "failure_policy": "A missing or differently ranged frozen ID is an extraction/source-affinity failure, not a reason to replace the key. Unmet recall/diversity expectations and intentional misses remain in the result.",
+    "ceilings": "Four tiny synthetic files and eight questions do not establish corpus-scale recall, model relevance quality, package-routing value, ANN benefit, or independent human outcomes."
+  },
+  "optional_decisions": [
+    {
+      "alternative": "richer source/context evidence",
+      "decision": "defer implementation",
+      "trigger": "Compare captured body evidence against existing synopsis first; require a measured, source-reviewed missed context before widening export."
+    },
+    {
+      "alternative": "diversity or package routing",
+      "decision": "defer implementation",
+      "trigger": "Measure relevant context-family coverage after existing overlap deduplication; preserve exact-identifier regressions and candidate misses."
+    },
+    {
+      "alternative": "cached local encoder or local reranking",
+      "decision": "not admitted for this freeze",
+      "availability": "unobserved",
+      "trigger": "A later authorized comparison must prove the exact cached model and package available offline without provider changes or downloads."
+    },
+    {
+      "alternative": "ANN/vector backend",
+      "decision": "defer implementation",
+      "trigger": "No vector/scale measurement in this fixture freeze; require measured current-search limitation and independent review."
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "admission_is_task_acceptance": false,
+  "human_ux_approval": false,
+  "implementation_approval": false,
+  "input_manifest": {
+    "bytes": 218443,
+    "path": "evaluations/code-understanding/django-framework-inputs.json",
+    "sha256": "2348603f592660275f9a5750c18fe3e08c1679516333e7613fef9f78589f26c9"
+  },
+  "review": {
+    "authorization": "D010_explicit_user_override",
+    "configured_reasoning_effort": "xhigh",
+    "human": false,
+    "independent": true,
+    "kind": "independent_ai_source_review",
+    "model": "gpt-6-astra",
+    "receipt_sha256": "4b7ed42659ff61b6f5deb08f6394d8fb4b41d72b4be4490c2cf3b19b0cce1975",
+    "served_model_telemetry": null
+  },
+  "schema_version": 1,
+  "source_key_disposition": {
+    "adversarial": {
+      "callbacks_and_facades": "Relative symbol callbacks use the existing shared resolver. Absolute callbacks remain unknown even when matching source exists. Four finite facade edges do not authorize arbitrary reexports, wildcard resolution, initializer execution or lexical-call promotion.",
+      "identity": "Explicit opt-in dependency and source-root ownership qualify only the finite registration context. A django name, matching export, source hash or gold case identifier cannot independently choose a runtime target.",
+      "module_selection": "Canonical .py and /__init__.py alternatives are selected before export inspection. Positive and negative candidate/initializer witnesses were checked. Missing, competing, partial, shadowed, conditional and decorated evidence must withhold exact targets.",
+      "owner_feasibility": "The contract is feasible through one-tree syntax seeds, strict CollectedFile decoding, the shared resolver, StructuralIndex and SQLSnapshot/Queries. New seeds and rows must be charged in serial and queued admission and query budgets. These extensions are explicitly unimplemented and are not qualified here.",
+      "snapshot_semantics": "Held-snapshot continuation retains old identity without mixing generations; latest-source requests reject stale handles. Query signatures bind operation, filters, arguments and snapshot.",
+      "unknown_visibility": "Rejected candidates have source-backed framework_boundary rows with zero targets and no asserted Django identity. Genuine local lookalikes contribute no framework rows. Repeated registrations remain distinct pagination units."
+    },
+    "blocking_findings": [],
+    "correctness": {
+      "byte_inspection": {
+        "additional_callback_witnesses_verified": 9,
+        "anchor_records_verified": 117,
+        "mismatches": 0,
+        "mutation_recipes_verified_in_memory_only": 11,
+        "selected_corpus_files_verified_against_working_bytes_and_pinned_git_blobs": 17,
+        "source_selection_absent_witnesses_verified": 22,
+        "source_selection_present_witnesses_verified": 54,
+        "synthetic_files_verified": 19
+      },
+      "case_contract": {
+        "cases": 33,
+        "empty_target_boundary_rows": 19,
+        "local_lookalikes_without_framework_rows": 2,
+        "qualified_occurrences": 12
+      },
+      "pinned_django_revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+      "preservation": "Before/after input and helper snapshots are retained. The preserved prior review matches the original review bytes; current revised inputs match corrective-01/after.",
+      "prior_judgments": "Reused unchanged accepted physical judgments. All nine pinned-corpus case origins, targets and review-only physical candidates remain unchanged. Revised synthetic anchors and the new absolute-callback control were checked against current bytes.",
+      "scope": "Admission of the exact revised source key only.",
+      "synthetic_inventory_sha256": "7d9bfbfd145f305b44a3e4fbea435a204a620de0c1cf91080b9c51f41bb567e0"
+    },
+    "decision": "admit_source_key",
+    "input_sha256": "2348603f592660275f9a5750c18fe3e08c1679516333e7613fef9f78589f26c9",
+    "limitations": [
+      "This disposition admits only the exact revised source key. It does not accept T018 implementation, task, engine or scale qualification.",
+      "The finite registration resolver, typed handoff extensions, persistent/query integration, budget enforcement and incremental parity remain unimplemented or unexecuted in this review.",
+      "The two frozen contexts cover synthetic source and the selected pinned Django snapshot. Arbitrary roots, installed environments, runtime routing, inherited factory behavior and Odoo remain unqualified.",
+      "No producer, parser, repository evaluator, test, build, installation, model or benchmark was executed. No real corpus was copied into tracked files.",
+      "Human UX, agent-answer, model, installation, CI, release and publication gates remain unapproved."
+    ],
+    "per_blocker_disposition": {
+      "B1": {
+        "basis": "The revision freezes explicit consumer/dependency/root context, canonical module alternatives independent of exports, parent initializer witnesses and four allowed facade edges. Supported callbacks now use relative symbol imports; DJ-SYN-ROUTE-ABSOLUTE preserves absolute callback rejection. Current native source confirms that general absolute imports and arbitrary reexports remain unsupported.",
+        "ceiling": "Admission approves the finite policy and source judgments, not an implemented registration resolver or general Python environment qualification.",
+        "status": "closed_for_source_key_admission"
+      },
+      "B2": {
+        "basis": "The revised key consistently separates 12 qualified occurrences, 19 rejected candidate boundary rows and two local lookalikes. Shadowed/missing candidates and the real factory case retain observable uncertainty without fabricated identity or hook targets. Pagination and budget contracts include empty-target rows.",
+        "status": "closed_for_source_key_admission"
+      },
+      "B3": {
+        "affected_cases": [
+          "DJ-SYN-ROUTE-UTF8",
+          "DJ-SYN-ROUTE-MODULE-ALIAS",
+          "DJ-SYN-ROUTE-REPEATED-TARGET",
+          "DJ-SYN-ROUTE-REGEX-ALIAS",
+          "DJ-SYN-ROUTE-DECORATED",
+          "DJ-SYN-ROUTE-DUPLICATE"
+        ],
+        "basis": "DJ-INC-PARTIAL-CALLBACK removes the closing parenthesis and colon from the homepage header. The exact 321-byte mutated file and its anchor were independently reconstructed in memory and hash-checked.",
+        "ceiling": "Malformed syntax was inspected as bytes. Parser behavior, withholding and restoration parity were not executed.",
+        "malformed_source_sha256": "e6020666e35ca73d4641876f46cbce0af2c59560e7b6edfc11b1f61be8063a9b",
+        "mutated_inventory_sha256": "e8a06f54130a2b637c7c6cf59d4668cc6547e75b72775e52e972cb3d064b1c9a",
+        "required_outcome": "Zero exact targets, no qualified occurrence, visible partial_callback_source boundary with callback_dependency role, followed by exact baseline restoration and complete normalized clean/incremental parity.",
+        "status": "closed_for_source_key_admission"
+      }
+    }
+  },
+  "status": "admitted_frozen_source_key",
+  "task": "T018"
+}

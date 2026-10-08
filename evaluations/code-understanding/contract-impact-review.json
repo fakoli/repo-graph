@@ -1,0 +1,114 @@
+{
+  "admission_is_task_acceptance": false,
+  "adversarial": {
+    "scope": "Finite source selection/filter oracle; unknown source dependencies gain no target or cross-service hop.",
+    "status": "passed"
+  },
+  "canonical_inputs": {
+    "fixture_root": "tests/fixtures/code-understanding/contracts",
+    "inventory_sha256": "8858e96b333518bc96a647e8a8b54c9e0fbbf4050c958567918f5c5af992f4fc",
+    "manifest": {
+      "bytes": 162834,
+      "path": "evaluations/code-understanding/contract-inputs.json",
+      "sha256": "404969d67cd2ba621e3355e3de4346c84d6179c653307ce4d211d10f3f967e96"
+    },
+    "review": {
+      "bytes": 4149,
+      "path": "evaluations/code-understanding/contract-review.json",
+      "sha256": "3060839500456a14e5494a840f265364e436cbf7f5ef2d57215ec3df3f8156c9"
+    }
+  },
+  "correctness": {
+    "failed_checks": 0,
+    "independent_byte_json_git_checks": 1253,
+    "status": "passed"
+  },
+  "denominators": {
+    "existing_cases": 17,
+    "explicit_unknowns": 12,
+    "future_boundary_controls": 13,
+    "inventories": 11,
+    "mutations": 10,
+    "qualified_pairs": 4,
+    "source_assertions": 43,
+    "unbound_zero_rows": 1,
+    "unique_physical_anchors": 155
+  },
+  "human_ux_approval": false,
+  "implementation_approval": false,
+  "input_manifest": {
+    "bytes": 360255,
+    "path": "evaluations/code-understanding/contract-impact-inputs.json",
+    "sha256": "3aa2c2a22185a449e630056c020e9de160097b4fe4b55dc4496784c8840423f6"
+  },
+  "interface_disposition": {
+    "contracts_available_true_requires_captured_validated_membership_index": true,
+    "filters": {
+      "cursor_and_saved_v3_bind_all_filters": true,
+      "namespaces_max": 8,
+      "protocols": [
+        "http",
+        "rpc",
+        "queue"
+      ],
+      "protocols_max": 3,
+      "scope_echo": "arrays or null",
+      "services_max": 8,
+      "values": "unique nonempty strings, at most 256 UTF8 bytes; arrays or null"
+    },
+    "generation_hashes_membership_rows": true,
+    "impact_identity_binds_membership": true,
+    "legacy_receipts": "contracts_available=false receipts remain P1 call/import usable; they cannot silently claim contract capability.",
+    "required_contract_membership_schema": "captured-contract-membership-v1",
+    "required_impact_schema": "captured-impact-v1",
+    "scope": "Contract-only filters without explicit contract relation must be rejected. Existing budget/entity/source/accessibility controls continue.",
+    "status": "admitted_as_future_contract_not_runtime_proof"
+  },
+  "limitations": [
+    "This is finite source admission only. No product/parser/producer/query/evaluator/build/test/inference code was executed, and no Anvil, Git, source, environment, provider, installation or live serving state was mutated.",
+    "The 13 controls are admitted future requirements, not measured outcomes. Implementation/CLI/HTTP/view parity, source forgery resistance, cursor fencing, captured membership validation, saved projections, accessibility, resource bounds and CI remain untested here.",
+    "There is no admitted contract-cycle, contract high-fanout or mixed lexical/contract multihop gold in this packet. Existing P1 regression fixtures do not become contract truth. New joined-path claims require separately frozen and source-admitted cases.",
+    "Unknown dependencies are conservative reconsideration candidates and do not measure precision/recall, runtime transport, historical/deployment closure, execution order or completeness.",
+    "T021 dependency/status, T069 implementation/task acceptance, real agent/human UX, scale/resource, install, CI and release gates remain separate. The coordinator-supplied E000859 acceptance receipt was not read back in Anvil."
+  ],
+  "policy_disposition": {
+    "binding_interpretation": [
+      "Path membership selects dependency/judgment rows only. Unknowns gain zero exact targets and zero contract reachability hops.",
+      "Canonical endpoint candidates must share contract ID and canonical scoped identity, use the opposite role and the server owner; duplicate endpoints remain dependencies only. Queue consumer service remains explicit.",
+      "Direct baseline reverse membership inverts only the four original qualified physical pairs. The already-frozen SOURCE-ADD mutation supplies its separately inherited fifth pair.",
+      "Stale/missing source references identify historical expected witnesses. Only current full-digest-affine captured anchors may supply a handle or excerpt; partial origins use the current admitted profile row.",
+      "Namespace is the origin binding declared namespace. Services means origin service, distinct from endpoint or contract-owner service."
+    ],
+    "decision": "admit_the_proposed_dependency_policy_without_new_target_truth",
+    "reason": "An explicitly reviewed binding names its contract artifact and profile endpoint candidates. This establishes a conservative source dependency even when the origin is computed or mismatched. It supports finding which imported contract judgments must be reconsidered after source changes. It does not establish that the origin invokes those endpoints.",
+    "references": [
+      "oracle.json#/semantics",
+      "oracle.json#/admission_questions/0",
+      "contract-inputs.json#/source_admission/invalidation",
+      "contract-inputs.json#/source_admission/unknown_origin_policy",
+      "oracle.json#/proposed_boundary_controls/3"
+    ]
+  },
+  "retained_initial_checker_correction": {
+    "id": "T069-REVIEW-CHECK-001",
+    "note": "Initial reviewer check incorrectly required filter provenance references to equal only returned rows, producing 15 reference-set flags. Inspection showed existing_case_ids and references intentionally include all pre-filter rows, including excluded rows. Checker corrected to the pre-filter denominator; packet untouched; all initial artifacts retained.",
+    "references": [
+      "independent-check-initial.json",
+      "independent_check_initial.py",
+      "independent-check.json"
+    ]
+  },
+  "review": {
+    "authorization": "D010_explicit_user_override",
+    "configured_reasoning_effort": "xhigh",
+    "human": false,
+    "independent": true,
+    "requested_model": "gpt-6-astra",
+    "review_sha256": "b26060f171cd78db0a38d8af78f3c21e10b1cf98f917eb226900d3f325c02dfb",
+    "served_model_telemetry": null,
+    "usage": null
+  },
+  "schema_version": 1,
+  "status": "admitted_frozen_contract_impact_source",
+  "task": "T069"
+}

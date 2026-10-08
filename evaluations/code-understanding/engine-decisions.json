@@ -1,0 +1,989 @@
+{
+  "schema_version": 1,
+  "task_id": "code-understanding:T006",
+  "screening_date": "2026-10-06",
+  "status": "source_screened_installation_gap_no_engines_executed",
+  "selected_engine": null,
+  "engine_execution_count": 0,
+  "qualification_complete": false,
+  "input_identity": {
+    "fixture_sha256": "6742295d0536cb1df577f04a48f893c1b962b184b278875415c20611cfa5f87e",
+    "source_review_sha256": "ec360ca62426f69cfef6c801597968efc716dbe4c49e14caf43a907487dcca5d",
+    "input_lock_sha256": "418f5274d6c1d4c6f596f48b1485518cf5ec59d74a6006b7b64706d2b4d442a1",
+    "real_call_source_review": "Independent AI-reviewed source key under the T004 exception; not human UX or human agent-answer evidence."
+  },
+  "gate_policy": "ADR 0006 component gates are required for experimental structural selection; source eligibility permits an experiment, not feature acceptance.",
+  "proposed_query_limits": {
+    "status": "proposed_not_measured",
+    "depth": 2,
+    "entities": 50,
+    "relationships": 100,
+    "serialized_bytes": 32768,
+    "source_excerpt_bytes_within_total": 8192,
+    "examined_relationships": 10000,
+    "query_work_ms": 500,
+    "cold_start_reported_separately": true
+  },
+  "candidates": [
+    {
+      "id": "codebase-memory-mcp",
+      "repository": "DeusData/codebase-memory-mcp",
+      "revision": "268a9d8886642eb7f9b2ce45f5ce27cdecf0f519",
+      "disposition": "reject",
+      "eligibility": "ineligible_complete_structural_evidence_backend",
+      "status": "rejected_before_execution",
+      "executed": false,
+      "runtime_evidence": null,
+      "reason": "The supported graph surface cannot supply the frozen per-call byte ranges and every unresolved ordinary callsite. Internal AST spans are not exported by either CALLS emitter; unresolved ordinary calls are dropped. This rejection is an evidence-contract decision, not a daemon-isolation claim.",
+      "license": {
+        "identifier": "MIT",
+        "source_refs": [
+          "cbm_license",
+          "cbm_notices"
+        ],
+        "distribution_notice_audit": "not_executed"
+      },
+      "supported_interfaces": [
+        "cli index_repository with async=false and persistence=false",
+        "cli search_graph",
+        "cli query_graph",
+        "cli get_code_snippet",
+        "cli get_graph_schema"
+      ],
+      "lifecycle": {
+        "assessment": "local CLI namespace is source-supported; runtime coexistence and cleanup unmeasured",
+        "source_refs": [
+          "cbm_local_cli",
+          "cbm_runtime_configuration",
+          "cbm_runtime_namespace",
+          "cbm_cohort_namespace",
+          "cbm_project_namespace",
+          "cbm_worker_cancel"
+        ],
+        "configuration_boundary": "A unique CBM_RUNTIME_DIR scopes rendezvous/cohort/project locks on POSIX, plus separate CBM_CACHE_DIR and XDG_CONFIG_HOME. HOME/cache alone do not scope coordination. Default MCP, async index, install/update/uninstall and daemon control are excluded.",
+        "documentation_discrepancy": "README 112-132 says one-shot CLI connects to/starts the daemon. Exact main.c 2857-3021 instead runs a local server and returns before the MCP bootstrap path. The prior README-only rejection is superseded."
+      },
+      "source_safety": {
+        "assessment": "source-supported symlink exclusion and CBM_ALLOWED_ROOT containment; boundary/race checks not executed",
+        "source_refs": [
+          "cbm_source_discovery",
+          "cbm_runtime_configuration"
+        ]
+      },
+      "evidence": {
+        "assessment": "fails mandatory callsite/unknown retention",
+        "source_refs": [
+          "cbm_internal_call_span",
+          "cbm_sequential_export",
+          "cbm_parallel_export",
+          "cbm_parallel_resolution",
+          "cbm_export_certainty"
+        ],
+        "observed_constraints": [
+          "Internal CBMCall carries site_start_byte/site_end_byte. Sequential and parallel CALLS properties retain line, callee, confidence, strategy and candidate count, omitting those spans.",
+          "Unresolved ordinary calls continue without a callsite record in parallel resolution; sequential processing retains an aggregate unresolved counter.",
+          "Candidate count/heuristic confidence is not a candidate target set or proof of exact binding. A missing edge cannot distinguish absent call from unresolved call.",
+          "Reconstructing every site from a separate source parser would make that parser the fact owner; it does not qualify this pin as the complete evidence store."
+        ]
+      },
+      "incremental": {
+        "assessment": "incremental implementation exists; frozen update equivalence not executed",
+        "source_refs": [
+          "cbm_incremental"
+        ]
+      },
+      "query": {
+        "assessment": "output bounds and generation/result-bound cursors exist; exposed max_rows is explicitly a presentation budget, not evaluation work budget",
+        "source_refs": [
+          "cbm_query_materialization"
+        ],
+        "runtime_budget_proof": null
+      },
+      "language_coverage": {
+        "declared_languages": [
+          "python",
+          "go",
+          "javascript",
+          "typescript"
+        ],
+        "qualified_languages": [],
+        "outcome": "not_executed"
+      },
+      "component_gates": {
+        "source_safety": "not_executed",
+        "lifecycle": "not_executed",
+        "syntax_binding": "source_rejected",
+        "real_call_quality": "not_executed",
+        "uncertainty_coverage": "source_rejected",
+        "incremental_correctness": "not_executed",
+        "query_work": "not_executed",
+        "optional_installation": "not_executed"
+      },
+      "missing_prerequisites": [
+        "A supported per-callsite export with original byte spans, all unknowns and candidate sets is required before reconsidering this exact backend role.",
+        "Then prove isolated coexistence/cancellation/cleanup, source safety, update equivalence, bounded query work and optional installation on the frozen workload."
+      ],
+      "next_action": "No candidate execution for this complete-backend screening. A future upstream supported evidence interface or separately authorized enrichment-only experiment may reopen the decision."
+    },
+    {
+      "id": "joern-finite-batch",
+      "repository": "joernio/joern",
+      "revision": "b9e0ce2279b862615b07ed1afb0552502fe3ac05",
+      "disposition": "evaluate",
+      "eligibility": "source_eligible_installation_blocked",
+      "status": "blocked_install_qualification",
+      "executed": false,
+      "runtime_evidence": null,
+      "reason": "Finite frontend/parse/script/export interfaces are source-eligible. Exact optional setup is blocked before the build on the Go asset license/notice binding; no full structural owner or incremental product backend is qualified.",
+      "license": {
+        "identifier": "Apache-2.0",
+        "source_refs": [
+          "joern_license"
+        ],
+        "distribution_notice_audit": "sbt LICENSE/NOTICE and JS-tag/component Apache notices acquired; exact Go asset notice binding unresolved. JDK, transitive JAR and other distribution notices remain unqualified."
+      },
+      "supported_interfaces": [
+        "pysrc2cpg, gosrc2cpg, jssrc2cpg with explicit --output",
+        "joern-parse --language and --output",
+        "joern --script <trusted-fixed-script> --param <owned-cpg/output>",
+        "joern-export <owned-cpg> --repr all --format graphson --out <new-owned-directory>"
+      ],
+      "interface_source_refs": [
+        "joern_parse",
+        "joern_export",
+        "joern_script",
+        "joern_script_close"
+      ],
+      "installation": {
+        "route": "private supported source build at exact revision; no account installer",
+        "source_build_command": [
+          "sbt",
+          "createDistribution"
+        ],
+        "source_refs": [
+          "joern_requirements",
+          "joern_build",
+          "joern_sbt",
+          "joern_frontend_packaging",
+          "joern_go_astgen",
+          "joern_js_astgen",
+          "joern_astgen_resolution"
+        ],
+        "requirements": {
+          "jdk": "21",
+          "sbt": "2.0.10",
+          "scala": "3.8.3",
+          "codepropertygraph": "1.7.78",
+          "javascript_astgen": "3.50.1",
+          "go_astgen": "0.1.0"
+        },
+        "availability": {
+          "jdk": "OpenJDK 21.0.12.1 verified with java -version; engine not executed",
+          "sbt": "Official 2.0.10 distribution acquired privately and verified; not installed on PATH or executed.",
+          "joern_cli": "not found on PATH"
+        },
+        "release_mapping": {
+          "assessment": "No exact-pin tag in the bounded 100 most recent tag lookup; reviewed newest two releases resolve to different commits. A latest release substitution is rejected.",
+          "reviewed_tags": {
+            "v4.0.649": "8bab36571d0f63dab0566943e0270b334e5dd9f2",
+            "v4.0.648": "79f9665baa0999738b37c2b528327a14e1f524fe"
+          },
+          "source_build_required": true,
+          "archive_digest": null,
+          "binary_identity": null
+        },
+        "build_boundary": "Private checkout/build/cache/output only, bounded resources/deadline and retained dependency/artifact hashes/notices. createDistribution stages all distribution frontends; that larger build cost must be bounded and reported, not described as a three-frontend-only build.",
+        "runtime_boundary": "Pin bundled astgen hashes or use explicit ASTGEN_BIN/GOASTGEN_BIN; prevent substitution from ambient PATH. No plugin updater, server, daemon, interactive shell or project dependency fetch.",
+        "preparation": {
+          "status": "stopped_before_build",
+          "source_checkout_head": "b9e0ce2279b862615b07ed1afb0552502fe3ac05",
+          "source_checkout_clean": true,
+          "coordinator_source_review": "approved bounded private preparation/build; executable use stopped at the unresolved prerequisite",
+          "assets": [
+            {
+              "tag": "v2.0.10",
+              "asset": "sbt-2.0.10.tgz",
+              "url": "https://github.com/sbt/sbt/releases/download/v2.0.10/sbt-2.0.10.tgz",
+              "bytes": 56496121,
+              "sha256": "783fe0c278564e67fbd14ecaa9ace6b9433cf8ece0ad8f50ad436cb24622105c",
+              "published_digest_match": true,
+              "completed_at": "2026-10-07T02:25:52.794187+00:00"
+            },
+            {
+              "tag": "javascript-astgen/v3.50.1",
+              "asset": "astgen-linux",
+              "url": "https://github.com/joernio/astgen-monorepo/releases/download/javascript-astgen/v3.50.1/astgen-linux",
+              "bytes": 116925920,
+              "sha256": "16d6548d68542c397462c942bdcd64075c875a12cd75e742e7cd8548c9a9580a",
+              "published_digest_match": true,
+              "completed_at": "2026-10-07T02:25:56.562573+00:00"
+            },
+            {
+              "tag": "go-astgen/v0.1.0",
+              "asset": "goastgen-linux",
+              "url": "https://github.com/joernio/astgen-monorepo/releases/download/go-astgen/v0.1.0/goastgen-linux",
+              "bytes": 3433830,
+              "sha256": "cc2a1e1d5f613e8c6fea4c9ef2002b4e6f079164671c21e15b065f45bf6d506e",
+              "published_digest_match": true,
+              "completed_at": "2026-10-07T02:25:57.226153+00:00"
+            }
+          ],
+          "notice_checks": [
+            {
+              "artifact": "sbt LICENSE",
+              "url": "https://github.com/sbt/sbt/blob/v2.0.10/LICENSE",
+              "bytes": 11436,
+              "sha256": "08b5cd75c4b20578413ad6878b93e8186a673b12bfda076a2a021a355f90c5a7"
+            },
+            {
+              "artifact": "sbt NOTICE",
+              "url": "https://github.com/sbt/sbt/blob/v2.0.10/NOTICE",
+              "bytes": 3021,
+              "sha256": "af8e2da7b82e20b2f59d04e9288db54994fd479974c32020cc8b32952af22459"
+            },
+            {
+              "artifact": "JS component LICENSE",
+              "url": "https://github.com/joernio/astgen-monorepo/blob/a43e12b79d0be1b4fe47614ae4b1856aacbd6796/javascript-astgen/LICENSE",
+              "bytes": 11357,
+              "sha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1"
+            },
+            {
+              "artifact": "JS-tag monorepo LICENSE",
+              "url": "https://github.com/joernio/astgen-monorepo/blob/a43e12b79d0be1b4fe47614ae4b1856aacbd6796/LICENSE",
+              "bytes": 11357,
+              "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+            }
+          ],
+          "installation_gap": {
+            "status": "exact_go_asset_notice_binding_unresolved",
+            "asset": "goastgen-linux",
+            "version": "0.1.0",
+            "sha256": "cc2a1e1d5f613e8c6fea4c9ef2002b4e6f079164671c21e15b065f45bf6d506e",
+            "release_url": "https://github.com/joernio/astgen-monorepo/releases/tag/go-astgen/v0.1.0",
+            "tag_commit": "db450070a4242b8196d0d97ecf4434d9b6910e35",
+            "tag_source_url": "https://github.com/joernio/astgen-monorepo/tree/db450070a4242b8196d0d97ecf4434d9b6910e35",
+            "tag_inventory_sha256": "2c9ac684740625e46f8fe2a28ffa94e04594478d40d0dfa384b2aa7b8022398f",
+            "verified_checks": [
+              "The exact Go tag inventory contains 18 source/config blobs under go-astgen and no LICENSE or NOTICE. The release body is null. README, main.go and libgoastgen.go contain no grant or notice.",
+              "The archived original joernio/goastgen v0.1.0 inventory has no license/notice; its primary repository metadata reports license=null.",
+              "Later monorepo root LICENSE was introduced at 620ed607d88395220f160b5980f4880a762e8f1b on 2026-04-23. The licensed JS-tag monorepo changes gofileparser.go from the Go tag; its README permits rebuilding/re-releasing existing tags.",
+              "A later root license or a matching version label does not establish the reviewed binary-to-source/notice mapping. No upstream contact, alternative frontend subset, release substitution or executable probe was attempted."
+            ],
+            "missing_external_input": "Primary license/notice and source/provenance binding for goastgen-linux SHA256 cc2a1e1d5f613e8c6fea4c9ef2002b4e6f079164671c21e15b065f45bf6d506e, plus its bundled dependency notices.",
+            "assessment_limit": "Installation qualification gap; no legal conclusion about whether use is permitted."
+          },
+          "build_executions": 0,
+          "frontend_executions": 0,
+          "index_or_query_executions": 0,
+          "build_resource_limits": {
+            "status": "approved_proposal_not_measured",
+            "cpu_count": 2,
+            "java_active_processor_count": 2,
+            "java_heap_bytes": 4294967296,
+            "wall_seconds": 1200,
+            "disk_growth_bytes": 4294967296
+          },
+          "candidate_build_artifacts": [],
+          "next_build_gate": "Resolve exact Go asset notice/source binding, retain dependency notices, and verify the private launcher/cache/process confinement before bounded createDistribution. No different subset or release is authorized."
+        }
+      },
+      "lifecycle": {
+        "status": "source_screened_unexecuted_installation_gap",
+        "assessment": "Finite parse/export and fixed-script modes are source-supported with an owned workspace and explicit outputs. Runtime isolation, coexistence, cancellation and cleanup have not been qualified; exact Go asset notice binding blocks the build before executable use.",
+        "source_refs": [
+          "joern_parse",
+          "joern_export",
+          "joern_script",
+          "joern_finite_mode",
+          "joern_script_close",
+          "joern_workspace",
+          "joern_install_config",
+          "joern_astgen_resolution",
+          "joern_subprocess",
+          "joern_go_dependencies"
+        ],
+        "finite_cli_boundary": [
+          "joern-parse accepts explicit language/output and terminates the batch; joern-export uses an explicit new owned output directory and Using.resource around the loaded CPG.",
+          "BridgeBase selects runScript when --script is present; its parser describes execute-and-exit. Pass trusted fixed script arguments with repeated --param key=value. The reviewed mode excludes server, interactive shell, plugin management and arbitrary startup/dependency options.",
+          "The default Console workspace is baseDir/workspace, with baseDir defaulting to the current working directory. Each invocation must use a fresh owned working directory; a fixed script may switch only to a verified owned workspace."
+        ],
+        "isolated_configuration_and_caches": [
+          "InstallConfig supports SHIFTLEFT_OCULAR_INSTALL_DIR; set it to the exact private distribution so install-root discovery cannot choose an ambient installation through its classpath/current-directory parent scan.",
+          "Before any future executable use, provide an explicit child environment and private JVM user.home/java.io.tmpdir, user/config/cache/temp roots and Coursier cache. The approved build also requires private sbt boot/global/Ivy directories. Verify actual resolved paths and writes; these confinement settings are prerequisites, not measured support or isolation proof.",
+          "Use explicit hash-pinned ASTGEN_BIN/GOASTGEN_BIN or a restricted private tool path. Never resolve sidecars through ambient PATH. Go dependency fetching remains disabled; no project compiler/package-manager environment or account configuration is shared."
+        ],
+        "coexistence": {
+          "status": "not_executed",
+          "runtime_evidence": null,
+          "required_proof": "Run only an owned finite process group or cgroup after setup approval. Record scoped process/path/resource state before and after, prove existing sessions and caches remain unaffected, and never signal or reconfigure unowned processes."
+        },
+        "cancellation": {
+          "status": "not_executed",
+          "runtime_evidence": null,
+          "source_constraint": "ExternalCommand defaults to Duration.Inf. Its finite timeout calls process.destroy on one child and does not demonstrate descendant cancellation/reaping.",
+          "required_proof": "Enforce approved resource/wall/output limits outside the CLI, cancel only its owned process group/cgroup, reap every child and prove no owned descendants survive. No daemon manager or account-wide process stopping is authorized."
+        },
+        "cleanup": {
+          "status": "source_cleanup_hooks_present_runtime_unexecuted",
+          "runtime_evidence": null,
+          "source_support": "Script runAfter closes workspace projects; export closes the CPG through Using.resource; ExternalCommand deletes its stdout/stderr temp files in finally.",
+          "required_proof": "Verify cleanup on normal completion, failure and cancellation within the private roots; distinguish retained reviewed artifacts from disposable runtime files. Do not claim script hooks or finally establish cleanup after forced termination."
+        },
+        "engine_executions": 0,
+        "build_executions": 0,
+        "qualification_complete": false
+      },
+      "source_safety": {
+        "assessment": "raw source-directory invocation is ineligible; confined immutable fixture snapshot is required",
+        "source_refs": [
+          "joern_source_links",
+          "joern_go_dependencies"
+        ],
+        "observed_constraints": [
+          "Shared SourceFiles.determine defaults to FOLLOW_LINKS. Python uses this helper; an unchecked repository path can read outside its source root.",
+          "Use a manifest-checked regular-file snapshot with no symlink/hardlink ancestry escapes, read-only engine source input and no visibility of unrelated source or home state.",
+          "Go fetchDependencies defaults false; do not set --fetch-dependencies. JS/TS use one frontend but retain separate scores.",
+          "JS defaults exclude paths containing tests and other generated/test patterns. Stage the locked original bytes under neutral language input roots and retain the original-path mapping and full inventory."
+        ]
+      },
+      "evidence": {
+        "assessment": "CALL nodes precede target linking and can preserve unresolved sites; exact four-language range/construct qualification pending",
+        "source_refs": [
+          "joern_python_calls",
+          "joern_js_calls",
+          "joern_js_offsets",
+          "joern_go_calls",
+          "joern_shared_call_position",
+          "joern_go_position",
+          "joern_default_offset",
+          "joern_python_candidates",
+          "joern_heuristic_linking"
+        ],
+        "position_fields": {
+          "python": "CALL.code/name/methodFullName/dispatchType, lineNumber, columnNumber, offset, offsetEnd; dynamic unknown full name is preserved by node construction. Raw offset units/end semantics need UTF-8 roundtrip checks.",
+          "javascript": "CALL.code/name/methodFullName/dispatchType, lineNumber, columnNumber; Babel offset/offsetEnd are emitted only with --enable-file-content. Original UTF-8 conversion and end semantics need verification.",
+          "typescript": "Same jssrc2cpg path as JavaScript; separate frozen scores and original UTF-8 roundtrips required.",
+          "go": "CALL.code/name/methodFullName/dispatchType and start lineNumber/columnNumber. ParserNodeInfo contains end positions, but shared CALL construction does not write them; default offset is None. Exact end ranges require verified matching to the original source; missing/unverifiable range remains unsupported."
+        },
+        "certainty_boundary": "Export every CALL including unlinked/unknown nodes and every candidate relation. Label name/type recovery and NaiveCallLinker edges as inferred candidates; STATIC_DISPATCH and one matching name do not certify exact target binding. Preserve malformed/unsupported/skipped files and all frozen unknowns.",
+        "full_frozen_construct_support": "not established; parser availability is not semantic qualification"
+      },
+      "incremental": {
+        "assessment": "No supported fine-grained incremental API established for this finite batch route. Evaluate clean rebuild after each frozen mutation and report full-rebuild cost; do not claim incremental reuse/equivalence.",
+        "qualified": false
+      },
+      "query": {
+        "assessment": "Trusted fixed scripts can run finite counted traversals; arbitrary Scala DSL and full-export-then-trim do not satisfy product work budgets.",
+        "source_refs": [
+          "joern_script",
+          "joern_script_close",
+          "joern_subprocess"
+        ],
+        "cancellation": "Upstream subprocess helper defaults to infinite wait. Finite helper timeout destroys one child without demonstrated descendant cleanup. The experiment therefore requires an isolated child process group/cgroup, enforced wall/RSS/output limits, cancellation of only that group, reaping, and no descendants after cancellation.",
+        "full_export_boundary": "GraphSON whole-graph export is only allowed for the finite locked fixture with a separately enforced output-file cap; it is not a bounded query proof."
+      },
+      "language_coverage": {
+        "available_frontends": {
+          "python": "pysrc2cpg",
+          "go": "gosrc2cpg",
+          "javascript": "jssrc2cpg",
+          "typescript": "jssrc2cpg"
+        },
+        "qualified_languages": [],
+        "outcome": "not_executed"
+      },
+      "component_gates": {
+        "source_safety": "not_executed",
+        "lifecycle": "not_executed",
+        "syntax_binding": "not_executed",
+        "real_call_quality": "not_executed",
+        "uncertainty_coverage": "not_executed",
+        "incremental_correctness": "not_executed",
+        "query_work": "not_executed",
+        "optional_installation": "blocked_license_artifact_binding"
+      },
+      "missing_prerequisites": [
+        "Primary license/notice and source/provenance binding for goastgen-linux SHA256 cc2a1e1d5f613e8c6fea4c9ef2002b4e6f079164671c21e15b065f45bf6d506e, plus its bundled dependency notices.",
+        "Build exact Joern source with approved private caches and resource caps after the asset prerequisite is resolved; retain all binary/JAR/sidecar hashes, dependency notices and measured build receipt. Additional distribution frontends remain bounded and unqualified.",
+        "Coordinator reviews the built artifact identity and concrete confined invocation before any frontend/index/query command.",
+        "Verify confined source/output roots and immutable regular-file inventory including JS/TS default exclusions; prevent dependency fetch and executable substitution.",
+        "Run fixed finite export/query comparison with actual work counters, owned process-group cancellation/reaping/cleanup and coexistence receipts.",
+        "Compare all 44 locked fixture cases, 16 AI-reviewed real-call sites and 16 update scenarios against the same native baseline, preserving all unsupported Go/Unicode ranges and every unknown. Missing byte-range proof rejects structural selection.",
+        "Record startup/parse/overlay/query/export costs and every component gate; report clean rebuild costs without an incremental API claim."
+      ],
+      "next_commands_after_prerequisites": [
+        {
+          "purpose": "exact source distribution",
+          "argv": [
+            "sbt",
+            "createDistribution"
+          ]
+        },
+        {
+          "purpose": "finite Python parse smoke",
+          "argv": [
+            "<private-dist>/joern-parse",
+            "<confined-snapshot>/python",
+            "--language",
+            "PYTHONSRC",
+            "--output",
+            "<owned-output>/python.cpg.bin"
+          ]
+        },
+        {
+          "purpose": "finite Go parse smoke",
+          "argv": [
+            "<private-dist>/joern-parse",
+            "<confined-snapshot>/go",
+            "--language",
+            "GOLANG",
+            "--output",
+            "<owned-output>/go.cpg.bin"
+          ]
+        },
+        {
+          "purpose": "finite JS and separately TS parse smoke",
+          "argv": [
+            "<private-dist>/joern-parse",
+            "<confined-snapshot>/<javascript-or-typescript>",
+            "--language",
+            "JSSRC",
+            "--output",
+            "<owned-output>/<language>.cpg.bin",
+            "--",
+            "--enable-file-content"
+          ]
+        },
+        {
+          "purpose": "finite graph export smoke",
+          "argv": [
+            "<private-dist>/joern-export",
+            "<owned-output>/<language>.cpg.bin",
+            "--repr",
+            "all",
+            "--format",
+            "graphson",
+            "--out",
+            "<new-owned-output>/export"
+          ]
+        },
+        {
+          "purpose": "counted fixed query; no arbitrary DSL",
+          "argv": [
+            "<private-dist>/joern",
+            "--script",
+            "<owned-fixed-script>",
+            "--param",
+            "cpgFile=<owned-output>/<language>.cpg.bin",
+            "--param",
+            "outFile=<owned-output>/facts.json"
+          ]
+        }
+      ]
+    }
+  ],
+  "alternatives": [
+    {
+      "id": "scip_enrichment",
+      "disposition": "evaluate",
+      "status": "not_executed",
+      "reason": "Import existing source/revision-bound SCIP artifacts as optional binding evidence. References become calls only with separate callsite syntax and provenance.",
+      "trigger": "Existing artifacts and a frozen precision comparison; no automatic compiler/indexer installation."
+    },
+    {
+      "id": "joern_depth_comparison",
+      "disposition": "evaluate",
+      "status": "not_executed_installation_gap",
+      "reason": "Only the source-eligible confined finite quality experiment above.",
+      "trigger": "Exact Go artifact notice binding and supported private build, then every required experiment gate; no default adoption."
+    },
+    {
+      "id": "graph_database",
+      "disposition": "reject",
+      "status": "first_slice_rejected",
+      "reason": "Current SQLite/source-owned storage and an engine-owned optional CPG cover the boundary; no measured requirement for an additional graph database.",
+      "trigger": "A future supported workload demonstrates the current storage cannot meet a required gate."
+    },
+    {
+      "id": "dsl_mcp",
+      "disposition": "defer",
+      "status": "not_implemented",
+      "reason": "General graph DSL/MCP adds a query/trust surface. Fixed bounded queries cover the first slice.",
+      "trigger": "Concrete caller need and budget/security/maintenance qualification."
+    },
+    {
+      "id": "webgl",
+      "disposition": "defer",
+      "status": "not_implemented",
+      "reason": "Existing viewer remains the baseline; no measured need for another renderer.",
+      "trigger": "Current renderer demonstrably misses a frozen scale/UX requirement."
+    },
+    {
+      "id": "ann_index",
+      "disposition": "defer",
+      "status": "not_implemented",
+      "reason": "No measured search-volume crossover justifies another approximate index.",
+      "trigger": "Frozen retrieval workload shows exact search violates required latency/RSS budgets without quality loss."
+    },
+    {
+      "id": "model_alternatives",
+      "disposition": "defer",
+      "status": "not_executed",
+      "reason": "Embedding/reranker changes require pinned identity and the same frozen retrieval evaluation; they cannot create structural facts.",
+      "trigger": "Separately authorized local comparison with the incumbent baseline and measured benefit; no provider calls."
+    },
+    {
+      "id": "custom_rust_pyo3",
+      "disposition": "defer",
+      "status": "no_prototype_authorized_or_executed",
+      "reason": "Reuse/syntax baseline and profiling precede custom acceleration. ADR 0006 targets >=20% end-to-end gain, without >10% warm-path or peak-memory regression on equivalent facts.",
+      "trigger": "Measured limiting stage, reusable options exhausted, separate prototype authorization and native distribution qualification."
+    }
+  ],
+  "sources": {
+    "cbm_license": {
+      "path": "LICENSE",
+      "lines": [
+        1,
+        13
+      ],
+      "sha256": "1f58f9911dc5e3bcb96de28bb28e7b6bb7eb323952d29569c5d7214a152146bb",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/LICENSE#L1-L13"
+    },
+    "cbm_notices": {
+      "path": "THIRD_PARTY.md",
+      "lines": [
+        1,
+        54
+      ],
+      "sha256": "f3f4d3bc38d0b547abf3eb0bae30b6206417024dcab5c6e57c0d12ca10ca1021",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/THIRD_PARTY.md#L1-L54"
+    },
+    "cbm_readme_lifecycle": {
+      "path": "README.md",
+      "lines": [
+        112,
+        132
+      ],
+      "sha256": "16c1540b45aac2a1fc2e2bcb7f560376013f0f141987dff10d000fe286a71cba",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/README.md#L112-L132"
+    },
+    "cbm_local_cli": {
+      "path": "src/main.c",
+      "lines": [
+        2857,
+        3021
+      ],
+      "sha256": "bb8f954286df88b80b6eed6edf227e7aab3b1e3341dfbec3bb331e5ddc961b21",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/main.c#L2857-L3021"
+    },
+    "cbm_runtime_configuration": {
+      "path": "docs/CONFIGURATION.md",
+      "lines": [
+        151,
+        194
+      ],
+      "sha256": "ee61f31ace2697b06b5d8ba5b13536016ab93209d8169ecdf8c69dd27ef56ab4",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/docs/CONFIGURATION.md#L151-L194"
+    },
+    "cbm_runtime_namespace": {
+      "path": "src/daemon/ipc.c",
+      "lines": [
+        965,
+        1007
+      ],
+      "sha256": "dd7461c7cdef9b17384dc4c51c9ffac44e7c1103ec12c4e9e79a0c89f3a37291",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/daemon/ipc.c#L965-L1007"
+    },
+    "cbm_cohort_namespace": {
+      "path": "src/daemon/version_cohort.c",
+      "lines": [
+        378,
+        399
+      ],
+      "sha256": "7965b4e6703989aa775c710d92e2dbdbc1e4c0eb993ee6efdc4599bf856e028a",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/daemon/version_cohort.c#L378-L399"
+    },
+    "cbm_project_namespace": {
+      "path": "src/daemon/project_lock.c",
+      "lines": [
+        45,
+        67
+      ],
+      "sha256": "ed6800828229254b8b4d5cc15fcbcae95f8a93656490ef3d7ec5a7089e75fa91",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/daemon/project_lock.c#L45-L67"
+    },
+    "cbm_source_discovery": {
+      "path": "src/discover/discover.c",
+      "lines": [
+        922,
+        951
+      ],
+      "sha256": "a32f56d5cb2f129b6b48a909215a43bcc7466b94455ba1a9313efc1f5f554937",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/discover/discover.c#L922-L951"
+    },
+    "cbm_internal_call_span": {
+      "path": "internal/cbm/cbm.h",
+      "lines": [
+        274,
+        313
+      ],
+      "sha256": "595cc59430424299e492377a24167213379cb3d741dafb7877ac6af65158fbff",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/internal/cbm/cbm.h#L274-L313"
+    },
+    "cbm_sequential_export": {
+      "path": "src/pipeline/pass_calls.c",
+      "lines": [
+        510,
+        524
+      ],
+      "sha256": "57a91bb39a84d3f9eecea3fba225d7927c74219d06a1f888e4b536672bdd9ae2",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/pipeline/pass_calls.c#L510-L524"
+    },
+    "cbm_parallel_export": {
+      "path": "src/pipeline/pass_parallel.c",
+      "lines": [
+        2157,
+        2175
+      ],
+      "sha256": "10c71a8e65ee2dd62e448d3524420bd84bd5e67fe213c444ed74105119661b49",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/pipeline/pass_parallel.c#L2157-L2175"
+    },
+    "cbm_parallel_resolution": {
+      "path": "src/pipeline/pass_parallel.c",
+      "lines": [
+        3214,
+        3243
+      ],
+      "sha256": "10c71a8e65ee2dd62e448d3524420bd84bd5e67fe213c444ed74105119661b49",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/pipeline/pass_parallel.c#L3214-L3243"
+    },
+    "cbm_export_certainty": {
+      "path": "src/pipeline/pass_parallel.c",
+      "lines": [
+        2250,
+        2266
+      ],
+      "sha256": "10c71a8e65ee2dd62e448d3524420bd84bd5e67fe213c444ed74105119661b49",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/pipeline/pass_parallel.c#L2250-L2266"
+    },
+    "cbm_query_materialization": {
+      "path": "src/mcp/mcp.c",
+      "lines": [
+        5913,
+        6069
+      ],
+      "sha256": "9f99c7493f2ecd2c9c0d315de447ed0ee19646fbfecbf529b2c498dc6046035d",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/mcp/mcp.c#L5913-L6069"
+    },
+    "cbm_incremental": {
+      "path": "src/pipeline/pipeline_incremental.c",
+      "lines": [
+        1,
+        12
+      ],
+      "sha256": "51b31cf3e658d8d27b3629585755d413d18a2ba299e3df3ad3ec32151d04165a",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/pipeline/pipeline_incremental.c#L1-L12"
+    },
+    "cbm_worker_cancel": {
+      "path": "src/mcp/index_supervisor.c",
+      "lines": [
+        924,
+        941
+      ],
+      "sha256": "3768bf70b5c731de162a65ba56e110b290776d32252d8ba03a4ba80113c0c2b4",
+      "url": "https://github.com/DeusData/codebase-memory-mcp/blob/268a9d8886642eb7f9b2ce45f5ce27cdecf0f519/src/mcp/index_supervisor.c#L924-L941"
+    },
+    "joern_license": {
+      "path": "LICENSE",
+      "lines": [
+        1,
+        202
+      ],
+      "sha256": "2e50a6169977b8c7bb3c3fb39e13b4502c0a5f00c79716647bee12731f50c4ce",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/LICENSE#L1-L202"
+    },
+    "joern_requirements": {
+      "path": "README.md",
+      "lines": [
+        32,
+        34
+      ],
+      "sha256": "7197497c18524f119eb8a3ddf1ec53abfe9e01f676c878572bf6fc6dd7da63fa",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/README.md#L32-L34"
+    },
+    "joern_build": {
+      "path": "build.sbt",
+      "lines": [
+        1,
+        82
+      ],
+      "sha256": "d02110054e60cb59268f6c2a6a2580302bdbec22b9f59d5d133797bcc3f0cc33",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/build.sbt#L1-L82"
+    },
+    "joern_sbt": {
+      "path": "project/build.properties",
+      "lines": [
+        1,
+        1
+      ],
+      "sha256": "bfd375a2714acd417f17bf18c09b3dc6536d7c6044c31e0bfdc5e8e7f4f2b60a",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/project/build.properties#L1-L1"
+    },
+    "joern_parse": {
+      "path": "joern-cli/src/main/scala/io/joern/joerncli/JoernParse.scala",
+      "lines": [
+        27,
+        100
+      ],
+      "sha256": "7ccc7e25e21ada8fa09c085a8375135452f428b4f9e2eb1623f7050c99a9ba8b",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/src/main/scala/io/joern/joerncli/JoernParse.scala#L27-L100"
+    },
+    "joern_export": {
+      "path": "joern-cli/src/main/scala/io/joern/joerncli/JoernExport.scala",
+      "lines": [
+        20,
+        140
+      ],
+      "sha256": "e24fb664e8808277966c60af9112493046e460549002d0985b300c4c634d70a5",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/src/main/scala/io/joern/joerncli/JoernExport.scala#L20-L140"
+    },
+    "joern_script": {
+      "path": "console/src/main/scala/io/joern/console/BridgeBase.scala",
+      "lines": [
+        65,
+        82
+      ],
+      "sha256": "fb3cc160fff35529abf3afdf525f8a79bcc874b37bb06a126535a3da3a8701a3",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/console/src/main/scala/io/joern/console/BridgeBase.scala#L65-L82"
+    },
+    "joern_script_close": {
+      "path": "console/src/main/scala/io/joern/console/BridgeBase.scala",
+      "lines": [
+        292,
+        346
+      ],
+      "sha256": "fb3cc160fff35529abf3afdf525f8a79bcc874b37bb06a126535a3da3a8701a3",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/console/src/main/scala/io/joern/console/BridgeBase.scala#L292-L346"
+    },
+    "joern_workspace": {
+      "path": "console/src/main/scala/io/joern/console/Console.scala",
+      "lines": [
+        28,
+        35
+      ],
+      "sha256": "f6a7dc7a49a80ae466efa9d0d87236d602c9aa4309bbec3bbbeb0995dc916ed7",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/console/src/main/scala/io/joern/console/Console.scala#L28-L35"
+    },
+    "joern_source_links": {
+      "path": "joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/SourceFiles.scala",
+      "lines": [
+        243,
+        259
+      ],
+      "sha256": "df9827b435b6500addc1eae55256f57a9f9623d0d91793a5c97abdd78ef39212",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/SourceFiles.scala#L243-L259"
+    },
+    "joern_subprocess": {
+      "path": "semanticcpg/src/main/scala/io/shiftleft/semanticcpg/utils/ExternalCommand.scala",
+      "lines": [
+        18,
+        87
+      ],
+      "sha256": "001e205e76c4e2a1afe6496e0b2a2ef3e4ba97a343a8c85c34a646648737b68a",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/semanticcpg/src/main/scala/io/shiftleft/semanticcpg/utils/ExternalCommand.scala#L18-L87"
+    },
+    "joern_go_dependencies": {
+      "path": "joern-cli/frontends/gosrc2cpg/src/main/scala/io/joern/gosrc2cpg/Main.scala",
+      "lines": [
+        10,
+        36
+      ],
+      "sha256": "88af32304ccf284aeacdd17fd4ac9fe1c329d6f50ede326964ba94c0765e79e8",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/gosrc2cpg/src/main/scala/io/joern/gosrc2cpg/Main.scala#L10-L36"
+    },
+    "joern_go_astgen": {
+      "path": "joern-cli/frontends/gosrc2cpg/src/main/resources/application.conf",
+      "lines": [
+        1,
+        3
+      ],
+      "sha256": "052a84c094df048edf084978f9a9b56521791a93e9a76d2b1d0a6e7051b4b4a2",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/gosrc2cpg/src/main/resources/application.conf#L1-L3"
+    },
+    "joern_js_astgen": {
+      "path": "joern-cli/frontends/jssrc2cpg/src/main/resources/application.conf",
+      "lines": [
+        1,
+        3
+      ],
+      "sha256": "b895a7b1fcc5e56c5347035d9ee55680588b221a8124ac4205be41ce867a9664",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/jssrc2cpg/src/main/resources/application.conf#L1-L3"
+    },
+    "joern_frontend_packaging": {
+      "path": "joern-cli/build.sbt",
+      "lines": [
+        36,
+        66
+      ],
+      "sha256": "6518fdd1051b4064858eb62d90b4bbf0612c07d0fab6269d44016c71e517604b",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/build.sbt#L36-L66"
+    },
+    "joern_astgen_resolution": {
+      "path": "joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/astgen/AstGenRunner.scala",
+      "lines": [
+        182,
+        220
+      ],
+      "sha256": "21da9a9de2682b849e78548c95cd288d31745e88d0af5471274c198e626a2759",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/astgen/AstGenRunner.scala#L182-L220"
+    },
+    "joern_python_calls": {
+      "path": "joern-cli/frontends/pysrc2cpg/src/main/scala/io/joern/pysrc2cpg/NodeBuilder.scala",
+      "lines": [
+        18,
+        30
+      ],
+      "sha256": "037931077027f5c06ba5c6e12431a3cd1002803eb243fbfa0bcf812cec5637f4",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/pysrc2cpg/src/main/scala/io/joern/pysrc2cpg/NodeBuilder.scala#L18-L30"
+    },
+    "joern_js_calls": {
+      "path": "joern-cli/frontends/jssrc2cpg/src/main/scala/io/joern/jssrc2cpg/astcreation/AstNodeBuilder.scala",
+      "lines": [
+        14,
+        21
+      ],
+      "sha256": "a9e78baa496dd39d827dd8c1d67fbddf58f69ee2e4515e3f9a3602e8ce3f1558",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/jssrc2cpg/src/main/scala/io/joern/jssrc2cpg/astcreation/AstNodeBuilder.scala#L14-L21"
+    },
+    "joern_js_offsets": {
+      "path": "joern-cli/frontends/jssrc2cpg/src/main/scala/io/joern/jssrc2cpg/astcreation/AstCreator.scala",
+      "lines": [
+        242,
+        262
+      ],
+      "sha256": "6ea95af6a10a2f9467d5c6db4baa836d507f4c6325e1b89f8a5cca56d5a25c14",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/jssrc2cpg/src/main/scala/io/joern/jssrc2cpg/astcreation/AstCreator.scala#L242-L262"
+    },
+    "joern_go_calls": {
+      "path": "joern-cli/frontends/gosrc2cpg/src/main/scala/io/joern/gosrc2cpg/astcreation/AstForMethodCallExpressionCreator.scala",
+      "lines": [
+        14,
+        26
+      ],
+      "sha256": "57cf2ecce0b3b17d86a90e2ab799fdbd8bc0467ad722d70604a7c11d66c4a716",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/gosrc2cpg/src/main/scala/io/joern/gosrc2cpg/astcreation/AstForMethodCallExpressionCreator.scala#L14-L26"
+    },
+    "joern_shared_call_position": {
+      "path": "joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/AstNodeBuilder.scala",
+      "lines": [
+        232,
+        258
+      ],
+      "sha256": "2e5058d206cca25095637af56c02865dbc7566aa872604b94de6fc829df37b34",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/AstNodeBuilder.scala#L232-L258"
+    },
+    "joern_go_position": {
+      "path": "joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/astgen/AstGenNodeBuilder.scala",
+      "lines": [
+        9,
+        20
+      ],
+      "sha256": "58cea89a8a870ff44c87f46c1d7cf43c2b39dddcc8e8fbce5e9b29e62fe2fc25",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/astgen/AstGenNodeBuilder.scala#L9-L20"
+    },
+    "joern_default_offset": {
+      "path": "joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/AstNodeBuilder.scala",
+      "lines": [
+        23,
+        58
+      ],
+      "sha256": "2e5058d206cca25095637af56c02865dbc7566aa872604b94de6fc829df37b34",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/AstNodeBuilder.scala#L23-L58"
+    },
+    "joern_python_candidates": {
+      "path": "joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/frontendspecific/pysrc2cpg/PythonTypeHintCallLinker.scala",
+      "lines": [
+        12,
+        29
+      ],
+      "sha256": "e2d2d03a9f479febedacbf774e2f58cc4054eaea9d3c5b68864889590c5c605a",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/frontendspecific/pysrc2cpg/PythonTypeHintCallLinker.scala#L12-L29"
+    },
+    "joern_heuristic_linking": {
+      "path": "joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/passes/callgraph/NaiveCallLinker.scala",
+      "lines": [
+        9,
+        28
+      ],
+      "sha256": "ace61cb91c92feb42b80007f3e09335986c16135fce8b870939916a80bbc4194",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/joern-cli/frontends/x2cpg/src/main/scala/io/joern/x2cpg/passes/callgraph/NaiveCallLinker.scala#L9-L28"
+    },
+    "joern_install_config": {
+      "path": "console/src/main/scala/io/joern/console/ConsoleConfig.scala",
+      "lines": [
+        15,
+        64
+      ],
+      "sha256": "af29e891b3d06b94ff70cf254b0345561a9edefcd42e694d591198711da11a6a",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/console/src/main/scala/io/joern/console/ConsoleConfig.scala#L15-L64"
+    },
+    "joern_finite_mode": {
+      "path": "console/src/main/scala/io/joern/console/BridgeBase.scala",
+      "lines": [
+        224,
+        244
+      ],
+      "sha256": "fb3cc160fff35529abf3afdf525f8a79bcc874b37bb06a126535a3da3a8701a3",
+      "url": "https://github.com/joernio/joern/blob/b9e0ce2279b862615b07ed1afb0552502fe3ac05/console/src/main/scala/io/joern/console/BridgeBase.scala#L224-L244"
+    }
+  },
+  "frozen_workload": {
+    "constructs": [
+      "callable_reference.go",
+      "callable_reference.javascript",
+      "callable_reference.python",
+      "callable_reference.typescript",
+      "callback.go",
+      "callback.javascript",
+      "callback.python",
+      "callback.typescript",
+      "direct.go",
+      "direct.javascript",
+      "direct.python",
+      "direct.typescript",
+      "dynamic.go",
+      "dynamic.javascript",
+      "dynamic.python",
+      "dynamic.typescript",
+      "import_alias.go",
+      "import_alias.javascript",
+      "import_alias.python",
+      "import_alias.typescript",
+      "missing_import.go",
+      "missing_import.javascript",
+      "missing_import.python",
+      "missing_import.typescript",
+      "receiver.go",
+      "receiver.javascript",
+      "receiver.python",
+      "receiver.typescript",
+      "shadowing.go",
+      "shadowing.javascript",
+      "shadowing.python",
+      "shadowing.typescript",
+      "utf8.go",
+      "utf8.javascript",
+      "utf8.python",
+      "utf8.typescript",
+      "value_alias.go",
+      "value_alias.javascript",
+      "value_alias.python",
+      "value_alias.typescript"
+    ],
+    "fixture_cases": 44,
+    "real_call_sites": 16,
+    "update_scenarios": 16,
+    "manifest": "evaluations/code-understanding/fixtures.json"
+  }
+}

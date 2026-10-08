@@ -1,0 +1,677 @@
+{
+  "artifact_kind": "synthetic_supplement_input_lock",
+  "base_source_identity": "b5d2be6248cf01ad76188c9fff67f2632e60e11770b27fbef6b4036acf1e7c0d",
+  "base_source_identity_algorithm": "SHA256(UTF8(LF.join(path + colon + SHA256(exact UTF-8 content) in ascending path order))); no final LF; content-only identity, not analyzer or generation identity",
+  "commit_binding": {
+    "required_before_runtime_comparison": true,
+    "status": "not_checked"
+  },
+  "files": [
+    {
+      "bytes": 135,
+      "kind": "source",
+      "language": "go",
+      "path": "tests/fixtures/code-understanding/go/export_probe.go",
+      "sha256": "a45b5dc5d8aac5d0a6c79af777167210fa632b12bb85abf973416c6ed5e81809"
+    },
+    {
+      "bytes": 47,
+      "kind": "configuration",
+      "language": "go",
+      "path": "tests/fixtures/code-understanding/go/go.mod",
+      "sha256": "c7f706c0079567fe08400fc22ff242d42fd21f069a54993f0042e2e066adfbef"
+    },
+    {
+      "bytes": 99,
+      "kind": "source",
+      "language": "go",
+      "path": "tests/fixtures/code-understanding/go/helpers/helpers.go",
+      "sha256": "cba725ddec2106700fc68bd0a906e20207f0c595067253e4b392f1fc2b39a885"
+    },
+    {
+      "bytes": 1261,
+      "kind": "source",
+      "language": "go",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "sha256": "38618cbba6d6d6f9921737cf67db2c54777ed3a5c8ecff77b7953e5cac7f9d8d"
+    },
+    {
+      "bytes": 64,
+      "kind": "configuration",
+      "language": "go",
+      "path": "tests/fixtures/code-understanding/go/service-contract.json",
+      "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf"
+    },
+    {
+      "bytes": 137,
+      "kind": "source",
+      "language": "go",
+      "path": "tests/fixtures/code-understanding/go/types.go",
+      "sha256": "89d4b1da5839b505c21e3d60c5bc761215892a8f78375a611e5a059364482f9e"
+    },
+    {
+      "bytes": 86,
+      "kind": "source",
+      "language": "javascript",
+      "path": "tests/fixtures/code-understanding/javascript/helpers.js",
+      "sha256": "4f3ac4a73328e8edcf3991f4dd6a2ca2786dfff2dede60195149189046302288"
+    },
+    {
+      "bytes": 1025,
+      "kind": "source",
+      "language": "javascript",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "sha256": "6bdb31321d316cbadd6825ed3148b4b9eb203a122ecc0ee14ab3604bcf60a6a9"
+    },
+    {
+      "bytes": 45,
+      "kind": "configuration",
+      "language": "javascript",
+      "path": "tests/fixtures/code-understanding/javascript/package.json",
+      "sha256": "b6efa0277e710dbe13cbf8f1fad32b8cc964c0ee72f1425a1a4e059cad7e2105"
+    },
+    {
+      "bytes": 64,
+      "kind": "configuration",
+      "language": "javascript",
+      "path": "tests/fixtures/code-understanding/javascript/service-contract.json",
+      "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf"
+    },
+    {
+      "bytes": 151,
+      "kind": "source",
+      "language": "javascript",
+      "path": "tests/fixtures/code-understanding/javascript/types.js",
+      "sha256": "f6ed1f74cf6478a5193a7ed9471ccaf8e049c581ad097e77074edf962123cf09"
+    },
+    {
+      "bytes": 77,
+      "kind": "source",
+      "language": "python",
+      "path": "tests/fixtures/code-understanding/python/export_caller.py",
+      "sha256": "abf552c28d597897a9d1fba8f976bcbc4fa8f4e1d9f0f5b97ee1dd20eb95c795"
+    },
+    {
+      "bytes": 60,
+      "kind": "source",
+      "language": "python",
+      "path": "tests/fixtures/code-understanding/python/export_control.py",
+      "sha256": "8addd6ad0bab4c0ce78a76af0ccbf3835f53a921b5ff612ced0151fbdeb3a87e"
+    },
+    {
+      "bytes": 5319,
+      "kind": "source",
+      "language": "python",
+      "path": "tests/fixtures/code-understanding/python/fanout.py",
+      "sha256": "b9586e0c318a5ddb1a3bd7a7cf006b72b8e31a2555dbac124fca31ea4a1132fe"
+    },
+    {
+      "bytes": 79,
+      "kind": "source",
+      "language": "python",
+      "path": "tests/fixtures/code-understanding/python/helpers.py",
+      "sha256": "2237d35781c0e8eb8def03c5afff0186ce120db894ac0433b972b03723b607e6"
+    },
+    {
+      "bytes": 900,
+      "kind": "source",
+      "language": "python",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "sha256": "8c593055001d4d077d1fab1f12a97eafdbdbf5628f0af63ceb3b71da525dec1e"
+    },
+    {
+      "bytes": 37,
+      "kind": "configuration",
+      "language": "python",
+      "path": "tests/fixtures/code-understanding/python/pyproject.toml",
+      "sha256": "48c5a6db5fc5888843d601a5f1eaa98af27d609f9df31e31c04bf3d9aec920df"
+    },
+    {
+      "bytes": 64,
+      "kind": "configuration",
+      "language": "python",
+      "path": "tests/fixtures/code-understanding/python/service-contract.json",
+      "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf"
+    },
+    {
+      "bytes": 94,
+      "kind": "source",
+      "language": "python",
+      "path": "tests/fixtures/code-understanding/python/types.py",
+      "sha256": "ec8a68412871c016d1a8f550e76671aa751a95216b967791aa1652bf2001ff9c"
+    },
+    {
+      "bytes": 102,
+      "kind": "source",
+      "language": "typescript",
+      "path": "tests/fixtures/code-understanding/typescript/helpers.ts",
+      "sha256": "8f2435f241915ce537f7f9067aa60828e84a6da4545721ce6d242a0a19ea22a7"
+    },
+    {
+      "bytes": 1356,
+      "kind": "source",
+      "language": "typescript",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "sha256": "82f81117584f15fbaed1b0baa8ddef4c9628dac873ce9b904b3a0f76b129d500"
+    },
+    {
+      "bytes": 64,
+      "kind": "configuration",
+      "language": "typescript",
+      "path": "tests/fixtures/code-understanding/typescript/service-contract.json",
+      "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf"
+    },
+    {
+      "bytes": 37,
+      "kind": "configuration",
+      "language": "typescript",
+      "path": "tests/fixtures/code-understanding/typescript/tsconfig.json",
+      "sha256": "7396dc78a5ebb28cd40247a0c8c8de7dda8731b3dbf606823acc1d92331bfe43"
+    },
+    {
+      "bytes": 160,
+      "kind": "source",
+      "language": "typescript",
+      "path": "tests/fixtures/code-understanding/typescript/types.ts",
+      "sha256": "d963db315899eb5206dc6a29512560c42f792aa135e60684e0d24485df8abc27"
+    }
+  ],
+  "independent_review": {
+    "checks_sha256": "585b9423bf24b2f13af98dc1962e223996b61a18245479ed09f2364f03a3dbbf",
+    "clarification_sha256": "c087393cadb998c0b4a07f0067e5f9a38eaf0cf5bfd6c69a0f8161db4699a751",
+    "disposition": "approved_for_synthetic_input_preparation_with_required_separate_freeze_lock",
+    "failed_checks": 0,
+    "independent_of_input_author": true,
+    "packet_sha256": "f455bc0de64a0935c15f9e07e0f975bc9ccae0044e3b8658541225517acb755b",
+    "passed_checks": 5002,
+    "physical_ranges": 535,
+    "receipt_sha256": "59a1279972f5cb5501d8c0f15e06af239687f26a829110be733c4e96c1a5127c",
+    "review_check_sha256": "0cc91bae019cf9428a8171c61f6a3d292f0c909671509368b06582aaedae783f",
+    "runtime_model_identity": "not independently observed",
+    "scope": "Synthetic full-byte, physical-range, source-bound input technical review only; no engine output consultation or human acceptance.",
+    "technical_reviewer_label": "AI technical reviewer"
+  },
+  "limitations": [
+    "Reviewed source/oracle bytes retain their historical proposal status strings; this separate lock records preparation approval.",
+    "Source manifest is a source-only byte input. Oracle is grading-only and may not enter an extraction adapter.",
+    "Input consistency and physical ranges are not syntax/compiler, incremental/query runtime, performance, human UX or product acceptance evidence.",
+    "Unsupported type/config/contract semantic scopes remain unsupported; content freshness is a separate future measurement.",
+    "An actual committed supplement and implementation/config/backend/rules identity qualification are required before runtime comparison; no future commit is asserted here."
+  ],
+  "mutations": [
+    {
+      "category": "body",
+      "changes": [
+        {
+          "after": {
+            "bytes": 910,
+            "sha256": "06354027b718ad5a7e32004d149074b0eb7c983eedba1672dd2d2adc0cc26164"
+          },
+          "before": {
+            "bytes": 900,
+            "sha256": "8c593055001d4d077d1fab1f12a97eafdbdbf5628f0af63ceb3b71da525dec1e"
+          },
+          "kind": "source",
+          "language": "python",
+          "path": "tests/fixtures/code-understanding/python/main.py"
+        }
+      ],
+      "id": "U-PY-BODY",
+      "language": "python"
+    },
+    {
+      "category": "export",
+      "changes": [
+        {
+          "after": {
+            "bytes": 51,
+            "sha256": "469fa8dfb4c76c521eb375f4871a7f86aa11de9f7cb484eb549c9af41bf328ca"
+          },
+          "before": {
+            "bytes": 60,
+            "sha256": "8addd6ad0bab4c0ce78a76af0ccbf3835f53a921b5ff612ced0151fbdeb3a87e"
+          },
+          "kind": "source",
+          "language": "python",
+          "path": "tests/fixtures/code-understanding/python/export_control.py"
+        }
+      ],
+      "id": "U-PY-EXPORT",
+      "language": "python"
+    },
+    {
+      "category": "type",
+      "changes": [
+        {
+          "after": {
+            "bytes": 98,
+            "sha256": "fabff26169e06caf09054582f4d43c71668b8d8643d7b5c5519c06ac5ffed936"
+          },
+          "before": {
+            "bytes": 94,
+            "sha256": "ec8a68412871c016d1a8f550e76671aa751a95216b967791aa1652bf2001ff9c"
+          },
+          "kind": "source",
+          "language": "python",
+          "path": "tests/fixtures/code-understanding/python/types.py"
+        }
+      ],
+      "id": "U-PY-TYPE",
+      "language": "python"
+    },
+    {
+      "category": "config",
+      "changes": [
+        {
+          "after": {
+            "bytes": 36,
+            "sha256": "181b8889c5c3d20e3c469e6bc35660965eba188c53f09285fa9c2974a1f34ca7"
+          },
+          "before": {
+            "bytes": 37,
+            "sha256": "48c5a6db5fc5888843d601a5f1eaa98af27d609f9df31e31c04bf3d9aec920df"
+          },
+          "kind": "configuration",
+          "language": "python",
+          "path": "tests/fixtures/code-understanding/python/pyproject.toml"
+        }
+      ],
+      "id": "U-PY-CONFIG",
+      "language": "python"
+    },
+    {
+      "category": "contract",
+      "changes": [
+        {
+          "after": {
+            "bytes": 66,
+            "sha256": "e0f6de2aecb5b77222d8091f9af10d3e96c5007f0c201706f1f126f24e4f8e75"
+          },
+          "before": {
+            "bytes": 64,
+            "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf"
+          },
+          "kind": "configuration",
+          "language": "python",
+          "path": "tests/fixtures/code-understanding/python/service-contract.json"
+        }
+      ],
+      "id": "U-PY-CONTRACT",
+      "language": "python"
+    },
+    {
+      "category": "body",
+      "changes": [
+        {
+          "after": {
+            "bytes": 1268,
+            "sha256": "d25b954836514bf88677466ddc26148a372a3e42b38308ea23b059ddc2ffda29"
+          },
+          "before": {
+            "bytes": 1261,
+            "sha256": "38618cbba6d6d6f9921737cf67db2c54777ed3a5c8ecff77b7953e5cac7f9d8d"
+          },
+          "kind": "source",
+          "language": "go",
+          "path": "tests/fixtures/code-understanding/go/main.go"
+        }
+      ],
+      "id": "U-GO-BODY",
+      "language": "go"
+    },
+    {
+      "category": "export",
+      "changes": [
+        {
+          "after": {
+            "bytes": 99,
+            "sha256": "605710ea61a3295a757a671aa89410585c41a7d2a8fabb8a6f6eaf1f715a3b79"
+          },
+          "before": {
+            "bytes": 99,
+            "sha256": "cba725ddec2106700fc68bd0a906e20207f0c595067253e4b392f1fc2b39a885"
+          },
+          "kind": "source",
+          "language": "go",
+          "path": "tests/fixtures/code-understanding/go/helpers/helpers.go"
+        }
+      ],
+      "id": "U-GO-EXPORT",
+      "language": "go"
+    },
+    {
+      "category": "type",
+      "changes": [
+        {
+          "after": {
+            "bytes": 140,
+            "sha256": "ec89f257351ff66a627ed3528cbd86e0d70d9a49a405ee7b44ae31d03f9f749e"
+          },
+          "before": {
+            "bytes": 137,
+            "sha256": "89d4b1da5839b505c21e3d60c5bc761215892a8f78375a611e5a059364482f9e"
+          },
+          "kind": "source",
+          "language": "go",
+          "path": "tests/fixtures/code-understanding/go/types.go"
+        }
+      ],
+      "id": "U-GO-TYPE",
+      "language": "go"
+    },
+    {
+      "category": "config",
+      "changes": [
+        {
+          "after": {
+            "bytes": 37,
+            "sha256": "dc607e0be4cc472a37b3689ae26a7a00615f04c69b1e2f8b3b0fc4aad5224eba"
+          },
+          "before": {
+            "bytes": 47,
+            "sha256": "c7f706c0079567fe08400fc22ff242d42fd21f069a54993f0042e2e066adfbef"
+          },
+          "kind": "configuration",
+          "language": "go",
+          "path": "tests/fixtures/code-understanding/go/go.mod"
+        }
+      ],
+      "id": "U-GO-CONFIG",
+      "language": "go"
+    },
+    {
+      "category": "contract",
+      "changes": [
+        {
+          "after": {
+            "bytes": 66,
+            "sha256": "e0f6de2aecb5b77222d8091f9af10d3e96c5007f0c201706f1f126f24e4f8e75"
+          },
+          "before": {
+            "bytes": 64,
+            "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf"
+          },
+          "kind": "configuration",
+          "language": "go",
+          "path": "tests/fixtures/code-understanding/go/service-contract.json"
+        }
+      ],
+      "id": "U-GO-CONTRACT",
+      "language": "go"
+    },
+    {
+      "category": "body",
+      "changes": [
+        {
+          "after": {
+            "bytes": 1034,
+            "sha256": "596068c0f2ba6497c8125f9ea0592ac9d4912b60ed23a0949e2c5cd1f8824151"
+          },
+          "before": {
+            "bytes": 1025,
+            "sha256": "6bdb31321d316cbadd6825ed3148b4b9eb203a122ecc0ee14ab3604bcf60a6a9"
+          },
+          "kind": "source",
+          "language": "javascript",
+          "path": "tests/fixtures/code-understanding/javascript/main.js"
+        }
+      ],
+      "id": "U-JS-BODY",
+      "language": "javascript"
+    },
+    {
+      "category": "export",
+      "changes": [
+        {
+          "after": {
+            "bytes": 79,
+            "sha256": "fab1d68d2feabf84a466698a51192fe3af5d2094d0ab0dd5cc8b31851b1772fb"
+          },
+          "before": {
+            "bytes": 86,
+            "sha256": "4f3ac4a73328e8edcf3991f4dd6a2ca2786dfff2dede60195149189046302288"
+          },
+          "kind": "source",
+          "language": "javascript",
+          "path": "tests/fixtures/code-understanding/javascript/helpers.js"
+        }
+      ],
+      "id": "U-JS-EXPORT",
+      "language": "javascript"
+    },
+    {
+      "category": "type",
+      "changes": [
+        {
+          "after": {
+            "bytes": 151,
+            "sha256": "3de039c734aa4cfa7015c20d2801c2cb022b16763e64b3bc39d9ccfcf76b86d2"
+          },
+          "before": {
+            "bytes": 151,
+            "sha256": "f6ed1f74cf6478a5193a7ed9471ccaf8e049c581ad097e77074edf962123cf09"
+          },
+          "kind": "source",
+          "language": "javascript",
+          "path": "tests/fixtures/code-understanding/javascript/types.js"
+        }
+      ],
+      "id": "U-JS-TYPE",
+      "language": "javascript"
+    },
+    {
+      "category": "config",
+      "changes": [
+        {
+          "after": {
+            "bytes": 47,
+            "sha256": "1c6bae1b84bd232645ac5dd57fe1be0da5a24e3fa052d3bee8ade2d934387aae"
+          },
+          "before": {
+            "bytes": 45,
+            "sha256": "b6efa0277e710dbe13cbf8f1fad32b8cc964c0ee72f1425a1a4e059cad7e2105"
+          },
+          "kind": "configuration",
+          "language": "javascript",
+          "path": "tests/fixtures/code-understanding/javascript/package.json"
+        }
+      ],
+      "id": "U-JS-CONFIG",
+      "language": "javascript"
+    },
+    {
+      "category": "contract",
+      "changes": [
+        {
+          "after": {
+            "bytes": 66,
+            "sha256": "e0f6de2aecb5b77222d8091f9af10d3e96c5007f0c201706f1f126f24e4f8e75"
+          },
+          "before": {
+            "bytes": 64,
+            "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf"
+          },
+          "kind": "configuration",
+          "language": "javascript",
+          "path": "tests/fixtures/code-understanding/javascript/service-contract.json"
+        }
+      ],
+      "id": "U-JS-CONTRACT",
+      "language": "javascript"
+    },
+    {
+      "category": "body",
+      "changes": [
+        {
+          "after": {
+            "bytes": 1365,
+            "sha256": "3d3ce3c871fc913537aca2107b1b64945b36858503c53b2173b6cc559d545f56"
+          },
+          "before": {
+            "bytes": 1356,
+            "sha256": "82f81117584f15fbaed1b0baa8ddef4c9628dac873ce9b904b3a0f76b129d500"
+          },
+          "kind": "source",
+          "language": "typescript",
+          "path": "tests/fixtures/code-understanding/typescript/main.ts"
+        }
+      ],
+      "id": "U-TS-BODY",
+      "language": "typescript"
+    },
+    {
+      "category": "export",
+      "changes": [
+        {
+          "after": {
+            "bytes": 95,
+            "sha256": "dd00b3e1ea5d0bee5d18a923c5aa7364ebb4edc245fa876c274e36259b8c8735"
+          },
+          "before": {
+            "bytes": 102,
+            "sha256": "8f2435f241915ce537f7f9067aa60828e84a6da4545721ce6d242a0a19ea22a7"
+          },
+          "kind": "source",
+          "language": "typescript",
+          "path": "tests/fixtures/code-understanding/typescript/helpers.ts"
+        }
+      ],
+      "id": "U-TS-EXPORT",
+      "language": "typescript"
+    },
+    {
+      "category": "type",
+      "changes": [
+        {
+          "after": {
+            "bytes": 160,
+            "sha256": "4717dd87b3b43d97690c51d34b8f14e2168aa9298e12fe5e030b976371438d67"
+          },
+          "before": {
+            "bytes": 160,
+            "sha256": "d963db315899eb5206dc6a29512560c42f792aa135e60684e0d24485df8abc27"
+          },
+          "kind": "source",
+          "language": "typescript",
+          "path": "tests/fixtures/code-understanding/typescript/types.ts"
+        }
+      ],
+      "id": "U-TS-TYPE",
+      "language": "typescript"
+    },
+    {
+      "category": "config",
+      "changes": [
+        {
+          "after": {
+            "bytes": 36,
+            "sha256": "671920f9e86e8620695b89c0328206cb79c2ae66dd7bf466a0644e20d1cfd9f1"
+          },
+          "before": {
+            "bytes": 37,
+            "sha256": "7396dc78a5ebb28cd40247a0c8c8de7dda8731b3dbf606823acc1d92331bfe43"
+          },
+          "kind": "configuration",
+          "language": "typescript",
+          "path": "tests/fixtures/code-understanding/typescript/tsconfig.json"
+        }
+      ],
+      "id": "U-TS-CONFIG",
+      "language": "typescript"
+    },
+    {
+      "category": "contract",
+      "changes": [
+        {
+          "after": {
+            "bytes": 66,
+            "sha256": "e0f6de2aecb5b77222d8091f9af10d3e96c5007f0c201706f1f126f24e4f8e75"
+          },
+          "before": {
+            "bytes": 64,
+            "sha256": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf"
+          },
+          "kind": "configuration",
+          "language": "typescript",
+          "path": "tests/fixtures/code-understanding/typescript/service-contract.json"
+        }
+      ],
+      "id": "U-TS-CONTRACT",
+      "language": "typescript"
+    }
+  ],
+  "original_v1": {
+    "preservation": "Original key, lock, nine source files and sixteen mutation scenarios remain unchanged.",
+    "update_ids": [
+      "U-PY-ADD",
+      "U-PY-DELETE",
+      "U-PY-RENAME",
+      "U-PY-CYCLE",
+      "U-GO-ADD",
+      "U-GO-DELETE",
+      "U-GO-RENAME",
+      "U-GO-CYCLE",
+      "U-JS-ADD",
+      "U-JS-DELETE",
+      "U-JS-RENAME",
+      "U-JS-CYCLE",
+      "U-TS-ADD",
+      "U-TS-DELETE",
+      "U-TS-RENAME",
+      "U-TS-CYCLE"
+    ],
+    "updates_canonical_sha256": "301eee2eb9220ba2fc04d6f3f27d30b8ae99e9abdd386c2b145e319ca2f6df58"
+  },
+  "qualification": {
+    "T007_met": false,
+    "T008_met": false,
+    "T027_authority": false,
+    "analyzer_qualified": false,
+    "selected_engine": null
+  },
+  "query_freshness": {
+    "after": {
+      "bytes": 5320,
+      "sha256": "ccf1d2b6ffe5667e87b96e3b2cd4da044ba9b6b9d81a3f39c80b4fa029fa4977"
+    },
+    "before": {
+      "bytes": 5319,
+      "sha256": "b9586e0c318a5ddb1a3bd7a7cf006b72b8e31a2555dbac124fca31ea4a1132fe"
+    },
+    "path": "tests/fixtures/code-understanding/python/fanout.py"
+  },
+  "schema_version": 1,
+  "sha256": {
+    "evaluations/code-understanding/fixtures.json": "6742295d0536cb1df577f04a48f893c1b962b184b278875415c20611cfa5f87e",
+    "evaluations/code-understanding/input-lock.json": "418f5274d6c1d4c6f596f48b1485518cf5ec59d74a6006b7b64706d2b4d442a1",
+    "evaluations/code-understanding/source-target-lock.json": "b6ebf143576dddc099316bebbf724f95ed5a2c7b37997a168595ab067a609ab5",
+    "evaluations/code-understanding/supplement-oracle.json": "a5fabfc247baccf826b76ff1588625ee05b9bef6d59ede4725ea6bf8c2be4b68",
+    "evaluations/code-understanding/supplement-source.json": "cb8dee61ddc23b15ae27f4d931854d1a8bb1f8df450f8c2c894fec7f21fca40b",
+    "evaluations/supplement_preparation.py": "6ca1ff7c0bddd0d27d210aac3266616e430de08966ddd55f96bc1cb30be27856",
+    "tests/fixtures/code-understanding/go/export_probe.go": "a45b5dc5d8aac5d0a6c79af777167210fa632b12bb85abf973416c6ed5e81809",
+    "tests/fixtures/code-understanding/go/go.mod": "c7f706c0079567fe08400fc22ff242d42fd21f069a54993f0042e2e066adfbef",
+    "tests/fixtures/code-understanding/go/helpers/helpers.go": "cba725ddec2106700fc68bd0a906e20207f0c595067253e4b392f1fc2b39a885",
+    "tests/fixtures/code-understanding/go/main.go": "38618cbba6d6d6f9921737cf67db2c54777ed3a5c8ecff77b7953e5cac7f9d8d",
+    "tests/fixtures/code-understanding/go/service-contract.json": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+    "tests/fixtures/code-understanding/go/types.go": "89d4b1da5839b505c21e3d60c5bc761215892a8f78375a611e5a059364482f9e",
+    "tests/fixtures/code-understanding/javascript/helpers.js": "4f3ac4a73328e8edcf3991f4dd6a2ca2786dfff2dede60195149189046302288",
+    "tests/fixtures/code-understanding/javascript/main.js": "6bdb31321d316cbadd6825ed3148b4b9eb203a122ecc0ee14ab3604bcf60a6a9",
+    "tests/fixtures/code-understanding/javascript/package.json": "b6efa0277e710dbe13cbf8f1fad32b8cc964c0ee72f1425a1a4e059cad7e2105",
+    "tests/fixtures/code-understanding/javascript/service-contract.json": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+    "tests/fixtures/code-understanding/javascript/types.js": "f6ed1f74cf6478a5193a7ed9471ccaf8e049c581ad097e77074edf962123cf09",
+    "tests/fixtures/code-understanding/python/export_caller.py": "abf552c28d597897a9d1fba8f976bcbc4fa8f4e1d9f0f5b97ee1dd20eb95c795",
+    "tests/fixtures/code-understanding/python/export_control.py": "8addd6ad0bab4c0ce78a76af0ccbf3835f53a921b5ff612ced0151fbdeb3a87e",
+    "tests/fixtures/code-understanding/python/fanout.py": "b9586e0c318a5ddb1a3bd7a7cf006b72b8e31a2555dbac124fca31ea4a1132fe",
+    "tests/fixtures/code-understanding/python/helpers.py": "2237d35781c0e8eb8def03c5afff0186ce120db894ac0433b972b03723b607e6",
+    "tests/fixtures/code-understanding/python/main.py": "8c593055001d4d077d1fab1f12a97eafdbdbf5628f0af63ceb3b71da525dec1e",
+    "tests/fixtures/code-understanding/python/pyproject.toml": "48c5a6db5fc5888843d601a5f1eaa98af27d609f9df31e31c04bf3d9aec920df",
+    "tests/fixtures/code-understanding/python/service-contract.json": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+    "tests/fixtures/code-understanding/python/types.py": "ec8a68412871c016d1a8f550e76671aa751a95216b967791aa1652bf2001ff9c",
+    "tests/fixtures/code-understanding/typescript/helpers.ts": "8f2435f241915ce537f7f9067aa60828e84a6da4545721ce6d242a0a19ea22a7",
+    "tests/fixtures/code-understanding/typescript/main.ts": "82f81117584f15fbaed1b0baa8ddef4c9628dac873ce9b904b3a0f76b129d500",
+    "tests/fixtures/code-understanding/typescript/service-contract.json": "5e90a34c9d02a50b91c493b3fd6369d10e6c286aa3f8464cfbaba7724f0f7abf",
+    "tests/fixtures/code-understanding/typescript/tsconfig.json": "7396dc78a5ebb28cd40247a0c8c8de7dda8731b3dbf606823acc1d92331bfe43",
+    "tests/fixtures/code-understanding/typescript/types.ts": "d963db315899eb5206dc6a29512560c42f792aa135e60684e0d24485df8abc27"
+  },
+  "status": "prepared_independently_reviewed_not_commit_bound"
+}

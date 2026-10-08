@@ -1,0 +1,2949 @@
+{
+  "schema_version": 1,
+  "status": "synthetic_preparation_model_reviewed",
+  "fixture_origin": "original public synthetic sources; no real-source corpus",
+  "review": {
+    "kind": "model_source_review_of_synthetic_inputs",
+    "independent_human_review": false,
+    "real_call_truth_status": "human_pending",
+    "engine_outputs_used": false
+  },
+  "range_convention": {
+    "bytes": "zero-based half-open original UTF-8 bytes",
+    "lines": "one-based inclusive lines touched by range; end_byte is exclusive"
+  },
+  "files": [
+    {
+      "path": "tests/fixtures/code-understanding/go/go.mod",
+      "language": "go",
+      "sha256": "c7f706c0079567fe08400fc22ff242d42fd21f069a54993f0042e2e066adfbef",
+      "bytes": 47,
+      "kind": "configuration"
+    },
+    {
+      "path": "tests/fixtures/code-understanding/go/helpers/helpers.go",
+      "language": "go",
+      "sha256": "cba725ddec2106700fc68bd0a906e20207f0c595067253e4b392f1fc2b39a885",
+      "bytes": 99,
+      "kind": "source"
+    },
+    {
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "sha256": "38618cbba6d6d6f9921737cf67db2c54777ed3a5c8ecff77b7953e5cac7f9d8d",
+      "bytes": 1261,
+      "kind": "source"
+    },
+    {
+      "path": "tests/fixtures/code-understanding/javascript/helpers.js",
+      "language": "javascript",
+      "sha256": "4f3ac4a73328e8edcf3991f4dd6a2ca2786dfff2dede60195149189046302288",
+      "bytes": 86,
+      "kind": "source"
+    },
+    {
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "sha256": "6bdb31321d316cbadd6825ed3148b4b9eb203a122ecc0ee14ab3604bcf60a6a9",
+      "bytes": 1025,
+      "kind": "source"
+    },
+    {
+      "path": "tests/fixtures/code-understanding/python/helpers.py",
+      "language": "python",
+      "sha256": "2237d35781c0e8eb8def03c5afff0186ce120db894ac0433b972b03723b607e6",
+      "bytes": 79,
+      "kind": "source"
+    },
+    {
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "sha256": "8c593055001d4d077d1fab1f12a97eafdbdbf5628f0af63ceb3b71da525dec1e",
+      "bytes": 900,
+      "kind": "source"
+    },
+    {
+      "path": "tests/fixtures/code-understanding/typescript/helpers.ts",
+      "language": "typescript",
+      "sha256": "8f2435f241915ce537f7f9067aa60828e84a6da4545721ce6d242a0a19ea22a7",
+      "bytes": 102,
+      "kind": "source"
+    },
+    {
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "sha256": "82f81117584f15fbaed1b0baa8ddef4c9628dac873ce9b904b3a0f76b129d500",
+      "bytes": 1356,
+      "kind": "source"
+    }
+  ],
+  "constructs": [
+    "callable_reference.go",
+    "callable_reference.javascript",
+    "callable_reference.python",
+    "callable_reference.typescript",
+    "callback.go",
+    "callback.javascript",
+    "callback.python",
+    "callback.typescript",
+    "direct.go",
+    "direct.javascript",
+    "direct.python",
+    "direct.typescript",
+    "dynamic.go",
+    "dynamic.javascript",
+    "dynamic.python",
+    "dynamic.typescript",
+    "import_alias.go",
+    "import_alias.javascript",
+    "import_alias.python",
+    "import_alias.typescript",
+    "missing_import.go",
+    "missing_import.javascript",
+    "missing_import.python",
+    "missing_import.typescript",
+    "receiver.go",
+    "receiver.javascript",
+    "receiver.python",
+    "receiver.typescript",
+    "shadowing.go",
+    "shadowing.javascript",
+    "shadowing.python",
+    "shadowing.typescript",
+    "utf8.go",
+    "utf8.javascript",
+    "utf8.python",
+    "utf8.typescript",
+    "value_alias.go",
+    "value_alias.javascript",
+    "value_alias.python",
+    "value_alias.typescript"
+  ],
+  "definitions": [
+    {
+      "id": "GO.helpers.Finish",
+      "path": "tests/fixtures/code-understanding/go/helpers/helpers.go",
+      "name": "Finish",
+      "kind": "function",
+      "range": {
+        "start_byte": 51,
+        "end_byte": 98,
+        "start_line": 4,
+        "end_line": 4
+      },
+      "text": "func Finish(value int) int { return value * 2 }"
+    },
+    {
+      "id": "GO.main.Callback",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Callback",
+      "kind": "function",
+      "range": {
+        "start_byte": 559,
+        "end_byte": 611,
+        "start_line": 21,
+        "end_line": 21
+      },
+      "text": "func Callback(fn func(int) int) int { return fn(4) }"
+    },
+    {
+      "id": "GO.main.Direct",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Direct",
+      "kind": "function",
+      "range": {
+        "start_byte": 245,
+        "end_byte": 295,
+        "start_line": 10,
+        "end_line": 10
+      },
+      "text": "func Direct() int              { return Local(1) }"
+    },
+    {
+      "id": "GO.main.Dynamic",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Dynamic",
+      "kind": "function",
+      "range": {
+        "start_byte": 1007,
+        "end_byte": 1094,
+        "start_line": 37,
+        "end_line": 37
+      },
+      "text": "func Dynamic(table map[string]func(int) int, name string) int { return table[name](8) }"
+    },
+    {
+      "id": "GO.main.First",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "First",
+      "kind": "type",
+      "range": {
+        "start_byte": 648,
+        "end_byte": 667,
+        "start_line": 24,
+        "end_line": 24
+      },
+      "text": "type First struct{}"
+    },
+    {
+      "id": "GO.main.First.Run",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "First.Run",
+      "kind": "method",
+      "range": {
+        "start_byte": 690,
+        "end_byte": 733,
+        "start_line": 27,
+        "end_line": 27
+      },
+      "text": "func (First) Run() int  { return Local(5) }"
+    },
+    {
+      "id": "GO.main.Imported",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Imported",
+      "kind": "function",
+      "range": {
+        "start_byte": 296,
+        "end_byte": 353,
+        "start_line": 11,
+        "end_line": 11
+      },
+      "text": "func Imported() int            { return alias.Finish(2) }"
+    },
+    {
+      "id": "GO.main.Local",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Local",
+      "kind": "function",
+      "range": {
+        "start_byte": 193,
+        "end_byte": 244,
+        "start_line": 9,
+        "end_line": 9
+      },
+      "text": "func Local(value int) int      { return value + 1 }"
+    },
+    {
+      "id": "GO.main.Missing",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Missing",
+      "kind": "function",
+      "range": {
+        "start_byte": 917,
+        "end_byte": 1006,
+        "start_line": 36,
+        "end_line": 36
+      },
+      "text": "func Missing() int                                            { return missing.Added(7) }"
+    },
+    {
+      "id": "GO.main.Receiver",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Receiver",
+      "kind": "function",
+      "range": {
+        "start_byte": 785,
+        "end_byte": 916,
+        "start_line": 29,
+        "end_line": 35
+      },
+      "text": "func Receiver(chooseFirst bool) int {\n\tvar worker Worker = First{}\n\tif !chooseFirst {\n\t\tworker = Second{}\n\t}\n\treturn worker.Run()\n}"
+    },
+    {
+      "id": "GO.main.Reference",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Reference",
+      "kind": "function",
+      "range": {
+        "start_byte": 354,
+        "end_byte": 401,
+        "start_line": 12,
+        "end_line": 12
+      },
+      "text": "func Reference() func(int) int { return Local }"
+    },
+    {
+      "id": "GO.main.Second",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Second",
+      "kind": "type",
+      "range": {
+        "start_byte": 668,
+        "end_byte": 688,
+        "start_line": 25,
+        "end_line": 25
+      },
+      "text": "type Second struct{}"
+    },
+    {
+      "id": "GO.main.Second.Run",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Second.Run",
+      "kind": "method",
+      "range": {
+        "start_byte": 734,
+        "end_byte": 784,
+        "start_line": 28,
+        "end_line": 28
+      },
+      "text": "func (Second) Run() int { return alias.Finish(6) }"
+    },
+    {
+      "id": "GO.main.Shadow",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Shadow",
+      "kind": "function",
+      "range": {
+        "start_byte": 467,
+        "end_byte": 558,
+        "start_line": 17,
+        "end_line": 20
+      },
+      "text": "func Shadow() int {\n\tLocal := func(value int) int { return value + 100 }\n\treturn Local(3)\n}"
+    },
+    {
+      "id": "GO.main.Shadow.Local",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Shadow.Local",
+      "kind": "function_value",
+      "range": {
+        "start_byte": 488,
+        "end_byte": 539,
+        "start_line": 18,
+        "end_line": 18
+      },
+      "text": "Local := func(value int) int { return value + 100 }"
+    },
+    {
+      "id": "GO.main.UnicodeCall",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "UnicodeCall",
+      "kind": "function",
+      "range": {
+        "start_byte": 1179,
+        "end_byte": 1260,
+        "start_line": 39,
+        "end_line": 39
+      },
+      "text": "func UnicodeCall() int                                        { return café(9) }"
+    },
+    {
+      "id": "GO.main.ValueAlias",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "ValueAlias",
+      "kind": "function",
+      "range": {
+        "start_byte": 402,
+        "end_byte": 466,
+        "start_line": 13,
+        "end_line": 16
+      },
+      "text": "func ValueAlias() int {\n\tnextStep := Local\n\treturn nextStep(2)\n}"
+    },
+    {
+      "id": "GO.main.Worker",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "Worker",
+      "kind": "interface",
+      "range": {
+        "start_byte": 613,
+        "end_byte": 647,
+        "start_line": 23,
+        "end_line": 23
+      },
+      "text": "type Worker interface{ Run() int }"
+    },
+    {
+      "id": "GO.main.café",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "name": "café",
+      "kind": "function",
+      "range": {
+        "start_byte": 1095,
+        "end_byte": 1178,
+        "start_line": 38,
+        "end_line": 38
+      },
+      "text": "func café(value int) int                                      { return value - 1 }"
+    },
+    {
+      "id": "JS.helpers.finish",
+      "path": "tests/fixtures/code-understanding/javascript/helpers.js",
+      "name": "finish",
+      "kind": "function",
+      "range": {
+        "start_byte": 34,
+        "end_byte": 85,
+        "start_line": 2,
+        "end_line": 2
+      },
+      "text": "export function finish(value) { return value * 2; }"
+    },
+    {
+      "id": "JS.main.First",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "First",
+      "kind": "class",
+      "range": {
+        "start_byte": 578,
+        "end_byte": 627,
+        "start_line": 18,
+        "end_line": 18
+      },
+      "text": "export class First { run() { return local(5); } }"
+    },
+    {
+      "id": "JS.main.First.run",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "First.run",
+      "kind": "method",
+      "range": {
+        "start_byte": 599,
+        "end_byte": 625,
+        "start_line": 18,
+        "end_line": 18
+      },
+      "text": "run() { return local(5); }"
+    },
+    {
+      "id": "JS.main.Second",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "Second",
+      "kind": "class",
+      "range": {
+        "start_byte": 628,
+        "end_byte": 687,
+        "start_line": 19,
+        "end_line": 19
+      },
+      "text": "export class Second { run() { return importedFinish(6); } }"
+    },
+    {
+      "id": "JS.main.Second.run",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "Second.run",
+      "kind": "method",
+      "range": {
+        "start_byte": 650,
+        "end_byte": 685,
+        "start_line": 19,
+        "end_line": 19
+      },
+      "text": "run() { return importedFinish(6); }"
+    },
+    {
+      "id": "JS.main.café",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "café",
+      "kind": "function",
+      "range": {
+        "start_byte": 923,
+        "end_byte": 973,
+        "start_line": 26,
+        "end_line": 26
+      },
+      "text": "export function café(value) { return value - 1; }"
+    },
+    {
+      "id": "JS.main.callback",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "callback",
+      "kind": "function",
+      "range": {
+        "start_byte": 531,
+        "end_byte": 577,
+        "start_line": 17,
+        "end_line": 17
+      },
+      "text": "export function callback(fn) { return fn(4); }"
+    },
+    {
+      "id": "JS.main.direct",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "direct",
+      "kind": "function",
+      "range": {
+        "start_byte": 213,
+        "end_byte": 258,
+        "start_line": 6,
+        "end_line": 6
+      },
+      "text": "export function direct() { return local(1); }"
+    },
+    {
+      "id": "JS.main.dynamic",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "dynamic",
+      "kind": "function",
+      "range": {
+        "start_byte": 859,
+        "end_byte": 922,
+        "start_line": 25,
+        "end_line": 25
+      },
+      "text": "export function dynamic(table, name) { return table[name](8); }"
+    },
+    {
+      "id": "JS.main.imported",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "imported",
+      "kind": "function",
+      "range": {
+        "start_byte": 259,
+        "end_byte": 315,
+        "start_line": 7,
+        "end_line": 7
+      },
+      "text": "export function imported() { return importedFinish(2); }"
+    },
+    {
+      "id": "JS.main.local",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "local",
+      "kind": "function",
+      "range": {
+        "start_byte": 162,
+        "end_byte": 212,
+        "start_line": 5,
+        "end_line": 5
+      },
+      "text": "export function local(value) { return value + 1; }"
+    },
+    {
+      "id": "JS.main.missing",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "missing",
+      "kind": "function",
+      "range": {
+        "start_byte": 812,
+        "end_byte": 858,
+        "start_line": 24,
+        "end_line": 24
+      },
+      "text": "export function missing() { return added(7); }"
+    },
+    {
+      "id": "JS.main.receiver",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "receiver",
+      "kind": "function",
+      "range": {
+        "start_byte": 688,
+        "end_byte": 811,
+        "start_line": 20,
+        "end_line": 23
+      },
+      "text": "export function receiver(chooseFirst) {\n  const worker = chooseFirst ? new First() : new Second();\n  return worker.run();\n}"
+    },
+    {
+      "id": "JS.main.reference",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "reference",
+      "kind": "function",
+      "range": {
+        "start_byte": 316,
+        "end_byte": 361,
+        "start_line": 8,
+        "end_line": 8
+      },
+      "text": "export function reference() { return local; }"
+    },
+    {
+      "id": "JS.main.shadow",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "shadow",
+      "kind": "function",
+      "range": {
+        "start_byte": 443,
+        "end_byte": 530,
+        "start_line": 13,
+        "end_line": 16
+      },
+      "text": "export function shadow() {\n  const local = (value) => value + 100;\n  return local(3);\n}"
+    },
+    {
+      "id": "JS.main.shadow.local",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "shadow.local",
+      "kind": "function_value",
+      "range": {
+        "start_byte": 478,
+        "end_byte": 508,
+        "start_line": 14,
+        "end_line": 14
+      },
+      "text": "local = (value) => value + 100"
+    },
+    {
+      "id": "JS.main.unicodeCall",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "unicodeCall",
+      "kind": "function",
+      "range": {
+        "start_byte": 974,
+        "end_byte": 1024,
+        "start_line": 27,
+        "end_line": 27
+      },
+      "text": "export function unicodeCall() { return café(9); }"
+    },
+    {
+      "id": "JS.main.valueAlias",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "name": "valueAlias",
+      "kind": "function",
+      "range": {
+        "start_byte": 362,
+        "end_byte": 442,
+        "start_line": 9,
+        "end_line": 12
+      },
+      "text": "export function valueAlias() {\n  const nextStep = local;\n  return nextStep(2);\n}"
+    },
+    {
+      "id": "PY.helpers.finish",
+      "path": "tests/fixtures/code-understanding/python/helpers.py",
+      "name": "finish",
+      "kind": "function",
+      "range": {
+        "start_byte": 39,
+        "end_byte": 78,
+        "start_line": 4,
+        "end_line": 5
+      },
+      "text": "def finish(value):\n    return value * 2"
+    },
+    {
+      "id": "PY.main.First",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "First",
+      "kind": "class",
+      "range": {
+        "start_byte": 496,
+        "end_byte": 551,
+        "start_line": 38,
+        "end_line": 40
+      },
+      "text": "class First:\n    def run(self):\n        return local(5)"
+    },
+    {
+      "id": "PY.main.First.run",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "First.run",
+      "kind": "method",
+      "range": {
+        "start_byte": 513,
+        "end_byte": 551,
+        "start_line": 39,
+        "end_line": 40
+      },
+      "text": "def run(self):\n        return local(5)"
+    },
+    {
+      "id": "PY.main.Second",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "Second",
+      "kind": "class",
+      "range": {
+        "start_byte": 554,
+        "end_byte": 620,
+        "start_line": 43,
+        "end_line": 45
+      },
+      "text": "class Second:\n    def run(self):\n        return imported_finish(6)"
+    },
+    {
+      "id": "PY.main.Second.run",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "Second.run",
+      "kind": "method",
+      "range": {
+        "start_byte": 572,
+        "end_byte": 620,
+        "start_line": 44,
+        "end_line": 45
+      },
+      "text": "def run(self):\n        return imported_finish(6)"
+    },
+    {
+      "id": "PY.main.café",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "café",
+      "kind": "function",
+      "range": {
+        "start_byte": 819,
+        "end_byte": 857,
+        "start_line": 61,
+        "end_line": 62
+      },
+      "text": "def café(value):\n    return value - 1"
+    },
+    {
+      "id": "PY.main.callback",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "callback",
+      "kind": "function",
+      "range": {
+        "start_byte": 459,
+        "end_byte": 493,
+        "start_line": 34,
+        "end_line": 35
+      },
+      "text": "def callback(fn):\n    return fn(4)"
+    },
+    {
+      "id": "PY.main.direct",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "direct",
+      "kind": "function",
+      "range": {
+        "start_byte": 187,
+        "end_byte": 220,
+        "start_line": 11,
+        "end_line": 12
+      },
+      "text": "def direct():\n    return local(1)"
+    },
+    {
+      "id": "PY.main.dynamic",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "dynamic",
+      "kind": "function",
+      "range": {
+        "start_byte": 765,
+        "end_byte": 816,
+        "start_line": 57,
+        "end_line": 58
+      },
+      "text": "def dynamic(table, name):\n    return table[name](8)"
+    },
+    {
+      "id": "PY.main.imported",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "imported",
+      "kind": "function",
+      "range": {
+        "start_byte": 223,
+        "end_byte": 268,
+        "start_line": 15,
+        "end_line": 16
+      },
+      "text": "def imported():\n    return imported_finish(2)"
+    },
+    {
+      "id": "PY.main.local",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "local",
+      "kind": "function",
+      "range": {
+        "start_byte": 146,
+        "end_byte": 184,
+        "start_line": 7,
+        "end_line": 8
+      },
+      "text": "def local(value):\n    return value + 1"
+    },
+    {
+      "id": "PY.main.missing",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "missing",
+      "kind": "function",
+      "range": {
+        "start_byte": 728,
+        "end_byte": 762,
+        "start_line": 53,
+        "end_line": 54
+      },
+      "text": "def missing():\n    return added(7)"
+    },
+    {
+      "id": "PY.main.receiver",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "receiver",
+      "kind": "function",
+      "range": {
+        "start_byte": 623,
+        "end_byte": 725,
+        "start_line": 48,
+        "end_line": 50
+      },
+      "text": "def receiver(choose_first):\n    worker = First() if choose_first else Second()\n    return worker.run()"
+    },
+    {
+      "id": "PY.main.reference",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "reference",
+      "kind": "function",
+      "range": {
+        "start_byte": 271,
+        "end_byte": 304,
+        "start_line": 19,
+        "end_line": 20
+      },
+      "text": "def reference():\n    return local"
+    },
+    {
+      "id": "PY.main.shadow",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "shadow",
+      "kind": "function",
+      "range": {
+        "start_byte": 374,
+        "end_byte": 456,
+        "start_line": 28,
+        "end_line": 31
+      },
+      "text": "def shadow():\n    def local(value):\n        return value + 100\n    return local(3)"
+    },
+    {
+      "id": "PY.main.shadow.local",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "shadow.local",
+      "kind": "function",
+      "range": {
+        "start_byte": 392,
+        "end_byte": 436,
+        "start_line": 29,
+        "end_line": 30
+      },
+      "text": "def local(value):\n        return value + 100"
+    },
+    {
+      "id": "PY.main.unicode_call",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "unicode_call",
+      "kind": "function",
+      "range": {
+        "start_byte": 860,
+        "end_byte": 899,
+        "start_line": 65,
+        "end_line": 66
+      },
+      "text": "def unicode_call():\n    return café(9)"
+    },
+    {
+      "id": "PY.main.value_alias",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "name": "value_alias",
+      "kind": "function",
+      "range": {
+        "start_byte": 307,
+        "end_byte": 371,
+        "start_line": 23,
+        "end_line": 25
+      },
+      "text": "def value_alias():\n    next_step = local\n    return next_step(2)"
+    },
+    {
+      "id": "TS.helpers.finish",
+      "path": "tests/fixtures/code-understanding/typescript/helpers.ts",
+      "name": "finish",
+      "kind": "function",
+      "range": {
+        "start_byte": 34,
+        "end_byte": 101,
+        "start_line": 2,
+        "end_line": 2
+      },
+      "text": "export function finish(value: number): number { return value * 2; }"
+    },
+    {
+      "id": "TS.main.First",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "First",
+      "kind": "class",
+      "range": {
+        "start_byte": 741,
+        "end_byte": 816,
+        "start_line": 19,
+        "end_line": 19
+      },
+      "text": "export class First implements Worker { run(): number { return local(5); } }"
+    },
+    {
+      "id": "TS.main.First.run",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "First.run",
+      "kind": "method",
+      "range": {
+        "start_byte": 780,
+        "end_byte": 814,
+        "start_line": 19,
+        "end_line": 19
+      },
+      "text": "run(): number { return local(5); }"
+    },
+    {
+      "id": "TS.main.Second",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "Second",
+      "kind": "class",
+      "range": {
+        "start_byte": 817,
+        "end_byte": 902,
+        "start_line": 20,
+        "end_line": 20
+      },
+      "text": "export class Second implements Worker { run(): number { return importedFinish(6); } }"
+    },
+    {
+      "id": "TS.main.Second.run",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "Second.run",
+      "kind": "method",
+      "range": {
+        "start_byte": 857,
+        "end_byte": 900,
+        "start_line": 20,
+        "end_line": 20
+      },
+      "text": "run(): number { return importedFinish(6); }"
+    },
+    {
+      "id": "TS.main.Worker",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "Worker",
+      "kind": "interface",
+      "range": {
+        "start_byte": 698,
+        "end_byte": 740,
+        "start_line": 18,
+        "end_line": 18
+      },
+      "text": "export interface Worker { run(): number; }"
+    },
+    {
+      "id": "TS.main.Worker.run",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "Worker.run",
+      "kind": "method_declaration",
+      "range": {
+        "start_byte": 724,
+        "end_byte": 738,
+        "start_line": 18,
+        "end_line": 18
+      },
+      "text": "run(): number;"
+    },
+    {
+      "id": "TS.main.café",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "café",
+      "kind": "function",
+      "range": {
+        "start_byte": 1230,
+        "end_byte": 1296,
+        "start_line": 27,
+        "end_line": 27
+      },
+      "text": "export function café(value: number): number { return value - 1; }"
+    },
+    {
+      "id": "TS.main.callback",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "callback",
+      "kind": "function",
+      "range": {
+        "start_byte": 616,
+        "end_byte": 697,
+        "start_line": 17,
+        "end_line": 17
+      },
+      "text": "export function callback(fn: (value: number) => number): number { return fn(4); }"
+    },
+    {
+      "id": "TS.main.direct",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "direct",
+      "kind": "function",
+      "range": {
+        "start_byte": 223,
+        "end_byte": 276,
+        "start_line": 6,
+        "end_line": 6
+      },
+      "text": "export function direct(): number { return local(1); }"
+    },
+    {
+      "id": "TS.main.dynamic",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "dynamic",
+      "kind": "function",
+      "range": {
+        "start_byte": 1107,
+        "end_byte": 1229,
+        "start_line": 26,
+        "end_line": 26
+      },
+      "text": "export function dynamic(table: Record<string, (value: number) => number>, name: string): number { return table[name](8); }"
+    },
+    {
+      "id": "TS.main.imported",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "imported",
+      "kind": "function",
+      "range": {
+        "start_byte": 277,
+        "end_byte": 341,
+        "start_line": 7,
+        "end_line": 7
+      },
+      "text": "export function imported(): number { return importedFinish(2); }"
+    },
+    {
+      "id": "TS.main.local",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "local",
+      "kind": "function",
+      "range": {
+        "start_byte": 156,
+        "end_byte": 222,
+        "start_line": 5,
+        "end_line": 5
+      },
+      "text": "export function local(value: number): number { return value + 1; }"
+    },
+    {
+      "id": "TS.main.missing",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "missing",
+      "kind": "function",
+      "range": {
+        "start_byte": 1052,
+        "end_byte": 1106,
+        "start_line": 25,
+        "end_line": 25
+      },
+      "text": "export function missing(): number { return added(7); }"
+    },
+    {
+      "id": "TS.main.receiver",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "receiver",
+      "kind": "function",
+      "range": {
+        "start_byte": 903,
+        "end_byte": 1051,
+        "start_line": 21,
+        "end_line": 24
+      },
+      "text": "export function receiver(chooseFirst: boolean): number {\n  const worker: Worker = chooseFirst ? new First() : new Second();\n  return worker.run();\n}"
+    },
+    {
+      "id": "TS.main.reference",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "reference",
+      "kind": "function",
+      "range": {
+        "start_byte": 342,
+        "end_byte": 414,
+        "start_line": 8,
+        "end_line": 8
+      },
+      "text": "export function reference(): (value: number) => number { return local; }"
+    },
+    {
+      "id": "TS.main.shadow",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "shadow",
+      "kind": "function",
+      "range": {
+        "start_byte": 504,
+        "end_byte": 615,
+        "start_line": 13,
+        "end_line": 16
+      },
+      "text": "export function shadow(): number {\n  const local = (value: number): number => value + 100;\n  return local(3);\n}"
+    },
+    {
+      "id": "TS.main.shadow.local",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "shadow.local",
+      "kind": "function_value",
+      "range": {
+        "start_byte": 547,
+        "end_byte": 593,
+        "start_line": 14,
+        "end_line": 14
+      },
+      "text": "local = (value: number): number => value + 100"
+    },
+    {
+      "id": "TS.main.unicodeCall",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "unicodeCall",
+      "kind": "function",
+      "range": {
+        "start_byte": 1297,
+        "end_byte": 1355,
+        "start_line": 28,
+        "end_line": 28
+      },
+      "text": "export function unicodeCall(): number { return café(9); }"
+    },
+    {
+      "id": "TS.main.valueAlias",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "name": "valueAlias",
+      "kind": "function",
+      "range": {
+        "start_byte": 415,
+        "end_byte": 503,
+        "start_line": 9,
+        "end_line": 12
+      },
+      "text": "export function valueAlias(): number {\n  const nextStep = local;\n  return nextStep(2);\n}"
+    }
+  ],
+  "cases": [
+    {
+      "id": "PY-DIRECT",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "role": "call",
+      "construct": "direct.python",
+      "range": {
+        "start_byte": 212,
+        "end_byte": 220,
+        "start_line": 12,
+        "end_line": 12
+      },
+      "text": "local(1)",
+      "targets": [
+        "PY.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Lexically bound declaration in the same module/package; exclude external monkey patching/redefinition.",
+      "caller": "PY.main.direct",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "PY-IMPORT",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "role": "call",
+      "construct": "import_alias.python",
+      "range": {
+        "start_byte": 250,
+        "end_byte": 268,
+        "start_line": 16,
+        "end_line": 16
+      },
+      "text": "imported_finish(2)",
+      "targets": [
+        "PY.helpers.finish"
+      ],
+      "certainty": "resolved",
+      "reason": "Explicit local import alias and vetted helper file identify the declaration; package/module mapping is recorded below.",
+      "caller": "PY.main.imported",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "PY-REFERENCE",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "role": "reference",
+      "construct": "callable_reference.python",
+      "range": {
+        "start_byte": 299,
+        "end_byte": 304,
+        "start_line": 20,
+        "end_line": 20
+      },
+      "text": "local",
+      "targets": [
+        "PY.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Returning a callable value is a reference, not invocation.",
+      "caller": "PY.main.reference",
+      "targets_exhaustive": true,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "PY-ALIAS-REFERENCE",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "role": "reference",
+      "construct": "value_alias.python",
+      "range": {
+        "start_byte": 342,
+        "end_byte": 347,
+        "start_line": 24,
+        "end_line": 24
+      },
+      "text": "local",
+      "targets": [
+        "PY.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Stable local alias assignment references the original callable; do not count this site as a call.",
+      "caller": "PY.main.value_alias",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "PY-ALIAS-CALL",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "role": "call",
+      "construct": "value_alias.python",
+      "range": {
+        "start_byte": 359,
+        "end_byte": 371,
+        "start_line": 25,
+        "end_line": 25
+      },
+      "text": "next_step(2)",
+      "targets": [
+        "PY.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Single assignment to the callable alias; no intervening reassignment.",
+      "caller": "PY.main.value_alias",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "PY-SHADOW",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "role": "call",
+      "construct": "shadowing.python",
+      "range": {
+        "start_byte": 448,
+        "end_byte": 456,
+        "start_line": 31,
+        "end_line": 31
+      },
+      "text": "local(3)",
+      "targets": [
+        "PY.main.shadow.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Inner lexical function/function value shadows the outer same-named function; never choose the global declaration.",
+      "caller": "PY.main.shadow",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "PY-CALLBACK",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "role": "call",
+      "construct": "callback.python",
+      "range": {
+        "start_byte": 488,
+        "end_byte": 493,
+        "start_line": 35,
+        "end_line": 35
+      },
+      "text": "fn(4)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "Public function parameter is an externally supplied callable; this source does not enumerate its possible runtime targets.",
+      "caller": "PY.main.callback",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "PY-RECEIVER",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "role": "call",
+      "construct": "receiver.python",
+      "range": {
+        "start_byte": 713,
+        "end_byte": 725,
+        "start_line": 50,
+        "end_line": 50
+      },
+      "text": "worker.run()",
+      "targets": [
+        "PY.main.First.run",
+        "PY.main.Second.run"
+      ],
+      "certainty": "candidate",
+      "reason": "Two explicit construction branches provide known receiver alternatives. Preserve both; these candidates are not a universal runtime guarantee.",
+      "caller": "PY.main.receiver",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input",
+      "acceptable_conservative_state": "unresolved with retained site/reason; candidate list is not runtime completeness"
+    },
+    {
+      "id": "PY-MISSING",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "role": "call",
+      "construct": "missing_import.python",
+      "range": {
+        "start_byte": 754,
+        "end_byte": 762,
+        "start_line": 54,
+        "end_line": 54
+      },
+      "text": "added(7)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "The optional imported module/package is intentionally absent. An addition must revisit this negative lookup without editing this caller.",
+      "caller": "PY.main.missing",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "PY-DYNAMIC",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "role": "call",
+      "construct": "dynamic.python",
+      "range": {
+        "start_byte": 802,
+        "end_byte": 816,
+        "start_line": 58,
+        "end_line": 58
+      },
+      "text": "table[name](8)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "Computed key selects an externally supplied callable table; key/target membership and potential missing entries are unknown.",
+      "caller": "PY.main.dynamic",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "PY-UTF8",
+      "path": "tests/fixtures/code-understanding/python/main.py",
+      "language": "python",
+      "role": "call",
+      "construct": "utf8.python",
+      "range": {
+        "start_byte": 891,
+        "end_byte": 899,
+        "start_line": 66,
+        "end_line": 66
+      },
+      "text": "café(9)",
+      "targets": [
+        "PY.main.café"
+      ],
+      "certainty": "resolved",
+      "reason": "Unicode identifier and preceding multibyte text require UTF-8 bytes, not character/UTF-16 offsets.",
+      "caller": "PY.main.unicode_call",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "GO-DIRECT",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "role": "call",
+      "construct": "direct.go",
+      "range": {
+        "start_byte": 285,
+        "end_byte": 293,
+        "start_line": 10,
+        "end_line": 10
+      },
+      "text": "Local(1)",
+      "targets": [
+        "GO.main.Local"
+      ],
+      "certainty": "resolved",
+      "reason": "Lexically bound declaration in the same module/package; exclude external monkey patching/redefinition.",
+      "caller": "GO.main.Direct",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "GO-IMPORT",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "role": "call",
+      "construct": "import_alias.go",
+      "range": {
+        "start_byte": 336,
+        "end_byte": 351,
+        "start_line": 11,
+        "end_line": 11
+      },
+      "text": "alias.Finish(2)",
+      "targets": [
+        "GO.helpers.Finish"
+      ],
+      "certainty": "resolved",
+      "reason": "Explicit local import alias and vetted helper file identify the declaration; package/module mapping is recorded below.",
+      "caller": "GO.main.Imported",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "GO-REFERENCE",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "role": "reference",
+      "construct": "callable_reference.go",
+      "range": {
+        "start_byte": 394,
+        "end_byte": 399,
+        "start_line": 12,
+        "end_line": 12
+      },
+      "text": "Local",
+      "targets": [
+        "GO.main.Local"
+      ],
+      "certainty": "resolved",
+      "reason": "Returning a callable value is a reference, not invocation.",
+      "caller": "GO.main.Reference",
+      "targets_exhaustive": true,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "GO-ALIAS-REFERENCE",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "role": "reference",
+      "construct": "value_alias.go",
+      "range": {
+        "start_byte": 439,
+        "end_byte": 444,
+        "start_line": 14,
+        "end_line": 14
+      },
+      "text": "Local",
+      "targets": [
+        "GO.main.Local"
+      ],
+      "certainty": "resolved",
+      "reason": "Stable local alias assignment references the original callable; do not count this site as a call.",
+      "caller": "GO.main.ValueAlias",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "GO-ALIAS-CALL",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "role": "call",
+      "construct": "value_alias.go",
+      "range": {
+        "start_byte": 453,
+        "end_byte": 464,
+        "start_line": 15,
+        "end_line": 15
+      },
+      "text": "nextStep(2)",
+      "targets": [
+        "GO.main.Local"
+      ],
+      "certainty": "resolved",
+      "reason": "Single assignment to the callable alias; no intervening reassignment.",
+      "caller": "GO.main.ValueAlias",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "GO-SHADOW",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "role": "call",
+      "construct": "shadowing.go",
+      "range": {
+        "start_byte": 548,
+        "end_byte": 556,
+        "start_line": 19,
+        "end_line": 19
+      },
+      "text": "Local(3)",
+      "targets": [
+        "GO.main.Shadow.Local"
+      ],
+      "certainty": "resolved",
+      "reason": "Inner lexical function/function value shadows the outer same-named function; never choose the global declaration.",
+      "caller": "GO.main.Shadow",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "GO-CALLBACK",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "role": "call",
+      "construct": "callback.go",
+      "range": {
+        "start_byte": 604,
+        "end_byte": 609,
+        "start_line": 21,
+        "end_line": 21
+      },
+      "text": "fn(4)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "Public function parameter is an externally supplied callable; this source does not enumerate its possible runtime targets.",
+      "caller": "GO.main.Callback",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "GO-RECEIVER",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "role": "call",
+      "construct": "receiver.go",
+      "range": {
+        "start_byte": 902,
+        "end_byte": 914,
+        "start_line": 34,
+        "end_line": 34
+      },
+      "text": "worker.Run()",
+      "targets": [
+        "GO.main.First.Run",
+        "GO.main.Second.Run"
+      ],
+      "certainty": "candidate",
+      "reason": "Two explicit construction branches provide known receiver alternatives. Preserve both; these candidates are not a universal runtime guarantee.",
+      "caller": "GO.main.Receiver",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input",
+      "acceptable_conservative_state": "unresolved with retained site/reason; candidate list is not runtime completeness"
+    },
+    {
+      "id": "GO-MISSING",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "role": "call",
+      "construct": "missing_import.go",
+      "range": {
+        "start_byte": 988,
+        "end_byte": 1004,
+        "start_line": 36,
+        "end_line": 36
+      },
+      "text": "missing.Added(7)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "The optional imported module/package is intentionally absent. An addition must revisit this negative lookup without editing this caller.",
+      "caller": "GO.main.Missing",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "GO-DYNAMIC",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "role": "call",
+      "construct": "dynamic.go",
+      "range": {
+        "start_byte": 1078,
+        "end_byte": 1092,
+        "start_line": 37,
+        "end_line": 37
+      },
+      "text": "table[name](8)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "Computed key selects an externally supplied callable table; key/target membership and potential missing entries are unknown.",
+      "caller": "GO.main.Dynamic",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "GO-UTF8",
+      "path": "tests/fixtures/code-understanding/go/main.go",
+      "language": "go",
+      "role": "call",
+      "construct": "utf8.go",
+      "range": {
+        "start_byte": 1250,
+        "end_byte": 1258,
+        "start_line": 39,
+        "end_line": 39
+      },
+      "text": "café(9)",
+      "targets": [
+        "GO.main.café"
+      ],
+      "certainty": "resolved",
+      "reason": "Unicode identifier and preceding multibyte text require UTF-8 bytes, not character/UTF-16 offsets.",
+      "caller": "GO.main.UnicodeCall",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "JS-DIRECT",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "role": "call",
+      "construct": "direct.javascript",
+      "range": {
+        "start_byte": 247,
+        "end_byte": 255,
+        "start_line": 6,
+        "end_line": 6
+      },
+      "text": "local(1)",
+      "targets": [
+        "JS.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Lexically bound declaration in the same module/package; exclude external monkey patching/redefinition.",
+      "caller": "JS.main.direct",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "JS-IMPORT",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "role": "call",
+      "construct": "import_alias.javascript",
+      "range": {
+        "start_byte": 295,
+        "end_byte": 312,
+        "start_line": 7,
+        "end_line": 7
+      },
+      "text": "importedFinish(2)",
+      "targets": [
+        "JS.helpers.finish"
+      ],
+      "certainty": "resolved",
+      "reason": "Explicit local import alias and vetted helper file identify the declaration; package/module mapping is recorded below.",
+      "caller": "JS.main.imported",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "JS-REFERENCE",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "role": "reference",
+      "construct": "callable_reference.javascript",
+      "range": {
+        "start_byte": 353,
+        "end_byte": 358,
+        "start_line": 8,
+        "end_line": 8
+      },
+      "text": "local",
+      "targets": [
+        "JS.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Returning a callable value is a reference, not invocation.",
+      "caller": "JS.main.reference",
+      "targets_exhaustive": true,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "JS-ALIAS-REFERENCE",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "role": "reference",
+      "construct": "value_alias.javascript",
+      "range": {
+        "start_byte": 412,
+        "end_byte": 417,
+        "start_line": 10,
+        "end_line": 10
+      },
+      "text": "local",
+      "targets": [
+        "JS.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Stable local alias assignment references the original callable; do not count this site as a call.",
+      "caller": "JS.main.valueAlias",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "JS-ALIAS-CALL",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "role": "call",
+      "construct": "value_alias.javascript",
+      "range": {
+        "start_byte": 428,
+        "end_byte": 439,
+        "start_line": 11,
+        "end_line": 11
+      },
+      "text": "nextStep(2)",
+      "targets": [
+        "JS.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Single assignment to the callable alias; no intervening reassignment.",
+      "caller": "JS.main.valueAlias",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "JS-SHADOW",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "role": "call",
+      "construct": "shadowing.javascript",
+      "range": {
+        "start_byte": 519,
+        "end_byte": 527,
+        "start_line": 15,
+        "end_line": 15
+      },
+      "text": "local(3)",
+      "targets": [
+        "JS.main.shadow.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Inner lexical function/function value shadows the outer same-named function; never choose the global declaration.",
+      "caller": "JS.main.shadow",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "JS-CALLBACK",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "role": "call",
+      "construct": "callback.javascript",
+      "range": {
+        "start_byte": 569,
+        "end_byte": 574,
+        "start_line": 17,
+        "end_line": 17
+      },
+      "text": "fn(4)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "Public function parameter is an externally supplied callable; this source does not enumerate its possible runtime targets.",
+      "caller": "JS.main.callback",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "JS-RECEIVER",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "role": "call",
+      "construct": "receiver.javascript",
+      "range": {
+        "start_byte": 796,
+        "end_byte": 808,
+        "start_line": 22,
+        "end_line": 22
+      },
+      "text": "worker.run()",
+      "targets": [
+        "JS.main.First.run",
+        "JS.main.Second.run"
+      ],
+      "certainty": "candidate",
+      "reason": "Two explicit construction branches provide known receiver alternatives. Preserve both; these candidates are not a universal runtime guarantee.",
+      "caller": "JS.main.receiver",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input",
+      "acceptable_conservative_state": "unresolved with retained site/reason; candidate list is not runtime completeness"
+    },
+    {
+      "id": "JS-MISSING",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "role": "call",
+      "construct": "missing_import.javascript",
+      "range": {
+        "start_byte": 847,
+        "end_byte": 855,
+        "start_line": 24,
+        "end_line": 24
+      },
+      "text": "added(7)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "The optional imported module/package is intentionally absent. An addition must revisit this negative lookup without editing this caller.",
+      "caller": "JS.main.missing",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "JS-DYNAMIC",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "role": "call",
+      "construct": "dynamic.javascript",
+      "range": {
+        "start_byte": 905,
+        "end_byte": 919,
+        "start_line": 25,
+        "end_line": 25
+      },
+      "text": "table[name](8)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "Computed key selects an externally supplied callable table; key/target membership and potential missing entries are unknown.",
+      "caller": "JS.main.dynamic",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "JS-UTF8",
+      "path": "tests/fixtures/code-understanding/javascript/main.js",
+      "language": "javascript",
+      "role": "call",
+      "construct": "utf8.javascript",
+      "range": {
+        "start_byte": 1013,
+        "end_byte": 1021,
+        "start_line": 27,
+        "end_line": 27
+      },
+      "text": "café(9)",
+      "targets": [
+        "JS.main.café"
+      ],
+      "certainty": "resolved",
+      "reason": "Unicode identifier and preceding multibyte text require UTF-8 bytes, not character/UTF-16 offsets.",
+      "caller": "JS.main.unicodeCall",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "TS-DIRECT",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "role": "call",
+      "construct": "direct.typescript",
+      "range": {
+        "start_byte": 265,
+        "end_byte": 273,
+        "start_line": 6,
+        "end_line": 6
+      },
+      "text": "local(1)",
+      "targets": [
+        "TS.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Lexically bound declaration in the same module/package; exclude external monkey patching/redefinition.",
+      "caller": "TS.main.direct",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "TS-IMPORT",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "role": "call",
+      "construct": "import_alias.typescript",
+      "range": {
+        "start_byte": 321,
+        "end_byte": 338,
+        "start_line": 7,
+        "end_line": 7
+      },
+      "text": "importedFinish(2)",
+      "targets": [
+        "TS.helpers.finish"
+      ],
+      "certainty": "resolved",
+      "reason": "Explicit local import alias and vetted helper file identify the declaration; package/module mapping is recorded below.",
+      "caller": "TS.main.imported",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "TS-REFERENCE",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "role": "reference",
+      "construct": "callable_reference.typescript",
+      "range": {
+        "start_byte": 406,
+        "end_byte": 411,
+        "start_line": 8,
+        "end_line": 8
+      },
+      "text": "local",
+      "targets": [
+        "TS.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Returning a callable value is a reference, not invocation.",
+      "caller": "TS.main.reference",
+      "targets_exhaustive": true,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "TS-ALIAS-REFERENCE",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "role": "reference",
+      "construct": "value_alias.typescript",
+      "range": {
+        "start_byte": 473,
+        "end_byte": 478,
+        "start_line": 10,
+        "end_line": 10
+      },
+      "text": "local",
+      "targets": [
+        "TS.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Stable local alias assignment references the original callable; do not count this site as a call.",
+      "caller": "TS.main.valueAlias",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "TS-ALIAS-CALL",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "role": "call",
+      "construct": "value_alias.typescript",
+      "range": {
+        "start_byte": 489,
+        "end_byte": 500,
+        "start_line": 11,
+        "end_line": 11
+      },
+      "text": "nextStep(2)",
+      "targets": [
+        "TS.main.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Single assignment to the callable alias; no intervening reassignment.",
+      "caller": "TS.main.valueAlias",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "TS-SHADOW",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "role": "call",
+      "construct": "shadowing.typescript",
+      "range": {
+        "start_byte": 604,
+        "end_byte": 612,
+        "start_line": 15,
+        "end_line": 15
+      },
+      "text": "local(3)",
+      "targets": [
+        "TS.main.shadow.local"
+      ],
+      "certainty": "resolved",
+      "reason": "Inner lexical function/function value shadows the outer same-named function; never choose the global declaration.",
+      "caller": "TS.main.shadow",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "TS-CALLBACK",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "role": "call",
+      "construct": "callback.typescript",
+      "range": {
+        "start_byte": 689,
+        "end_byte": 694,
+        "start_line": 17,
+        "end_line": 17
+      },
+      "text": "fn(4)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "Public function parameter is an externally supplied callable; this source does not enumerate its possible runtime targets.",
+      "caller": "TS.main.callback",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "TS-RECEIVER",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "role": "call",
+      "construct": "receiver.typescript",
+      "range": {
+        "start_byte": 1036,
+        "end_byte": 1048,
+        "start_line": 23,
+        "end_line": 23
+      },
+      "text": "worker.run()",
+      "targets": [
+        "TS.main.First.run",
+        "TS.main.Second.run"
+      ],
+      "certainty": "candidate",
+      "reason": "Two explicit construction branches provide known receiver alternatives. Preserve both; these candidates are not a universal runtime guarantee.",
+      "caller": "TS.main.receiver",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input",
+      "acceptable_conservative_state": "unresolved with retained site/reason; candidate list is not runtime completeness"
+    },
+    {
+      "id": "TS-MISSING",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "role": "call",
+      "construct": "missing_import.typescript",
+      "range": {
+        "start_byte": 1095,
+        "end_byte": 1103,
+        "start_line": 25,
+        "end_line": 25
+      },
+      "text": "added(7)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "The optional imported module/package is intentionally absent. An addition must revisit this negative lookup without editing this caller.",
+      "caller": "TS.main.missing",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "TS-DYNAMIC",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "role": "call",
+      "construct": "dynamic.typescript",
+      "range": {
+        "start_byte": 1212,
+        "end_byte": 1226,
+        "start_line": 26,
+        "end_line": 26
+      },
+      "text": "table[name](8)",
+      "targets": [],
+      "certainty": "unresolved",
+      "reason": "Computed key selects an externally supplied callable table; key/target membership and potential missing entries are unknown.",
+      "caller": "TS.main.dynamic",
+      "targets_exhaustive": false,
+      "precision_scored": false,
+      "review": "model_source_review_of_synthetic_input"
+    },
+    {
+      "id": "TS-UTF8",
+      "path": "tests/fixtures/code-understanding/typescript/main.ts",
+      "language": "typescript",
+      "role": "call",
+      "construct": "utf8.typescript",
+      "range": {
+        "start_byte": 1344,
+        "end_byte": 1352,
+        "start_line": 28,
+        "end_line": 28
+      },
+      "text": "café(9)",
+      "targets": [
+        "TS.main.café"
+      ],
+      "certainty": "resolved",
+      "reason": "Unicode identifier and preceding multibyte text require UTF-8 bytes, not character/UTF-16 offsets.",
+      "caller": "TS.main.unicodeCall",
+      "targets_exhaustive": true,
+      "precision_scored": true,
+      "review": "model_source_review_of_synthetic_input"
+    }
+  ],
+  "questions": [
+    {
+      "id": "Q-PY-BINDING",
+      "language": "python",
+      "prompt": "Locate direct/import-alias calls and the shadowed local target. Cite each source range and declaration.",
+      "case_ids": [
+        "PY-DIRECT",
+        "PY-IMPORT",
+        "PY-SHADOW"
+      ]
+    },
+    {
+      "id": "Q-PY-CALLABLE-VALUE",
+      "language": "python",
+      "prompt": "Separate callable references from invocations; explain the stable alias and unresolved callback.",
+      "case_ids": [
+        "PY-REFERENCE",
+        "PY-ALIAS-REFERENCE",
+        "PY-ALIAS-CALL",
+        "PY-CALLBACK"
+      ]
+    },
+    {
+      "id": "Q-PY-UNCERTAINTY",
+      "language": "python",
+      "prompt": "Report receiver alternatives, the missing import and computed dispatch without claiming complete runtime behavior.",
+      "case_ids": [
+        "PY-RECEIVER",
+        "PY-MISSING",
+        "PY-DYNAMIC"
+      ]
+    },
+    {
+      "id": "Q-PY-UTF8",
+      "language": "python",
+      "prompt": "Return the exact UTF-8 byte range for the Unicode call and its declaration.",
+      "case_ids": [
+        "PY-UTF8"
+      ]
+    },
+    {
+      "id": "Q-GO-BINDING",
+      "language": "go",
+      "prompt": "Locate direct/import-alias calls and the shadowed local target. Cite each source range and declaration.",
+      "case_ids": [
+        "GO-DIRECT",
+        "GO-IMPORT",
+        "GO-SHADOW"
+      ]
+    },
+    {
+      "id": "Q-GO-CALLABLE-VALUE",
+      "language": "go",
+      "prompt": "Separate callable references from invocations; explain the stable alias and unresolved callback.",
+      "case_ids": [
+        "GO-REFERENCE",
+        "GO-ALIAS-REFERENCE",
+        "GO-ALIAS-CALL",
+        "GO-CALLBACK"
+      ]
+    },
+    {
+      "id": "Q-GO-UNCERTAINTY",
+      "language": "go",
+      "prompt": "Report receiver alternatives, the missing import and computed dispatch without claiming complete runtime behavior.",
+      "case_ids": [
+        "GO-RECEIVER",
+        "GO-MISSING",
+        "GO-DYNAMIC"
+      ]
+    },
+    {
+      "id": "Q-GO-UTF8",
+      "language": "go",
+      "prompt": "Return the exact UTF-8 byte range for the Unicode call and its declaration.",
+      "case_ids": [
+        "GO-UTF8"
+      ]
+    },
+    {
+      "id": "Q-JS-BINDING",
+      "language": "javascript",
+      "prompt": "Locate direct/import-alias calls and the shadowed local target. Cite each source range and declaration.",
+      "case_ids": [
+        "JS-DIRECT",
+        "JS-IMPORT",
+        "JS-SHADOW"
+      ]
+    },
+    {
+      "id": "Q-JS-CALLABLE-VALUE",
+      "language": "javascript",
+      "prompt": "Separate callable references from invocations; explain the stable alias and unresolved callback.",
+      "case_ids": [
+        "JS-REFERENCE",
+        "JS-ALIAS-REFERENCE",
+        "JS-ALIAS-CALL",
+        "JS-CALLBACK"
+      ]
+    },
+    {
+      "id": "Q-JS-UNCERTAINTY",
+      "language": "javascript",
+      "prompt": "Report receiver alternatives, the missing import and computed dispatch without claiming complete runtime behavior.",
+      "case_ids": [
+        "JS-RECEIVER",
+        "JS-MISSING",
+        "JS-DYNAMIC"
+      ]
+    },
+    {
+      "id": "Q-JS-UTF8",
+      "language": "javascript",
+      "prompt": "Return the exact UTF-8 byte range for the Unicode call and its declaration.",
+      "case_ids": [
+        "JS-UTF8"
+      ]
+    },
+    {
+      "id": "Q-TS-BINDING",
+      "language": "typescript",
+      "prompt": "Locate direct/import-alias calls and the shadowed local target. Cite each source range and declaration.",
+      "case_ids": [
+        "TS-DIRECT",
+        "TS-IMPORT",
+        "TS-SHADOW"
+      ]
+    },
+    {
+      "id": "Q-TS-CALLABLE-VALUE",
+      "language": "typescript",
+      "prompt": "Separate callable references from invocations; explain the stable alias and unresolved callback.",
+      "case_ids": [
+        "TS-REFERENCE",
+        "TS-ALIAS-REFERENCE",
+        "TS-ALIAS-CALL",
+        "TS-CALLBACK"
+      ]
+    },
+    {
+      "id": "Q-TS-UNCERTAINTY",
+      "language": "typescript",
+      "prompt": "Report receiver alternatives, the missing import and computed dispatch without claiming complete runtime behavior.",
+      "case_ids": [
+        "TS-RECEIVER",
+        "TS-MISSING",
+        "TS-DYNAMIC"
+      ]
+    },
+    {
+      "id": "Q-TS-UTF8",
+      "language": "typescript",
+      "prompt": "Return the exact UTF-8 byte range for the Unicode call and its declaration.",
+      "case_ids": [
+        "TS-UTF8"
+      ]
+    }
+  ],
+  "tests_for_questions": {
+    "Q-PY-BINDING": [
+      "PY-DIRECT",
+      "PY-IMPORT",
+      "PY-SHADOW"
+    ],
+    "Q-PY-CALLABLE-VALUE": [
+      "PY-REFERENCE",
+      "PY-ALIAS-REFERENCE",
+      "PY-ALIAS-CALL",
+      "PY-CALLBACK"
+    ],
+    "Q-PY-UNCERTAINTY": [
+      "PY-RECEIVER",
+      "PY-MISSING",
+      "PY-DYNAMIC"
+    ],
+    "Q-PY-UTF8": [
+      "PY-UTF8"
+    ],
+    "Q-GO-BINDING": [
+      "GO-DIRECT",
+      "GO-IMPORT",
+      "GO-SHADOW"
+    ],
+    "Q-GO-CALLABLE-VALUE": [
+      "GO-REFERENCE",
+      "GO-ALIAS-REFERENCE",
+      "GO-ALIAS-CALL",
+      "GO-CALLBACK"
+    ],
+    "Q-GO-UNCERTAINTY": [
+      "GO-RECEIVER",
+      "GO-MISSING",
+      "GO-DYNAMIC"
+    ],
+    "Q-GO-UTF8": [
+      "GO-UTF8"
+    ],
+    "Q-JS-BINDING": [
+      "JS-DIRECT",
+      "JS-IMPORT",
+      "JS-SHADOW"
+    ],
+    "Q-JS-CALLABLE-VALUE": [
+      "JS-REFERENCE",
+      "JS-ALIAS-REFERENCE",
+      "JS-ALIAS-CALL",
+      "JS-CALLBACK"
+    ],
+    "Q-JS-UNCERTAINTY": [
+      "JS-RECEIVER",
+      "JS-MISSING",
+      "JS-DYNAMIC"
+    ],
+    "Q-JS-UTF8": [
+      "JS-UTF8"
+    ],
+    "Q-TS-BINDING": [
+      "TS-DIRECT",
+      "TS-IMPORT",
+      "TS-SHADOW"
+    ],
+    "Q-TS-CALLABLE-VALUE": [
+      "TS-REFERENCE",
+      "TS-ALIAS-REFERENCE",
+      "TS-ALIAS-CALL",
+      "TS-CALLBACK"
+    ],
+    "Q-TS-UNCERTAINTY": [
+      "TS-RECEIVER",
+      "TS-MISSING",
+      "TS-DYNAMIC"
+    ],
+    "Q-TS-UTF8": [
+      "TS-UTF8"
+    ]
+  },
+  "updates": [
+    {
+      "id": "U-PY-ADD",
+      "language": "python",
+      "kind": "addition",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/python/optional.py",
+          "content": "def added(value):\n    return value + 7\n",
+          "sha256_after": "19eae25e7cbee5c40e57c5ee8eb5de5ee058f7f08f4f24cc7bd4170c37db04e0"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "PY-MISSING",
+          "certainty_before": "unresolved",
+          "certainty_after": "resolved",
+          "introduced_target_key": "PY.optional.added"
+        }
+      ],
+      "required_checks": [
+        "Repair the previously missing import from a new file without modifying the caller.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-PY-DELETE",
+      "language": "python",
+      "kind": "deletion",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "delete",
+          "path": "tests/fixtures/code-understanding/python/helpers.py",
+          "sha256_before": "2237d35781c0e8eb8def03c5afff0186ce120db894ac0433b972b03723b607e6"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "PY-IMPORT",
+          "certainty_before": "resolved",
+          "certainty_after": "unresolved",
+          "removed_target_id": "PY.helpers.finish"
+        }
+      ],
+      "required_checks": [
+        "Remove deleted definitions and inbound edges; keep the unresolved caller site.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-PY-RENAME",
+      "language": "python",
+      "kind": "rename",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "rename",
+          "path": "tests/fixtures/code-understanding/python/helpers.py",
+          "to": "tests/fixtures/code-understanding/python/renamed.py",
+          "sha256_before": "2237d35781c0e8eb8def03c5afff0186ce120db894ac0433b972b03723b607e6",
+          "sha256_after": "2237d35781c0e8eb8def03c5afff0186ce120db894ac0433b972b03723b607e6"
+        },
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/python/main.py",
+          "old": "from .helpers import finish as imported_finish",
+          "new": "from .renamed import finish as imported_finish",
+          "occurrences": 1,
+          "sha256_after": "48ac43ac79293db0f85280064881208abec17eb8ef0dac1e270d0eac04eb88e9"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "PY-IMPORT",
+          "certainty_before": "resolved",
+          "certainty_after": "resolved",
+          "old_target_path": "tests/fixtures/code-understanding/python/helpers.py",
+          "new_target_path": "tests/fixtures/code-understanding/python/renamed.py"
+        }
+      ],
+      "required_checks": [
+        "Invalidate old snapshot-scoped handles and locations; do not retain an edge to the old helper path.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-PY-CYCLE",
+      "language": "python",
+      "kind": "cycle",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/python/cycle_left.py",
+          "content": "from . import cycle_right\n\ndef left(value):\n    return cycle_right.right(value)\n",
+          "sha256_after": "0f7477b086fb643cbafa8cee09f99abc17e3022c2d980eefeb2cc02900ad2ff5"
+        },
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/python/cycle_right.py",
+          "content": "from . import cycle_left\n\ndef right(value):\n    return cycle_left.left(value)\n",
+          "sha256_after": "44c539a2578a1e4578f76125c44e06d7927325c48db10671941206a2f87e49c7"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "new_paths": [
+            "tests/fixtures/code-understanding/python/cycle_left.py",
+            "tests/fixtures/code-understanding/python/cycle_right.py"
+          ],
+          "expected_relation": "mutual_possible_calls",
+          "execution_order_proven": false
+        }
+      ],
+      "required_checks": [
+        "Preserve both directions of the call cycle; bounded traversal terminates and reports budget exhaustion honestly.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-GO-ADD",
+      "language": "go",
+      "kind": "addition",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/go/optional/optional.go",
+          "content": "package optional\n\nfunc Added(value int) int { return value + 7 }\n",
+          "sha256_after": "51e57c9acbeb31f67345613c8305839c33b74b9f31f363112c14511acdae831e"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "GO-MISSING",
+          "certainty_before": "unresolved",
+          "certainty_after": "resolved",
+          "introduced_target_key": "GO.optional.Added"
+        }
+      ],
+      "required_checks": [
+        "Repair the previously missing import from a new file without modifying the caller.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-GO-DELETE",
+      "language": "go",
+      "kind": "deletion",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "delete",
+          "path": "tests/fixtures/code-understanding/go/helpers/helpers.go",
+          "sha256_before": "cba725ddec2106700fc68bd0a906e20207f0c595067253e4b392f1fc2b39a885"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "GO-IMPORT",
+          "certainty_before": "resolved",
+          "certainty_after": "unresolved",
+          "removed_target_id": "GO.helpers.Finish"
+        }
+      ],
+      "required_checks": [
+        "Remove deleted definitions and inbound edges; keep the unresolved caller site.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-GO-RENAME",
+      "language": "go",
+      "kind": "rename",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "rename",
+          "path": "tests/fixtures/code-understanding/go/helpers/helpers.go",
+          "to": "tests/fixtures/code-understanding/go/renamed/helpers.go",
+          "sha256_before": "cba725ddec2106700fc68bd0a906e20207f0c595067253e4b392f1fc2b39a885",
+          "sha256_after": "cba725ddec2106700fc68bd0a906e20207f0c595067253e4b392f1fc2b39a885"
+        },
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/go/main.go",
+          "old": "alias \"example.test/codeunderstanding/helpers\"",
+          "new": "alias \"example.test/codeunderstanding/renamed\"",
+          "occurrences": 1,
+          "sha256_after": "ea56a2631e8a5a10280143e9db5dea93253f88c92f23ec75729a82550f09f73e"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "GO-IMPORT",
+          "certainty_before": "resolved",
+          "certainty_after": "resolved",
+          "old_target_path": "tests/fixtures/code-understanding/go/helpers/helpers.go",
+          "new_target_path": "tests/fixtures/code-understanding/go/renamed/helpers.go"
+        }
+      ],
+      "required_checks": [
+        "Invalidate old snapshot-scoped handles and locations; do not retain an edge to the old helper path.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-GO-CYCLE",
+      "language": "go",
+      "kind": "cycle",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/go/cycle_left.go",
+          "content": "package fixture\n\nfunc CycleLeft(value int) int { return CycleRight(value) }\n",
+          "sha256_after": "f9771eb9b283ffc5513da1185c9179fcf4fb6861d05dc435d574962915b444d1"
+        },
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/go/cycle_right.go",
+          "content": "package fixture\n\nfunc CycleRight(value int) int { return CycleLeft(value) }\n",
+          "sha256_after": "a17e7c2e34f8aeeb0d2838ea59e5cd86fd484b1669778e7d8bb4c21e5106d060"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "new_paths": [
+            "tests/fixtures/code-understanding/go/cycle_left.go",
+            "tests/fixtures/code-understanding/go/cycle_right.go"
+          ],
+          "expected_relation": "mutual_possible_calls",
+          "execution_order_proven": false
+        }
+      ],
+      "required_checks": [
+        "Preserve both directions of the call cycle; bounded traversal terminates and reports budget exhaustion honestly.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-JS-ADD",
+      "language": "javascript",
+      "kind": "addition",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/javascript/optional.js",
+          "content": "export function added(value) { return value + 7; }\n",
+          "sha256_after": "fa9fa6a7e6d74d26a29ecb5257d36b7fdf768c25257aa5ef81d2437bfedcaee1"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "JS-MISSING",
+          "certainty_before": "unresolved",
+          "certainty_after": "resolved",
+          "introduced_target_key": "JS.optional.added"
+        }
+      ],
+      "required_checks": [
+        "Repair the previously missing import from a new file without modifying the caller.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-JS-DELETE",
+      "language": "javascript",
+      "kind": "deletion",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "delete",
+          "path": "tests/fixtures/code-understanding/javascript/helpers.js",
+          "sha256_before": "4f3ac4a73328e8edcf3991f4dd6a2ca2786dfff2dede60195149189046302288"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "JS-IMPORT",
+          "certainty_before": "resolved",
+          "certainty_after": "unresolved",
+          "removed_target_id": "JS.helpers.finish"
+        }
+      ],
+      "required_checks": [
+        "Remove deleted definitions and inbound edges; keep the unresolved caller site.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-JS-RENAME",
+      "language": "javascript",
+      "kind": "rename",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "rename",
+          "path": "tests/fixtures/code-understanding/javascript/helpers.js",
+          "to": "tests/fixtures/code-understanding/javascript/renamed.js",
+          "sha256_before": "4f3ac4a73328e8edcf3991f4dd6a2ca2786dfff2dede60195149189046302288",
+          "sha256_after": "4f3ac4a73328e8edcf3991f4dd6a2ca2786dfff2dede60195149189046302288"
+        },
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/javascript/main.js",
+          "old": "from \"./helpers.js\"",
+          "new": "from \"./renamed.js\"",
+          "occurrences": 1,
+          "sha256_after": "b339642ad523c749d1d3a9b5c4ac066ffd3d9c39161939b3ac6b8c949ada28b8"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "JS-IMPORT",
+          "certainty_before": "resolved",
+          "certainty_after": "resolved",
+          "old_target_path": "tests/fixtures/code-understanding/javascript/helpers.js",
+          "new_target_path": "tests/fixtures/code-understanding/javascript/renamed.js"
+        }
+      ],
+      "required_checks": [
+        "Invalidate old snapshot-scoped handles and locations; do not retain an edge to the old helper path.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-JS-CYCLE",
+      "language": "javascript",
+      "kind": "cycle",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/javascript/cycle_left.js",
+          "content": "import { right } from \"./cycle_right.js\";\nexport function left(value) { return right(value); }\n",
+          "sha256_after": "4bc686e3e61dd6c478972f78ac875b4bc1ba1f45b476b28b9eb393cfc155c1c6"
+        },
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/javascript/cycle_right.js",
+          "content": "import { left } from \"./cycle_left.js\";\nexport function right(value) { return left(value); }\n",
+          "sha256_after": "a6dccec939fae89884932d856009026556f45818fe901164d2ad0e61797df18d"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "new_paths": [
+            "tests/fixtures/code-understanding/javascript/cycle_left.js",
+            "tests/fixtures/code-understanding/javascript/cycle_right.js"
+          ],
+          "expected_relation": "mutual_possible_calls",
+          "execution_order_proven": false
+        }
+      ],
+      "required_checks": [
+        "Preserve both directions of the call cycle; bounded traversal terminates and reports budget exhaustion honestly.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-TS-ADD",
+      "language": "typescript",
+      "kind": "addition",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/typescript/optional.ts",
+          "content": "export function added(value: number): number { return value + 7; }\n",
+          "sha256_after": "3b07d8ed2739a411ca0b87cd78484bf320c79f94850e8b3a416157e77357ace3"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "TS-MISSING",
+          "certainty_before": "unresolved",
+          "certainty_after": "resolved",
+          "introduced_target_key": "TS.optional.added"
+        }
+      ],
+      "required_checks": [
+        "Repair the previously missing import from a new file without modifying the caller.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-TS-DELETE",
+      "language": "typescript",
+      "kind": "deletion",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "delete",
+          "path": "tests/fixtures/code-understanding/typescript/helpers.ts",
+          "sha256_before": "8f2435f241915ce537f7f9067aa60828e84a6da4545721ce6d242a0a19ea22a7"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "TS-IMPORT",
+          "certainty_before": "resolved",
+          "certainty_after": "unresolved",
+          "removed_target_id": "TS.helpers.finish"
+        }
+      ],
+      "required_checks": [
+        "Remove deleted definitions and inbound edges; keep the unresolved caller site.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-TS-RENAME",
+      "language": "typescript",
+      "kind": "rename",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "rename",
+          "path": "tests/fixtures/code-understanding/typescript/helpers.ts",
+          "to": "tests/fixtures/code-understanding/typescript/renamed.ts",
+          "sha256_before": "8f2435f241915ce537f7f9067aa60828e84a6da4545721ce6d242a0a19ea22a7",
+          "sha256_after": "8f2435f241915ce537f7f9067aa60828e84a6da4545721ce6d242a0a19ea22a7"
+        },
+        {
+          "op": "replace",
+          "path": "tests/fixtures/code-understanding/typescript/main.ts",
+          "old": "from \"./helpers\"",
+          "new": "from \"./renamed\"",
+          "occurrences": 1,
+          "sha256_after": "92b5f63f299ab802d651da549a09e10d2507dc36f39fa8104c49b59a9e520a73"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "case_id": "TS-IMPORT",
+          "certainty_before": "resolved",
+          "certainty_after": "resolved",
+          "old_target_path": "tests/fixtures/code-understanding/typescript/helpers.ts",
+          "new_target_path": "tests/fixtures/code-understanding/typescript/renamed.ts"
+        }
+      ],
+      "required_checks": [
+        "Invalidate old snapshot-scoped handles and locations; do not retain an edge to the old helper path.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    },
+    {
+      "id": "U-TS-CYCLE",
+      "language": "typescript",
+      "kind": "cycle",
+      "starts_from": "frozen_base_fixture",
+      "operations": [
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/typescript/cycle_left.ts",
+          "content": "import { right } from \"./cycle_right\";\nexport function left(value: number): number { return right(value); }\n",
+          "sha256_after": "bcb843a19d56e175c2dcc4967b009b1401a427eda2d68aef1df81327b22faccf"
+        },
+        {
+          "op": "add",
+          "path": "tests/fixtures/code-understanding/typescript/cycle_right.ts",
+          "content": "import { left } from \"./cycle_left\";\nexport function right(value: number): number { return left(value); }\n",
+          "sha256_after": "ce7f8642ecbe94af30ccf88f0e031feba939bbecfef6dd8d132bc6b36b88c062"
+        }
+      ],
+      "expected_impacts": [
+        {
+          "new_paths": [
+            "tests/fixtures/code-understanding/typescript/cycle_left.ts",
+            "tests/fixtures/code-understanding/typescript/cycle_right.ts"
+          ],
+          "expected_relation": "mutual_possible_calls",
+          "execution_order_proven": false
+        }
+      ],
+      "required_checks": [
+        "Preserve both directions of the call cycle; bounded traversal terminates and reports budget exhaustion honestly.",
+        "Canonical semantic facts equal a clean rebuild of the mutated snapshot; omit transient IDs/timestamps."
+      ],
+      "base_ranges_valid_after_update": false,
+      "status": "specified_not_engine_executed"
+    }
+  ],
+  "source_context": {
+    "python": "Treat python/ as a namespace package; resolve relative imports only inside this fixture root.",
+    "go": "go/go.mod maps example.test/codeunderstanding to go/; absent optional package is deliberate.",
+    "javascript": "ES modules with explicit relative .js extensions; source parse only, never execute imports.",
+    "typescript": "Local relative modules without extensions map to .ts; source parse only, no dependency/typecheck claim."
+  },
+  "construct_status": {
+    "callable_reference.go": "proposed_supported_binding_or_reference",
+    "callable_reference.javascript": "proposed_supported_binding_or_reference",
+    "callable_reference.python": "proposed_supported_binding_or_reference",
+    "callable_reference.typescript": "proposed_supported_binding_or_reference",
+    "callback.go": "uncertainty_preservation_only_not_precision_scored",
+    "callback.javascript": "uncertainty_preservation_only_not_precision_scored",
+    "callback.python": "uncertainty_preservation_only_not_precision_scored",
+    "callback.typescript": "uncertainty_preservation_only_not_precision_scored",
+    "direct.go": "proposed_supported_binding_or_reference",
+    "direct.javascript": "proposed_supported_binding_or_reference",
+    "direct.python": "proposed_supported_binding_or_reference",
+    "direct.typescript": "proposed_supported_binding_or_reference",
+    "dynamic.go": "uncertainty_preservation_only_not_precision_scored",
+    "dynamic.javascript": "uncertainty_preservation_only_not_precision_scored",
+    "dynamic.python": "uncertainty_preservation_only_not_precision_scored",
+    "dynamic.typescript": "uncertainty_preservation_only_not_precision_scored",
+    "import_alias.go": "proposed_supported_binding_or_reference",
+    "import_alias.javascript": "proposed_supported_binding_or_reference",
+    "import_alias.python": "proposed_supported_binding_or_reference",
+    "import_alias.typescript": "proposed_supported_binding_or_reference",
+    "missing_import.go": "uncertainty_preservation_only_not_precision_scored",
+    "missing_import.javascript": "uncertainty_preservation_only_not_precision_scored",
+    "missing_import.python": "uncertainty_preservation_only_not_precision_scored",
+    "missing_import.typescript": "uncertainty_preservation_only_not_precision_scored",
+    "receiver.go": "uncertainty_preservation_only_not_precision_scored",
+    "receiver.javascript": "uncertainty_preservation_only_not_precision_scored",
+    "receiver.python": "uncertainty_preservation_only_not_precision_scored",
+    "receiver.typescript": "uncertainty_preservation_only_not_precision_scored",
+    "shadowing.go": "proposed_supported_binding_or_reference",
+    "shadowing.javascript": "proposed_supported_binding_or_reference",
+    "shadowing.python": "proposed_supported_binding_or_reference",
+    "shadowing.typescript": "proposed_supported_binding_or_reference",
+    "utf8.go": "proposed_supported_binding_or_reference",
+    "utf8.javascript": "proposed_supported_binding_or_reference",
+    "utf8.python": "proposed_supported_binding_or_reference",
+    "utf8.typescript": "proposed_supported_binding_or_reference",
+    "value_alias.go": "proposed_supported_binding_or_reference",
+    "value_alias.javascript": "proposed_supported_binding_or_reference",
+    "value_alias.python": "proposed_supported_binding_or_reference",
+    "value_alias.typescript": "proposed_supported_binding_or_reference"
+  },
+  "assumptions": [
+    "Resolve static lexical declarations under the supplied local package/module mapping.",
+    "No external mutation/monkey patching is assumed for resolved direct bindings; resolved is not universal runtime certainty.",
+    "Candidate receiver targets preserve known alternatives; unresolved conservative results must retain the site and reason.",
+    "Questions and synthetic expectations are model-source-reviewed, not independently human reviewed."
+  ],
+  "ceilings": [
+    "Selected construct sites only: not an exhaustive list of every syntactic call in the fixture.",
+    "Synthetic inputs cannot establish the real-source precision/recall, agent usefulness, human UX or large-repository scale gates.",
+    "Missing imports are intentional; parse success does not claim module execution, successful builds or typechecking.",
+    "Mutation source is embedded in updates and excluded from the frozen baseline inventory; update engine equivalence has not been run.",
+    "No real-source candidate, human identity, private evidence path or provider output is included."
+  ],
+  "mandatory_later_slice": {
+    "business_framework_paths": "required_later_Odoo_Django_independent_review",
+    "scoped_cross_language_contracts": "required_later_HTTP_protobuf_queue_positive_negative_fixtures"
+  },
+  "preparation_checks": {
+    "python_ast": "passed",
+    "javascript_node_syntax": "passed",
+    "js_ts_typescript_parse": "passed",
+    "go_stdlib_parse": "passed",
+    "typescript_version": "6.0.3",
+    "node_version": "v24.20.0",
+    "go_version": "go version go1.27.1 linux/amd64",
+    "range_and_hash_roundtrips": "passed",
+    "definitions_checked": 75,
+    "cases_checked": 44,
+    "updates": "source_mutations_checked; engine_equivalence_not_executed",
+    "mutation_operations_and_hashes": "passed",
+    "mutated_snapshot_syntax": "passed",
+    "update_scenarios_checked": [
+      "U-PY-ADD",
+      "U-PY-DELETE",
+      "U-PY-RENAME",
+      "U-PY-CYCLE",
+      "U-GO-ADD",
+      "U-GO-DELETE",
+      "U-GO-RENAME",
+      "U-GO-CYCLE",
+      "U-JS-ADD",
+      "U-JS-DELETE",
+      "U-JS-RENAME",
+      "U-JS-CYCLE",
+      "U-TS-ADD",
+      "U-TS-DELETE",
+      "U-TS-RENAME",
+      "U-TS-CYCLE"
+    ]
+  }
+}

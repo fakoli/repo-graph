@@ -1,0 +1,296 @@
+{
+  "schema_version": 1,
+  "scope": "Diagnostic single-worker pilots; no scale acceptance or equivalent-workload speedup",
+  "status": "qualification_incomplete",
+  "engine_selected": false,
+  "human_evaluation": false,
+  "environment": {
+    "python": "3.12.14",
+    "platform": "Linux",
+    "architecture": "x86_64",
+    "gpu_used": false,
+    "provider_calls": 0
+  },
+  "resource_caps": {
+    "worker_address_space_bytes": 4294967296,
+    "native_scan_wall_seconds": 300
+  },
+  "implementation": {
+    "commit": "783f58148e8994f925293d1305ebd2a3a19d61c0",
+    "dirty_at_measurement": true,
+    "helper_sha256": "08b9c831cd08f2440ee11ce5d3cbb060ae11f46c387875dfb9d5617e315d6935",
+    "profiler_sha256": "1754cb28668d49f1fdc2ca4336513dbd688b1e7d0fd75abe67de15036d1331ba"
+  },
+  "pilots": [
+    {
+      "corpus": "django",
+      "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+      "exit_code": 0,
+      "stdout_sha256": "9ce29204c777315be6b1d15fc85a03806aefae5d22e04f86ea8f7eb24fe78097",
+      "result": {
+        "engine": "tree-sitter",
+        "records": [
+          {
+            "run": "fresh-output",
+            "status": "partial",
+            "wall_seconds": 15.4349148790061,
+            "stages": {
+              "inventory_seconds": 0.12860698398435488,
+              "source_bytes": 19646901,
+              "nodes_visited": 4525626,
+              "facts_emitted": 243029,
+              "parse_seconds": 1.511669057625113,
+              "elapsed_seconds": 12.378978107997682,
+              "read_seconds": 0.11016360300709493
+            },
+            "source_reads": {
+              "operations": 2976,
+              "hashed_bytes": 19646901,
+              "prefix_bytes": 19646901
+            },
+            "counts": {
+              "inventoried_files": 6958,
+              "selected_source_files": 2976,
+              "excluded_other_files": 3982,
+              "definitions": 44013,
+              "sites": 199016
+            },
+            "coverage": {
+              "status": "partial",
+              "stop_reason": null,
+              "errors": 0,
+              "limits": {
+                "max_files": 60000,
+                "max_file_bytes": 2097152,
+                "max_total_bytes": 1073741824,
+                "max_nodes": 50000000,
+                "max_facts": 2000000,
+                "timeout_seconds": 300
+              },
+              "inventory_statuses": {
+                "parsed": 2973,
+                "partial_parse": 3
+              }
+            },
+            "input_inventory_sha256": "8d4f00bf66296b3f9be2a8b0e3e78439cc7a599578a20b504c05735a269448e2",
+            "semantic_facts_sha256": "548941e792e0ec389bcc50421bc1394a24ab5be40f32bbcceba04060c0dd0cc3",
+            "artifact_bytes": 202466379,
+            "peak_rss_bytes": 1981386752
+          },
+          {
+            "run": "unchanged-repeat",
+            "status": "partial",
+            "wall_seconds": 16.091029547998914,
+            "stages": {
+              "inventory_seconds": 0.13209962399560027,
+              "source_bytes": 19646901,
+              "nodes_visited": 4525626,
+              "facts_emitted": 243029,
+              "parse_seconds": 1.4475679377792403,
+              "elapsed_seconds": 13.015706008998677,
+              "read_seconds": 0.10571730000083335
+            },
+            "source_reads": {
+              "operations": 2976,
+              "hashed_bytes": 19646901,
+              "prefix_bytes": 19646901
+            },
+            "counts": {
+              "inventoried_files": 6958,
+              "selected_source_files": 2976,
+              "excluded_other_files": 3982,
+              "definitions": 44013,
+              "sites": 199016
+            },
+            "coverage": {
+              "status": "partial",
+              "stop_reason": null,
+              "errors": 0,
+              "limits": {
+                "max_files": 60000,
+                "max_file_bytes": 2097152,
+                "max_total_bytes": 1073741824,
+                "max_nodes": 50000000,
+                "max_facts": 2000000,
+                "timeout_seconds": 300
+              },
+              "inventory_statuses": {
+                "parsed": 2973,
+                "partial_parse": 3
+              }
+            },
+            "input_inventory_sha256": "8d4f00bf66296b3f9be2a8b0e3e78439cc7a599578a20b504c05735a269448e2",
+            "semantic_facts_sha256": "548941e792e0ec389bcc50421bc1394a24ab5be40f32bbcceba04060c0dd0cc3",
+            "artifact_bytes": 202466379,
+            "peak_rss_bytes": 2243858432
+          }
+        ],
+        "deterministic_repeat": true,
+        "native_repeat_cache": "none; complete bounded rescan",
+        "model_calls": 0,
+        "rss_scope": "process lifetime; Linux KiB converted to bytes"
+      }
+    },
+    {
+      "corpus": "odoo",
+      "revision": "2d9fd5562a0ef1f7f587eb393cc3bd293b047cca",
+      "exit_code": 1,
+      "stdout_sha256": "f53f5968f060e5271161905527935e985df7f7d903933e1a8449f2107812660b",
+      "external_watchdog_seconds": 330,
+      "wall_seconds": null,
+      "result": {
+        "engine": "tree-sitter",
+        "status": "failed",
+        "error_kind": "MemoryError",
+        "records": [],
+        "peak_rss_bytes": 4214657024
+      }
+    },
+    {
+      "corpus": "django",
+      "revision": "3b7ae042cef02a09caab70ba54077a6f4cffac80",
+      "experiment": "retain-potential-sites-only",
+      "exit_code": 0,
+      "stdout_sha256": "e0a957961b827c74efc124737c3d602c814cf4f008bc051b7f3cc1542c874363",
+      "implementation": {
+        "commit": "546475510fe66d6104fe913fdcfb9c5a8cfb93fd",
+        "dirty_at_measurement": true,
+        "helper_sha256": "baa5b42cdafe56a441f88f24c8532b1d4984027b615f1fc24889f19e1cd662cf",
+        "profiler_sha256": "2707d2582cb73987ce9e5cf7b94bc427de5990275b44bc0248731c042aa4bbc6"
+      },
+      "result": {
+        "engine": "tree-sitter",
+        "records": [
+          {
+            "run": "fresh-output",
+            "status": "partial",
+            "wall_seconds": 16.602548843016848,
+            "stages": {
+              "inventory_seconds": 0.14648721198318526,
+              "source_bytes": 19646901,
+              "nodes_visited": 4525626,
+              "facts_emitted": 243029,
+              "parse_seconds": 1.6161515472922474,
+              "elapsed_seconds": 13.429737536003813,
+              "read_seconds": 0.11554785599582829
+            },
+            "source_reads": {
+              "operations": 2976,
+              "hashed_bytes": 19646901,
+              "prefix_bytes": 19646901
+            },
+            "counts": {
+              "inventoried_files": 6958,
+              "selected_source_files": 2976,
+              "excluded_other_files": 3982,
+              "definitions": 44013,
+              "sites": 199016
+            },
+            "coverage": {
+              "status": "partial",
+              "stop_reason": null,
+              "errors": 0,
+              "limits": {
+                "max_files": 60000,
+                "max_file_bytes": 2097152,
+                "max_total_bytes": 1073741824,
+                "max_nodes": 50000000,
+                "max_facts": 2000000,
+                "timeout_seconds": 300
+              },
+              "inventory_statuses": {
+                "parsed": 2973,
+                "partial_parse": 3
+              }
+            },
+            "input_inventory_sha256": "8d4f00bf66296b3f9be2a8b0e3e78439cc7a599578a20b504c05735a269448e2",
+            "semantic_facts_sha256": "548941e792e0ec389bcc50421bc1394a24ab5be40f32bbcceba04060c0dd0cc3",
+            "artifact_bytes": 202466379,
+            "peak_rss_bytes": 1670975488
+          },
+          {
+            "run": "unchanged-repeat",
+            "status": "partial",
+            "wall_seconds": 17.151216851983918,
+            "stages": {
+              "inventory_seconds": 0.14502937300130725,
+              "source_bytes": 19646901,
+              "nodes_visited": 4525626,
+              "facts_emitted": 243029,
+              "parse_seconds": 1.5002962292637676,
+              "elapsed_seconds": 13.943214878003346,
+              "read_seconds": 0.11699206498451531
+            },
+            "source_reads": {
+              "operations": 2976,
+              "hashed_bytes": 19646901,
+              "prefix_bytes": 19646901
+            },
+            "counts": {
+              "inventoried_files": 6958,
+              "selected_source_files": 2976,
+              "excluded_other_files": 3982,
+              "definitions": 44013,
+              "sites": 199016
+            },
+            "coverage": {
+              "status": "partial",
+              "stop_reason": null,
+              "errors": 0,
+              "limits": {
+                "max_files": 60000,
+                "max_file_bytes": 2097152,
+                "max_total_bytes": 1073741824,
+                "max_nodes": 50000000,
+                "max_facts": 2000000,
+                "timeout_seconds": 300
+              },
+              "inventory_statuses": {
+                "parsed": 2973,
+                "partial_parse": 3
+              }
+            },
+            "input_inventory_sha256": "8d4f00bf66296b3f9be2a8b0e3e78439cc7a599578a20b504c05735a269448e2",
+            "semantic_facts_sha256": "548941e792e0ec389bcc50421bc1394a24ab5be40f32bbcceba04060c0dd0cc3",
+            "artifact_bytes": 202466379,
+            "peak_rss_bytes": 2008059904
+          }
+        ],
+        "deterministic_repeat": true,
+        "native_repeat_cache": "none; complete bounded rescan",
+        "model_calls": 0,
+        "rss_scope": "process lifetime; Linux KiB converted to bytes"
+      },
+      "equivalence": {
+        "reference_pilot_stdout_sha256": "9ce29204c777315be6b1d15fc85a03806aefae5d22e04f86ea8f7eb24fe78097",
+        "facts_inventory_counts_coverage_unchanged": true,
+        "independent_technical_review": "approved",
+        "scope": "Same full Django sources and semantic/inventory hashes in two in-process scans; single worker per implementation"
+      },
+      "interpretation": "Lower observed peak RSS and higher wall time; diagnostic single trial, no speed or adoption claim"
+    }
+  ],
+  "retained_previous_failure": {
+    "corpus": "django",
+    "shell_exit_code": 139,
+    "failure_kind": "SIGSEGV",
+    "peak_rss_bytes": null,
+    "wall_seconds": null,
+    "diagnosis": "Pinned Point row/column getters return borrowed references; shared span now uses tuple indexing",
+    "fixed_by_helper_sha256": "08b9c831cd08f2440ee11ce5d3cbb060ae11f46c387875dfb9d5617e315d6935",
+    "regression": "test_large_native_rows_and_columns_survive_finite_subprocess"
+  },
+  "rust": {
+    "adopted": false,
+    "prototype_built": false,
+    "speed_gain_measured": false
+  },
+  "limits": [
+    "Django has3 partially parsed files and3982 excluded other files; no full-language coverage claim.",
+    "Odoo failed before a completed scan record; fact counts and elapsed time are unknown.",
+    "Only one worker per corpus, with two intended in-process scans; not three independent trials.",
+    "Native unchanged repeat is a full rescan, not an incremental update.",
+    "Current import-map timings are not comparable callable-fact workloads.",
+    "Immutable large-corpus acceptance budgets have not been frozen."
+  ]
+}
