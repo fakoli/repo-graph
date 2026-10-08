@@ -120,6 +120,74 @@ assert.throws(()=>views.sourceEvidence({...evidence,handle:{...evidence.handle,s
 assert.throws(()=>views.sourceEvidence({...evidence,range:{...entry.range,end_byte:11}},entry,capture),/range/);
 console.log('Bounded Calls expansion, target alternatives, unknowns, captured generations and source correlation passed');
 
+const impactCapture={...capture,config_identity:'6'.repeat(64),impact_identity:'7'.repeat(64),contracts_available:true,contract_membership_schema:'captured-contract-membership-v1'};
+const impactStatus={status:'ok',structural:{artifact_ready:true,identities:impactCapture,impact:{state:'ready',query_available:true,receipt:{...impactCapture,schema:'captured-impact-v1',identity:impactCapture.impact_identity}}}};
+assert.deepEqual(views.capturedImpact(impactStatus),impactCapture);
+for(const marker of [undefined,'foreign']) {
+  const status=structuredClone(impactStatus);status.structural.impact.receipt.contract_membership_schema=marker;
+  assert.equal(views.capturedImpact(status).contracts_available,false);
+}
+for(const key of ['generation','config_identity']) {
+  const status=structuredClone(impactStatus);status.structural.impact.receipt[key]='0'.repeat(64);assert.equal(views.capturedImpact(status),null);
+}
+const impactRequest={selector:{kind:'source_area',paths:['bindings.json']},relations:['contract'],certainties:['candidate','resolved','unresolved'],services:['gateway'],protocols:['http'],namespaces:['orders-api'],depth:1,limits:{max_entities:8,max_edges:8,max_response_bytes:32768,max_excerpt_bytes:0}};
+const witness={...views.sourceHandle(other),source_role:'structural_declaration',slice_sha256:'8'.repeat(64)};
+const contract=(id='contract-one',unknown=false)=>({site:{...handle(id),role:unknown ? 'contract_boundary' : 'contract'},caller:entry,target:unknown ? null : leaf,
+  relation:'contract',family:unknown ? 'contract_boundary' : 'contract',certainty:unknown ? 'unresolved' : 'resolved',targets_exhaustive:!unknown,reason:unknown ? 'computed_route' : '',reason_truncated:false,evidence_kind:'static_syntax',
+  binding_id:'gateway.ordersHttp',service_id:'gateway',endpoint_role:'client',protocol:'http',relation_kind:'explicit_http',namespace:'orders-api',
+  contract_identity:{contract_service_id:'orders',namespace:'orders-api',protocol:'http',method:'POST',path:unknown ? null : '/echo',operation:'echo',operation_ref:'#/paths/~1echo/post',request_schema:'#/components/schemas/Request',response_schema:'#/components/schemas/Reply'},
+  contract_identity_asserted:!unknown,partial:false,boundary_origin:'captured_source_binding',runtime_qualified:false,evidence:[witness]});
+const impactPage=(rows,request=impactRequest)=>{
+  const ids=new Set(rows.flatMap(row=>[row.caller?.id,row.target?.id,...(row.evidence || []).filter(value=>value.source_role==='structural_declaration').map(value=>value.id)]).filter(Boolean));
+  return {...impactCapture,impact_schema:'captured-impact-v1',runtime_complete:false,live_source_observed:false,historical_call_closure:'unavailable_current_index_only',
+    scope:{claim:'possible_captured_reachability',evidence_kind:'static_syntax',depth:request.depth,path_filter:'',name_prefix:'',role:'all',relations:[...request.relations].sort(),certainties:[...request.certainties].sort(),...views.impactFilters(request,request.relations)},
+    selection:{seed:null,selector:request.selector},rows,selected_files:[],selected_symbols:[],unavailable_paths:[],unknown_boundaries:{},truncated:false,cursor:null,total_count:{kind:'exact',value:rows.length},
+    returned_entities:ids.size,returned_symbol_handles:ids.size,returned_file_handles:0,returned_edges:rows.length};
+};
+views.impactPage(impactPage([contract()]),impactRequest,impactCapture);
+const unknownContract=contract('boundary',true);unknownContract.partial=true;
+views.impactPage(impactPage([unknownContract]),impactRequest,impactCapture);
+for(const captured of [{...impactCapture,contracts_available:false},{...impactCapture,contract_membership_schema:null}])assert.throws(()=>views.impactPage(impactPage([contract()]),impactRequest,captured),/membership/);
+for(const key of ['services','protocols','namespaces']) {
+  const response=impactPage([contract()]);response.scope[key]=null;assert.throws(()=>views.impactPage(response,impactRequest,impactCapture),/filter/);
+}
+assert.deepEqual(views.impactFilters({},['call','import']),{services:null,protocols:null,namespaces:null});
+assert.deepEqual(views.impactFilters({services:['worker','gateway']},['contract']).services,['gateway','worker']);
+for(const filters of [{services:['gateway']},{protocols:['smtp']},{namespaces:['é'.repeat(129)]},{services:Array(9).fill('gateway')},{protocols:[]},{services:['gateway','gateway']}])assert.throws(()=>views.impactFilters(filters,filters.services?.length===1 ? ['call'] : ['contract']),/contract filter|explicit contract/i);
+assert.throws(()=>views.impactFilters({namespaces:['orders\0api']},['contract']),/Invalid bounded contract filters/);
+const p1Request={...impactRequest,relations:['call'],services:null,protocols:null,namespaces:null};
+const p1=impactPage([call('lexical')],p1Request);p1.rows[0].relation='call';p1.rows[0].evidence_kind='static_syntax';p1.returned_entities=p1.returned_symbol_handles=2;p1.contracts_available=false;delete p1.contract_membership_schema;
+views.impactPage(p1,p1Request,{...impactCapture,contracts_available:false});
+p1.contracts_available=true;p1.contract_membership_schema='foreign';views.impactPage(p1,p1Request,impactCapture); // P1 does not implicitly traverse contracts.
+const counter=impactPage([unknownContract]);counter.returned_entities=1;
+assert.throws(()=>views.impactPage(counter,impactRequest,impactCapture),/counters/);
+assert.throws(()=>views.impactPage(impactPage([unknownContract]),{...impactRequest,limits:{...impactRequest.limits,max_entities:1}},impactCapture),/counters/);
+assert.throws(()=>views.impactPage(impactPage([{...unknownContract,target:leaf}]),impactRequest,impactCapture),/contract evidence/);
+assert.throws(()=>views.impactPage(impactPage([{...contract(),runtime_qualified:true}]),impactRequest,impactCapture),/contract evidence/);
+const badWitness=contract();badWitness.evidence=[{...witness,source_sha256:'bad'}];assert.throws(()=>views.impactPage(impactPage([badWitness]),impactRequest,impactCapture),/source handle/);
+const firstContract=views.impactScene(null,impactPage([contract()])),nextContract=views.impactScene(firstContract,impactPage([unknownContract]));
+assert.deepEqual(firstContract.sites.map(value=>value.site.id),['contract-one']);assert.deepEqual(nextContract.sites.map(value=>value.site.id),['contract-one','boundary']);
+assert.equal(nextContract.sites[1].targets.length,0);assert.equal(nextContract.symbols.length,3);assert.equal(nextContract.sites[0].targets.some(value=>value.id===witness.id),false);
+for(const changed of [{service_id:'worker'},{contract_identity:{...contract().contract_identity,contract_service_id:'worker'}},{partial:true,target:null,certainty:'unresolved',targets_exhaustive:false},{evidence:[{...witness,slice_sha256:'0'.repeat(64)}]}])assert.throws(()=>views.impactScene(firstContract,impactPage([{...contract(),...changed}])),/Changed impact|Invalid imported contract|Changed contract source/);
+assert.throws(()=>views.impactPage(impactPage([{...contract(),service_id:'worker'}]),impactRequest,impactCapture),/row filter/);
+assert.throws(()=>views.impactScene(firstContract,impactPage([{...contract('another-origin'),evidence:[{...witness,slice_sha256:'0'.repeat(64)}]}])),/Changed contract source/);
+assert.throws(()=>views.impactScene(firstContract,impactPage([{...contract('new-site'),caller:{...entry,source_sha256:'0'.repeat(64)}}])),/Changed source/);
+let contractScene=firstContract;
+for(let i=1;i<=20;i++)contractScene=views.impactScene(contractScene,impactPage([contract('origin-'+i)]));
+assert.equal(contractScene.symbols.length+contractScene.sites.length,24);
+assert.throws(()=>views.impactScene(contractScene,impactPage([contract('too-many')])),/24 element/);
+const savedContract={version:3,view:'impact',scope:'',sort:'name',kind:'all',page:0,selected:null,snapshot:Object.fromEntries(['generation','repository_identity','source_identity','analyzer_identity','config_identity'].map(key=>[key,impactCapture[key]])),calls:null,
+  impact:{selector:impactRequest.selector,relations:['contract'],certainties:impactRequest.certainties,services:['gateway'],protocols:['http'],namespaces:['orders-api'],depth:1,size:8,identity:impactCapture.impact_identity,selected:'contract-one',intents:[{continuation:false,reset:false,limits:impactRequest.limits}]}};
+assert.deepEqual(views.bookmarkView(views.bookmarkFragment(savedContract)),savedContract);
+const oldImpact=structuredClone(savedContract);oldImpact.version=2;oldImpact.impact.relations=['call','import'];for(const key of ['services','protocols','namespaces'])delete oldImpact.impact[key];views.savedView(oldImpact);
+const oldNavigation={...oldImpact,version:1,view:'atlas'};delete oldNavigation.impact;views.savedView(oldNavigation);
+for(const key of ['rows','cursor','response','text','contract_membership_schema']) {
+  const saved=structuredClone(savedContract);saved.impact[key]=key==='rows' ? [] : 'forged';assert.throws(()=>views.savedView(saved),/Invalid saved/);
+}
+const extraIntents=structuredClone(savedContract);extraIntents.impact.intents=Array(25).fill(savedContract.impact.intents[0]);assert.throws(()=>views.savedView(extraIntents),/Invalid saved/);
+const oversized=structuredClone(savedContract);oversized.impact.selected='é'.repeat(8192);oversized.scope='é'.repeat(4096);assert.throws(()=>views.bookmarkFragment(oversized),/overflow/);
+console.log('Captured contract membership, typed scope, source-only unknown witnesses, scene budgets and saved v3 compatibility passed');
+
 // Exercise the actual event wiring without a browser or a network dependency.
 const fs = require('node:fs'), vm = require('node:vm');
 class Element {

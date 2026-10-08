@@ -293,6 +293,48 @@ const RepoViews = (() => {
     return value;
   }
   const snapshotKeys=['generation','repository_identity','source_identity','analyzer_identity','config_identity'];
+  const contractSchema='captured-contract-membership-v1';
+  function capturedImpact(status) {
+    const snapshot=capturedSnapshot(status),projection=status?.structural?.impact,receipt=projection?.receipt;
+    if(!snapshot || projection?.state!=='ready' || projection.query_available!==true || receipt?.schema!=='captured-impact-v1' ||
+        !sameSnapshot(snapshot,receipt) || !/^[0-9a-f]{64}$/.test(receipt.identity || '') || typeof receipt.contracts_available!=='boolean')return null;
+    const available=receipt.contracts_available===true && receipt.contract_membership_schema===contractSchema;
+    return {...snapshot,impact_identity:receipt.identity,contracts_available:available,contract_membership_schema:available ? contractSchema : null};
+  }
+  function impactFilters(value,relations) {
+    const filters={};
+    for(const [key,max] of [['services',8],['protocols',3],['namespaces',8]]) {
+      const choices=value[key]===undefined ? null : value[key];
+      if(choices!==null && (!Array.isArray(choices) || !choices.length || choices.length>max || new Set(choices).size!==choices.length ||
+          choices.some(choice=>typeof choice!=='string' || !choice || choice.includes('\0') || new TextEncoder().encode(choice).length>256 || key==='protocols' && !['http','rpc','queue'].includes(choice))))throw new Error('Invalid bounded contract filters');
+      if(choices!==null && !relations.includes('contract'))throw new Error('Contract filters require explicit contract relation');
+      filters[key]=choices===null ? null : [...choices].sort();
+    }
+    return filters;
+  }
+  function contractRow(row) {
+    const bounded=(value,max)=>typeof value==='string' && new TextEncoder().encode(value).length<=max;
+    const identity=row.contract_identity,fields=['contract_service_id','namespace','protocol',...({http:['method','path','operation','operation_ref','request_schema','response_schema'],rpc:['rpc_service','operation','request_schema','response_schema'],queue:['topic','schema']}[row.protocol] || [])];
+    if(!['http','rpc','queue'].includes(row.protocol) || row.relation_kind!=='explicit_'+row.protocol ||
+        !['contract','contract_boundary'].includes(row.family) || row.site.role!==row.family ||
+        !bounded(row.binding_id,256) || !row.binding_id || !bounded(row.service_id,256) || !row.service_id ||
+        !['client','producer'].includes(row.endpoint_role) || row.namespace!==null && !bounded(row.namespace,1024) ||
+        !identity || Array.isArray(identity) || Object.keys(identity).length!==fields.length || fields.some(key=>!Object.hasOwn(identity,key) || identity[key]!==null && !bounded(identity[key],1024)) ||
+        identity.protocol!==row.protocol || identity.namespace!==row.namespace ||
+        typeof row.contract_identity_asserted!=='boolean' || typeof row.partial!=='boolean' || row.runtime_qualified!==false ||
+        !['current_profile_row','captured_source_binding'].includes(row.boundary_origin) ||
+        !Array.isArray(row.evidence) || row.evidence.length>64 ||
+        (row.family==='contract_boundary' || !row.contract_identity_asserted || row.partial) && (row.target!==null || row.targets_exhaustive!==false || row.certainty!=='unresolved') ||
+        row.family==='contract' && (!row.target || !row.contract_identity_asserted || row.partial || row.certainty!=='resolved' || row.targets_exhaustive!==true))throw new Error('Invalid imported contract evidence');
+    const witnesses=new Map();
+    for(const witness of row.evidence) {
+      sourceHandle(witness);
+      if(!/^[0-9a-f]{64}$/.test(witness.slice_sha256 || '') || !['reviewed_artifact_binding','structural_declaration','explicit_source_binding','original_contract_source'].includes(witness.source_role))throw new Error('Invalid contract source witness');
+      if(witnesses.has(witness.id) && JSON.stringify(witnesses.get(witness.id))!==JSON.stringify(witness))throw new Error('Changed contract source witness');
+      witnesses.set(witness.id,witness);
+    }
+    return [...witnesses.values()];
+  }
   function impactSelector(value) {
     const exact=(row,keys)=>row && typeof row==='object' && !Array.isArray(row) && Object.keys(row).length===keys.length && keys.every(key=>Object.hasOwn(row,key));
     if(value?.kind==='git_change' && exact(value,['kind','base_revision']) && /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(value.base_revision || ''))return {kind:value.kind,base_revision:value.base_revision};
@@ -315,11 +357,14 @@ const RepoViews = (() => {
   function impactPage(value,request,captured=null) {
     for(const key of snapshotKeys)if(!/^[0-9a-f]{64}$/.test(value?.[key] || '') || captured && value[key]!==captured[key])throw new Error('Index changed; select impact again');
     if(!/^[0-9a-f]{64}$/.test(value.impact_identity || '') || captured && value.impact_identity!==captured.impact_identity)throw new Error('Impact capture changed; select again');
-    if(value.impact_schema!=='captured-impact-v1' || value.contracts_available!==false || value.runtime_complete!==false || value.live_source_observed!==false ||
+    const filters=impactFilters(request,request.relations),hasContract=request.relations.includes('contract');
+    if(hasContract && (!captured?.contracts_available || captured.contract_membership_schema!==contractSchema || value.contracts_available!==true || value.contract_membership_schema!==contractSchema))throw new Error('Captured contract membership unavailable');
+    if(value.impact_schema!=='captured-impact-v1' || typeof value.contracts_available!=='boolean' || value.runtime_complete!==false || value.live_source_observed!==false ||
         value.historical_call_closure!=='unavailable_current_index_only' || value.scope?.claim!=='possible_captured_reachability' || value.scope.evidence_kind!=='static_syntax' ||
         value.selection?.seed!==null || JSON.stringify(impactSelector(value.selection.selector))!==JSON.stringify(impactSelector(request.selector)) ||
         value.scope.depth!==request.depth || value.scope.path_filter!=='' || value.scope.name_prefix!=='' || value.scope.role!=='all' ||
-        JSON.stringify(value.scope.relations)!==JSON.stringify([...request.relations].sort()) || JSON.stringify(value.scope.certainties)!==JSON.stringify([...request.certainties].sort()))throw new Error('Impact filter or capture mismatch');
+        JSON.stringify(value.scope.relations)!==JSON.stringify([...request.relations].sort()) || JSON.stringify(value.scope.certainties)!==JSON.stringify([...request.certainties].sort()) ||
+        Object.keys(filters).some(key=>JSON.stringify(value.scope[key]===undefined && !hasContract ? null : value.scope[key])!==JSON.stringify(filters[key])))throw new Error('Impact filter or capture mismatch');
     if(typeof value.truncated!=='boolean' || value.cursor!==null && !/^[0-9a-f]{64}$/.test(value.cursor || '') ||
         !['exact','lower_bound','unknown'].includes(value.total_count?.kind) || !(Number.isSafeInteger(value.total_count.value) && value.total_count.value>=0 || value.total_count.kind==='unknown' && value.total_count.value===null) ||
         value.stop_reason!=null && !/^[a-z_]{1,128}$/.test(value.stop_reason))throw new Error('Invalid bounded impact page');
@@ -331,15 +376,21 @@ const RepoViews = (() => {
     const file=handle=>{impactFile(handle);files.add(handle.id);entities.add(handle.id);};
     value.selected_symbols.forEach(symbol);value.selected_files.forEach(file);
     for(const row of value.unavailable_paths) {
-      if(!/^unavailable-source:[0-9a-f]{64}$/.test(row?.id || '') || row.source_sha256!==null || typeof row.reason!=='string' || row.reason.length>256 || !['A','D','M','T'].includes(row.change_status))throw new Error('Invalid unavailable impact path');
+      if(!/^unavailable-source:[0-9a-f]{64}$/.test(row?.id || '') || row.source_sha256!==null || Object.hasOwn(row,'range') || typeof row.reason!=='string' || row.reason.length>256 || row.change_status!==undefined && !['A','D','M','T'].includes(row.change_status))throw new Error('Invalid unavailable impact path');
       impactSelector({kind:'source_area',paths:[row.path]});entities.add(row.id);
     }
     for(const row of value.rows) {
       sourceHandle(row.site);
-      if(!['call','import'].includes(row.relation) || row.site.role!==row.relation || !['resolved','candidate','unresolved'].includes(row.certainty) ||
+      if(!['call','import','contract'].includes(row.relation) || !request.relations.includes(row.relation) || row.relation!=='contract' && row.site.role!==row.relation || !['resolved','candidate','unresolved'].includes(row.certainty) ||
           typeof row.targets_exhaustive!=='boolean' || typeof row.reason!=='string' || row.reason.length>256 || row.evidence_kind!=='static_syntax')throw new Error('Invalid impact relation evidence');
       if(row.relation==='call'){if(row.caller)symbol(row.caller);if(row.target)symbol(row.target);}
-      else {file(row.importer);if(row.target)file(row.target);if(row.targets_exhaustive!==false || typeof row.source_candidates_exhaustive!=='boolean')throw new Error('Invalid import certainty');}
+      else if(row.relation==='import'){file(row.importer);if(row.target)file(row.target);if(row.targets_exhaustive!==false || typeof row.source_candidates_exhaustive!=='boolean')throw new Error('Invalid import certainty');}
+      else {
+        if(!hasContract)throw new Error('Unexpected contract relation');
+        if(!request.certainties.includes(row.certainty) || [['services',row.service_id],['protocols',row.protocol],['namespaces',row.namespace]].some(([key,choice])=>filters[key]!==null && !filters[key].includes(choice)))throw new Error('Contract row filter mismatch');
+        if(row.caller)symbol(row.caller);if(row.target)symbol(row.target);
+        for(const witness of contractRow(row))if(witness.source_role==='structural_declaration'){entities.add(witness.id);symbols.add(witness.id);}
+      }
     }
     if(entities.size>request.limits.max_entities || value.rows.length>request.limits.max_edges || value.returned_entities!==entities.size ||
         value.returned_symbol_handles!==symbols.size || value.returned_file_handles!==files.size || value.returned_edges!==value.rows.length)throw new Error('Impact counters exceed their budget');
@@ -350,14 +401,22 @@ const RepoViews = (() => {
   function impactScene(prior,page) {
     const files=new Map((prior?.files || []).map(value=>[value.id,value])),symbols=new Map((prior?.symbols || []).map(value=>[value.id,value]));
     const unavailable=new Map((prior?.unavailable || []).map(value=>[value.id,value])),sites=new Map((prior?.sites || []).map(row=>[row.site.id,{...row,targets:[...row.targets]}]));
+    const witnesses=new Map();
+    const witness=value=>{const typed={...sourceHandle(value),slice_sha256:value.slice_sha256,source_role:value.source_role};
+      if(witnesses.has(value.id) && JSON.stringify(witnesses.get(value.id))!==JSON.stringify(typed))throw new Error('Changed contract source witness');witnesses.set(value.id,typed);};
+    for(const row of sites.values())if(row.relation==='contract')row.evidence.forEach(witness);
     const file=value=>{const old=files.get(value.id);if(old && (old.path!==value.path || old.source_sha256!==value.source_sha256 || old.source_bytes!==value.source_bytes || old.admission_status!==value.admission_status || old.change_status && value.change_status && old.change_status!==value.change_status))throw new Error('Changed captured impact file');files.set(value.id,{...old,...value});};
     const symbol=value=>{if(symbols.has(value.id) && !sameHandle(symbols.get(value.id),value))throw new Error('Changed source handle');symbols.set(value.id,value);};
     page.selected_files.forEach(file);page.selected_symbols.forEach(symbol);
     for(const value of page.unavailable_paths){const old=unavailable.get(value.id);if(old && JSON.stringify(old)!==JSON.stringify(value))throw new Error('Changed unavailable impact path');unavailable.set(value.id,value);}
     for(const row of page.rows) {
-      if(row.relation==='call'){if(row.caller)symbol(row.caller);if(row.target)symbol(row.target);}else{file(row.importer);if(row.target)file(row.target);}
+      if(row.relation==='call' || row.relation==='contract'){
+        if(row.caller)symbol(row.caller);if(row.target)symbol(row.target);
+        if(row.relation==='contract')for(const value of contractRow(row)){witness(value);if(value.source_role==='structural_declaration')symbol({...value,name:symbols.get(value.id)?.name || 'Contract source witness'});}
+      }else{file(row.importer);if(row.target)file(row.target);}
       let site=sites.get(row.site.id);
-      if(site) {if(!sameHandle(site.site,row.site) || site.relation!==row.relation || site.certainty!==row.certainty || site.targets_exhaustive!==row.targets_exhaustive || site.reason!==row.reason || site.caller?.id!==row.caller?.id || site.importer?.id!==row.importer?.id)throw new Error('Changed impact occurrence');}
+      if(site) {if(!sameHandle(site.site,row.site) || site.relation!==row.relation || site.certainty!==row.certainty || site.targets_exhaustive!==row.targets_exhaustive || site.reason!==row.reason || site.caller?.id!==row.caller?.id || site.importer?.id!==row.importer?.id || row.relation==='contract' &&
+          ['binding_id','service_id','endpoint_role','protocol','namespace','contract_identity','contract_identity_asserted','partial','boundary_origin','evidence','relation_kind','family','runtime_qualified'].some(key=>JSON.stringify(site[key])!==JSON.stringify(row[key])))throw new Error('Changed impact occurrence');}
       else {site={...row,targets:[]};sites.set(row.site.id,site);}
       if(row.target && !site.targets.some(value=>value.id===row.target.id))site.targets.push(row.target);
     }
@@ -377,8 +436,8 @@ const RepoViews = (() => {
     const text=(s,max)=>typeof s==='string' && s.length<=max;
     const fail=()=>{throw new Error('Invalid saved view; clear it and select again');};
     if(!(value?.version===1 && exact(value,['version','view','scope','sort','kind','page','selected','snapshot','calls']) ||
-        value?.version===2 && exact(value,['version','view','scope','sort','kind','page','selected','snapshot','calls','impact'])) ||
-        !['system','atlas','tree','radial','treemap','table','matrix','search','calls','impact'].includes(value.view) || value.view==='impact' && value.version!==2 ||
+        [2,3].includes(value?.version) && exact(value,['version','view','scope','sort','kind','page','selected','snapshot','calls','impact'])) ||
+        !['system','atlas','tree','radial','treemap','table','matrix','search','calls','impact'].includes(value.view) || value.view==='impact' && ![2,3].includes(value.version) || value.version===3 && (value.view!=='impact' || value.impact===null) ||
         !text(value.scope,4096) || !['name','files','imports'].includes(value.sort) ||
         !['all','directory','file'].includes(value.kind) || !Number.isSafeInteger(value.page) || value.page<0 ||
         value.selected!==null && (!text(value.selected,8192) || !value.selected))fail();
@@ -402,13 +461,14 @@ const RepoViews = (() => {
             step.limits.max_response_bytes!==32768 || step.limits.max_excerpt_bytes!==0)fail();
       }
     }
-    if(value.version===2 && value.impact!==null) {
+    if([2,3].includes(value.version) && value.impact!==null) {
       const impact=value.impact;
-      if(value.view!=='impact' || value.calls!==null || value.snapshot===null || !exact(impact,['selector','relations','certainties','depth','size','identity','selected','intents']) ||
+      if(value.view!=='impact' || value.calls!==null || value.snapshot===null || !exact(impact,['selector','relations','certainties','depth','size','identity','selected','intents',...(value.version===3 ? ['services','protocols','namespaces'] : [])]) ||
           !/^[0-9a-f]{64}$/.test(impact.identity || '') || ![1,2].includes(impact.depth) || ![1,4,8].includes(impact.size) ||
           impact.selected!==null && (!text(impact.selected,8192) || !impact.selected) || !Array.isArray(impact.intents) || impact.intents.length>24)fail();
       impactSelector(impact.selector);
-      for(const [key,allowed] of [['relations',['call','import']],['certainties',['resolved','candidate','unresolved']]])if(!Array.isArray(impact[key]) || !impact[key].length || impact[key].length>allowed.length || new Set(impact[key]).size!==impact[key].length || impact[key].some(choice=>!allowed.includes(choice)))fail();
+      for(const [key,allowed] of [['relations',value.version===3 ? ['call','import','contract'] : ['call','import']],['certainties',['resolved','candidate','unresolved']]])if(!Array.isArray(impact[key]) || !impact[key].length || impact[key].length>allowed.length || new Set(impact[key]).size!==impact[key].length || impact[key].some(choice=>!allowed.includes(choice)))fail();
+      if(value.version===3){if(!impact.relations.includes('contract'))fail();impactFilters(impact,impact.relations);}
       for(const step of impact.intents)if(!exact(step,['continuation','reset','limits']) || typeof step.continuation!=='boolean' || typeof step.reset!=='boolean' ||
           !exact(step.limits,['max_entities','max_edges','max_response_bytes','max_excerpt_bytes']) ||
           !Number.isSafeInteger(step.limits.max_entities) || step.limits.max_entities<1 || step.limits.max_entities>8 ||
@@ -428,6 +488,6 @@ const RepoViews = (() => {
     if(!fragment.startsWith('#view='))throw new Error('invalid_bookmark');
     return savedView(JSON.parse(decodeURIComponent(fragment.slice(6))));
   }
-  return {metrics,ordered,layout,csv,systemOverview,indexStatus,sourceHandle,functionSearch,queryPage,callScene,sourceEvidence,impactSelector,impactPage,impactScene,capturedSnapshot,sameSnapshot,savedView,bookmarkFragment,bookmarkView};
+  return {metrics,ordered,layout,csv,systemOverview,indexStatus,sourceHandle,functionSearch,queryPage,callScene,sourceEvidence,impactSelector,impactFilters,capturedImpact,impactPage,impactScene,capturedSnapshot,sameSnapshot,savedView,bookmarkFragment,bookmarkView};
 })();
 if (typeof module !== 'undefined') module.exports = RepoViews;

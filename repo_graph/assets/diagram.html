@@ -506,7 +506,7 @@ __VIEW_HELPERS__
 
   let callsState={lookup:null,matches:[],selected:null,captured:null,scene:null,branch:null,page:null,prefix:'',scope:'',size:8,intents:[],saveBlocked:false};
   let callsUI=null,callsController=null,callsEpoch=0;
-  let impactState={selector:null,relations:['call','import'],certainties:['candidate','resolved','unresolved'],depth:2,size:8,captured:null,page:null,scene:null,selected:null,intents:[],saveBlocked:false};
+  let impactState={selector:null,relations:['call','import'],services:null,protocols:null,namespaces:null,certainties:['candidate','resolved','unresolved'],depth:2,size:8,captured:null,page:null,scene:null,selected:null,intents:[],saveBlocked:false};
   let impactUI=null;
   let savedStorage=null,savedBooting=true,savedScheduled=false,savedControl=null,savedCleared=false;
   const savedKey='repo-graph:view:'+location.pathname;
@@ -703,15 +703,22 @@ __VIEW_HELPERS__
       card.dataset.signature=signature;card.replaceChildren();card.setAttribute('aria-current',String(impactState.selected===id));
       if(type==='site') {
         card.dataset.relation=value.relation;
-        card.append(callElement('h3',`${value.relation==='import' ? 'Import' : 'Call'} · ${value.certainty} · ${value.site.path}:${value.site.range.start_line}`),
+        card.append(callElement('h3',`${value.relation==='contract' ? 'Imported contract' : value.relation==='import' ? 'Import' : 'Call'} · ${value.certainty} · ${value.site.path}:${value.site.range.start_line}`),
           callElement('p',`${value.caller?.name || value.importer?.path || 'Unknown caller'} → ${value.targets.map(target=>target.name || target.path).join(' / ') || 'Unresolved target'}`),
           callElement('p',`Static possibilities; targets ${value.targets_exhaustive ? 'reported exhaustive' : 'not exhaustive'}. ${value.reason}${value.reason_truncated ? ' (reason truncated)' : ''}`));
-        const inspect=callButton(value.relation==='import' ? 'Inspect import' : 'Inspect callsite',()=>{selectImpact(id);showCallSource(value.site,inspect,'impact');});card.appendChild(inspect);
+        if(value.relation==='contract') {
+          card.append(callElement('p',`Origin service: ${value.service_id} · ${value.endpoint_role} · ${value.protocol} · Namespace: ${value.namespace || 'unspecified'}. Contract owner: ${value.contract_identity.contract_service_id ?? 'computed'}. Origin witness: ${value.boundary_origin.replaceAll('_',' ')}. Identity ${value.contract_identity_asserted ? 'source asserted' : 'unasserted'}; ${value.partial ? 'partial source' : 'captured source'}; runtime unqualified.`));
+          card.append(callElement('p',Object.entries(value.contract_identity).map(([key,text])=>`${key.replaceAll('_',' ')}: ${text ?? 'computed'}`).join(' · ')));
+          for(const witness of value.evidence.filter(witness=>witness.source_role!=='structural_declaration')) {
+            const source=callButton(`Inspect witness ${witness.path}:${witness.range.start_line} (${witness.source_role.replaceAll('_',' ')})`,()=>{selectImpact(id);showCallSource(witness,source,'impact');});card.appendChild(source);
+          }
+        }
+        const inspect=callButton(value.relation==='contract' ? 'Inspect contract origin' : value.relation==='import' ? 'Inspect import' : 'Inspect callsite',()=>{selectImpact(id);showCallSource(value.site,inspect,'impact');});card.appendChild(inspect);
       } else if(type==='symbol') {
-        card.append(callElement('h3',value.name || value.id),callElement('p',`Captured declaration · ${value.path}:${value.range.start_line}–${value.range.end_line}`));
+        card.append(callElement('h3',value.name || value.id),callElement('p',`${value.source_role==='structural_declaration' ? 'Contract source witness' : 'Captured declaration'} · ${value.path}:${value.range.start_line}–${value.range.end_line}`));
         const inspect=callButton('Inspect declaration',()=>{selectImpact(id);showCallSource(value,inspect,'impact');});card.appendChild(inspect);
       } else {
-        card.append(callElement('h3',value.path),callElement('p',type==='unavailable' ? `Changed path ${value.change_status}: ${value.reason}` : `${value.change_status ? 'Changed path '+value.change_status+' · ' : 'Captured file · '}${value.admission_status}`));
+        card.append(callElement('h3',value.path),callElement('p',type==='unavailable' ? `${value.change_status ? 'Changed path '+value.change_status : 'Unavailable captured source'}: ${value.reason}` : `${value.change_status ? 'Changed path '+value.change_status+' · ' : 'Captured file · '}${value.admission_status}`));
         card.append(callElement('p',type==='unavailable' ? 'Historical/nonadmitted source: current closure unavailable.' : `Source SHA256: ${value.source_sha256}. File handle is navigation only.`));
       }
       card.append(callButton('Select impact item',()=>selectImpact(id)),callButton('Open file in Explore',()=>openImpactFile(type==='site' ? value.site : value)));
@@ -728,7 +735,7 @@ __VIEW_HELPERS__
   function loadImpact(cursor=null,reset=false,replay=false,limits=null) {
     if(!reset && 24-impactCount(impactState.scene)<2){impactUI.status.textContent='24 element budget: replace the impact page to continue.';return Promise.resolve(false);}
     const payload={operation:'impact',seed:null,selector:impactState.selector,relations:impactState.relations,certainties:impactState.certainties,
-      depth:impactState.depth,prefix:'',scope:'',role:'all',limits:limits || impactLimits(reset)};
+      ...RepoViews.impactFilters(impactState,impactState.relations),depth:impactState.depth,prefix:'',scope:'',role:'all',limits:limits || impactLimits(reset)};
     if(cursor)payload.cursor=cursor;
     impactUI.evidence.hidden=true;impactUI.evidence.replaceChildren();
     return callsRequest('/api/query',payload,page=>{
@@ -747,21 +754,25 @@ __VIEW_HELPERS__
     },replay,'impact');
   }
   function startImpact() {
-    const snapshot=RepoViews.capturedSnapshot(observedStatus),projection=observedStatus?.structural?.impact;
-    if(!snapshot || projection?.state!=='ready' || projection.query_available!==true || !/^[0-9a-f]{64}$/.test(projection.receipt?.identity || '')) {
+    const captured=RepoViews.capturedImpact(observedStatus);
+    if(!captured) {
       stopCalls(false);impactUI.status.textContent='Captured impact projection unavailable. Refresh the structural index and reload; Calls may remain available.';return;
     }
     try {
       const selector=RepoViews.impactSelector(impactUI.inputKind.value==='git_change' ? {kind:'git_change',base_revision:impactUI.input.value.trim()} : {kind:'source_area',paths:[impactUI.input.value.trim()]});
-      impactState={...impactState,selector,relations:impactUI.relation.value==='all' ? ['call','import'] : [impactUI.relation.value],
+      const relations=impactUI.relation.value==='all' ? ['call','import'] : [impactUI.relation.value],contract=relations.includes('contract');
+      if(contract && !captured.contracts_available)throw new Error('Captured contract membership unavailable');
+      const one=value=>value ? [value] : null;
+      const filters=RepoViews.impactFilters(contract ? {services:one(impactUI.service.value.trim()),protocols:one(impactUI.protocol.value),namespaces:one(impactUI.namespace.value.trim())} : {},relations);
+      impactState={...impactState,selector,relations,...filters,
         certainties:impactUI.certainty.value==='all' ? ['candidate','resolved','unresolved'] : [impactUI.certainty.value],depth:Number(impactUI.depth.value),size:Number(impactUI.size.value),
-        captured:{...snapshot,impact_identity:projection.receipt.identity},page:null,scene:null,selected:null,intents:[],saveBlocked:false};
+        captured,page:null,scene:null,selected:null,intents:[],saveBlocked:false};
       impactUI.cards.replaceChildren();impactUI.capture.textContent='';impactUI.more.disabled=true;loadImpact();
-    } catch {impactUI.status.textContent='Invalid impact selection. Use an admitted source path (directory ending /), or its exact captured Git base commit.';}
+    } catch(error) {impactUI.status.textContent=`Invalid impact selection or contract filter. Use an admitted source path (directory ending /), exact captured Git base, and filters of at most 256 UTF-8 bytes. ${error.message}`;}
   }
   function renderImpact() {
     selected=null;parts=[];links=[];scopeEntries=[];renderInspector();
-    document.getElementById('map-title').textContent='Impact from captured source';document.getElementById('map-subtitle').textContent='Possible reverse import and call reachability. Unknown boundaries stay explicit; these are not runtime or business effects.';
+    document.getElementById('map-title').textContent='Impact from captured source';document.getElementById('map-subtitle').textContent='Possible reverse import, call and imported contract reachability. Unknown boundaries stay explicit; runtime and business effects are unknown.';
     renderBreadcrumb(true);svg.style.display='none';document.querySelector('.controls').style.display='none';document.querySelector('.legend').style.display='none';document.querySelector('.stage-hint').style.display='none';
     for(const id of ['up','previous','next','export-svg','export-csv'])document.getElementById(id).disabled=true;
     document.getElementById('component-list').replaceChildren();const panel=document.getElementById('data-panel');panel.replaceChildren();panel.hidden=false;panel.className='data-panel calls-panel impact-panel';
@@ -775,8 +786,15 @@ __VIEW_HELPERS__
     const input=callElement('input');input.setAttribute('aria-label','Impact source area or captured base');input.maxLength=4096;input.value=impactState.selector?.kind==='git_change' ? impactState.selector.base_revision : impactState.selector?.paths[0] || (scopePath ? scopePath+'/' : '.');field('Source path (directory ends /) or exact captured Git base',input);
     input.readOnly=inputKind.value==='git_change';
     inputKind.addEventListener('change',()=>{input.readOnly=inputKind.value==='git_change';input.value=input.readOnly && gitReady ? capturedGit.base_revision : (scopePath ? scopePath+'/' : '.');});
-    const relation=choice('Impact relation',[['all','Imports and calls'],['import','Imports only'],['call','Calls only']],impactState.relations.length===2 ? 'all' : impactState.relations[0]);
-    const contract=callElement('option','Contracts unavailable (T020)');contract.value='contract';contract.disabled=true;relation.appendChild(contract);
+    const available=RepoViews.capturedImpact(observedStatus)?.contracts_available===true;
+    const relation=choice('Impact relation',[['all','Imports and calls'],['import','Imports only'],['call','Calls only'],['contract',available ? 'Imported contracts' : 'Contracts unavailable']],impactState.relations.length===2 ? 'all' : impactState.relations[0]);
+    relation.querySelector('[value="contract"]').disabled=!available;
+    const service=callElement('input');service.setAttribute('aria-label','Origin service');service.maxLength=256;service.value=impactState.services?.[0] || '';field('Origin service (optional)',service);
+    const protocol=choice('Contract protocol',[['','All contract protocols'],['http','HTTP'],['rpc','RPC'],['queue','Queue']],impactState.protocols?.[0] || '');
+    const namespace=callElement('input');namespace.setAttribute('aria-label','Contract namespace');namespace.maxLength=256;namespace.value=impactState.namespaces?.[0] || '';field('Namespace (optional)',namespace);
+    const filterNote=callElement('p','','calls-status');
+    const enableFilters=()=>{const enabled=available && relation.value==='contract';for(const control of [service,protocol,namespace])control.disabled=!enabled;
+      filterNote.textContent=!available ? 'Contract filters unavailable: captured enrolled membership is missing or invalid.' : enabled ? 'Filters select captured origin service, protocol and namespace. Runtime transport and ordering remain unknown.' : 'Choose Imported contracts to filter origin service, protocol and namespace.';};enableFilters();relation.addEventListener('change',enableFilters);
     const certainty=choice('Impact certainty',[['all','All static certainties'],['resolved','Resolved'],['candidate','Candidate'],['unresolved','Unresolved']],impactState.certainties.length===3 ? 'all' : impactState.certainties[0]);
     const depth=choice('Impact depth',[[1,'1'],[2,'2']],impactState.depth),size=choice('Impact rows per page',[[1,'1'],[4,'4'],[8,'8']],impactState.size);
     const submit=callElement('button','Find impact');submit.type='submit';const cancel=callButton('Cancel request',()=>stopCalls());cancel.disabled=true;form.append(submit,cancel);
@@ -784,10 +802,10 @@ __VIEW_HELPERS__
     const more=callButton('More impact',()=>{if(impactState.page?.cursor)loadImpact(impactState.page.cursor,24-impactCount(impactState.scene)<2 || !impactState.page.rows.length);});more.disabled=true;
     const capture=callElement('p','','calls-status'),basis=callElement('p','','calls-status'),unknown=callElement('details'),boundaries=callElement('ul');unknown.append(callElement('summary','Unknown and excluded boundaries'),boundaries);
     const cards=callElement('div','','impact-cards'),evidence=callElement('section','','call-evidence');evidence.hidden=true;
-    panel.append(form,callElement('p','Contract filters unavailable until validated T020 facts. '+(gitReady ? 'Git choice uses the explicitly captured base; worktree byte affinity is unobserved.' : 'Captured Git base unavailable; analyze with an explicit exact base to enable it.')),status,more,capture,basis,unknown,evidence,cards);
-    impactUI={panel,inputKind,input,relation,certainty,depth,size,status,cancel,more,capture,basis,boundaries,cards,evidence};
+    panel.append(form,filterNote,callElement('p',gitReady ? 'Git choice uses the explicitly captured base; worktree byte affinity is unobserved.' : 'Captured Git base unavailable; analyze with an explicit exact base to enable it.'),status,more,capture,basis,unknown,evidence,cards);
+    impactUI={panel,inputKind,input,relation,service,protocol,namespace,certainty,depth,size,status,cancel,more,capture,basis,boundaries,cards,evidence};
     form.addEventListener('submit',event=>{event.preventDefault();startImpact();});
-    for(const control of [inputKind,input,relation,certainty,depth,size])control.addEventListener('change',()=>{stopCalls(false);impactState.page=null;more.disabled=true;status.textContent='Selection or filter changed. Find impact starts a fresh captured query; old continuation is unavailable.';});
+    for(const control of [inputKind,input,relation,service,protocol,namespace,certainty,depth,size])control.addEventListener('change',()=>{stopCalls(false);impactState.page=null;more.disabled=true;status.textContent='Selection or filter changed. Find impact starts a fresh captured query; old continuation is unavailable.';});
     if(impactState.scene)showImpactScene(true);
   }
 
@@ -829,8 +847,9 @@ __VIEW_HELPERS__
       if(impactState.saveBlocked || !impactState.intents.length)throw new Error('intents_overflow');
       snapshot=current;impact={selector:impactState.selector,relations:impactState.relations,certainties:impactState.certainties,depth:impactState.depth,size:impactState.size,
         identity:impactState.captured.impact_identity,selected:impactState.selected,intents:impactState.intents};
+      if(impactState.relations.includes('contract'))Object.assign(impact,RepoViews.impactFilters(impactState,impactState.relations));
     }
-    const record=RepoViews.savedView({version:viewMode==='impact' ? 2 : 1,view:viewMode,scope:scopePath,sort:sortMode,kind:kindFilter,page,selected:['calls','impact'].includes(viewMode) ? null : selected,snapshot,calls,...(viewMode==='impact' ? {impact} : {})});
+    const record=RepoViews.savedView({version:viewMode==='impact' ? impact?.relations.includes('contract') ? 3 : 2 : 1,view:viewMode,scope:scopePath,sort:sortMode,kind:kindFilter,page,selected:['calls','impact'].includes(viewMode) ? null : selected,snapshot,calls,...(viewMode==='impact' ? {impact} : {})});
     const raw=JSON.stringify(record);
     if(new TextEncoder().encode(raw).length>32768)throw new Error('saved_state_overflow');
     return {record,raw};
@@ -928,8 +947,10 @@ __VIEW_HELPERS__
         savedNotice(fromBookmark ? 'Restored bookmark: selected symbol, snapshot and stable expansion. Source excerpts stay closed.' : 'Restored selected symbol, snapshot and stable expansion in this tab. Source excerpts stay closed.');
       } else if(record.impact) {
         const state=record.impact;
-        impactState={...impactState,selector:RepoViews.impactSelector(state.selector),relations:state.relations,certainties:state.certainties,depth:state.depth,size:state.size,
-          captured:{...record.snapshot,impact_identity:state.identity},page:null,scene:null,selected:null,intents:[],saveBlocked:false};
+        const captured=RepoViews.capturedImpact(status);
+        if(!captured || captured.impact_identity!==state.identity || state.relations.includes('contract') && !captured.contracts_available)throw new Error('stale_snapshot');
+        impactState={...impactState,selector:RepoViews.impactSelector(state.selector),relations:state.relations,...RepoViews.impactFilters(state,state.relations),certainties:state.certainties,depth:state.depth,size:state.size,
+          captured,page:null,scene:null,selected:null,intents:[],saveBlocked:false};
         renderImpact();
         for(const intent of state.intents) {
           const cursor=intent.continuation ? impactState.page?.cursor : null;

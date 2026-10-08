@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { once } from 'node:events';
+import { createHash } from 'node:crypto';
 
 const scratch = mkdtempSync(resolve(tmpdir(),'repo-graph-ux-'));
 const repo = resolve(scratch,'source'), output = process.env.REPO_GRAPH_UX_OUTPUT || resolve(scratch,'output');
@@ -38,6 +39,139 @@ const context=await browser.newContext({viewport:{width:1440,height:1000}});
 const page=await context.newPage(), errors=[];
 page.on('pageerror',error=>errors.push(error.message));
 const checks=[],callsResponses=[],responseReads=[],callsChecks=[],savedChecks=[],savedObservations=[],impactChecks=[],impactObservations=[],searchChecks=[],searchResponses=[];
+// A separately enrolled lane keeps the original unenrolled P1 assertions intact.
+async function contractImpactLane() {
+  const root=resolve(scratch,'contracts-source'),out=resolve(scratch,'contracts-output'),config=resolve(scratch,'contract-context.json');
+  const manifest=JSON.parse(readFileSync('evaluations/code-understanding/contract-inputs.json','utf8'));
+  const oracle=JSON.parse(readFileSync('evaluations/code-understanding/contract-impact-inputs.json','utf8'));
+  assert.equal(manifest.synthetic_inventory.length,9);assert.equal(oracle.proposed_assertions.length,43);
+  for(const item of manifest.synthetic_inventory) {
+    const bytes=readFileSync(resolve(manifest.fixture_root,item.path));assert.equal(bytes.length,item.bytes);
+    assert.equal(createHash('sha256').update(bytes).digest('hex'),item.sha256);
+    const target=resolve(root,item.path);mkdirSync(resolve(target,'..'),{recursive:true});writeFileSync(target,bytes);
+  }
+  const run=(args)=>{const result=spawnSync(python,args,{encoding:'utf8'});assert.equal(result.status,0,result.stdout+result.stderr);};
+  const capture=(mutation='baseline')=>{
+    // Supported enrollment derives its root identity from these actual frozen bytes.
+    run(['-c',`import sys,json
+from pathlib import Path
+from evaluations.analysis import contract_inputs,contract_mutation,contract_context,contract_inventory_identity
+manifest,original,identity=contract_inputs(Path.cwd())
+state=sys.argv[3];root=Path(sys.argv[1])
+blobs=original if state=='baseline' else contract_mutation(original,next(m for m in manifest['incremental_mutations'] if m['id']==state))
+for path in original:
+ if path not in blobs:(root/path).unlink(missing_ok=True)
+for path,raw in blobs.items():
+ target=root/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+context=contract_context(root,blobs,identity['independent_review_sha256'],contract_inventory_identity(blobs))
+Path(sys.argv[2]).write_text(json.dumps(context),encoding='utf-8')`,root,config,mutation]);
+    run(['scripts/repo_graph.py','analyze',root,'--output',out,'--mode','serial','--contract-context',config]);
+    run(['scripts/repo_graph.py','map',root,'--output',out]);
+  };
+  capture();
+  const contractServer=spawn(python,['scripts/repo_graph.py','serve',out,'--offline'],{stdio:['ignore','pipe','pipe']});
+  let diagnostic='';contractServer.stderr.on('data',chunk=>{diagnostic+=chunk;});const ended=once(contractServer,'close');let ct;
+  try {
+    const address=await new Promise((accept,reject)=>{const timer=setTimeout(()=>reject(new Error('Contract server timeout: '+diagnostic)),30000);
+      contractServer.stdout.on('data',chunk=>{const match=String(chunk).match(/http:\/\/127\.0\.0\.1:\d+\/architecture.html/);if(match){clearTimeout(timer);accept(match[0]);}});
+      contractServer.once('exit',()=>{clearTimeout(timer);reject(new Error(diagnostic));});});
+    ct=await context.newPage();ct.on('pageerror',error=>errors.push(error.message));const exchanges=[],reads=[];
+    ct.on('response',response=>{if(/\/api\/(query|source)$/.test(response.url()) && response.status()===200)reads.push((async()=>{try{exchanges.push({endpoint:new URL(response.url()).pathname,request:response.request().postDataJSON(),response:await response.json()});}catch{}})());});
+    await ct.goto(address);await ct.waitForFunction(()=>document.querySelector('#index-heading').textContent.includes('local index'));await ct.click('#tab-impact');
+    const status=await (await ct.request.get(new URL('/api/status',address).toString())).json();
+    assert.equal(status.structural.impact.receipt.contracts_available,true);assert.equal(status.structural.impact.receipt.contract_membership_schema,'captured-contract-membership-v1');
+    assert.equal(await ct.getByLabel('Impact relation',{exact:true}).inputValue(),'all');
+    assert.equal(await ct.getByLabel('Origin service',{exact:true}).isDisabled(),true);
+    const scene=()=>ct.locator('.impact-element').evaluateAll(cards=>cards.map(card=>({id:card.dataset.id,type:card.dataset.type,relation:card.dataset.relation,top:card.offsetTop,left:card.offsetLeft})));
+    const ready=()=>ct.waitForFunction(()=>document.querySelector('.impact-panel .calls-status[role="status"]').textContent.includes('physical relations in this page'));
+    const find=async(id)=>{
+      const key=oracle.proposed_assertions.find(row=>row.id===id);assert.ok(key?.request.selector,id);
+      await ct.getByLabel('Impact source area or captured base').fill(key.request.selector.paths[0]);await ct.getByLabel('Impact relation',{exact:true}).selectOption('contract');
+      await ct.getByLabel('Origin service',{exact:true}).fill(key.request.services?.[0] || '');await ct.getByLabel('Contract protocol',{exact:true}).selectOption(key.request.protocols?.[0] || '');
+      await ct.getByLabel('Contract namespace',{exact:true}).fill(key.request.namespaces?.[0] || '');await ct.getByLabel('Impact depth',{exact:true}).selectOption(String(key.request.depth || 1));
+      await ct.getByLabel('Impact certainty',{exact:true}).selectOption(key.request.certainties?.[0] || 'all');
+      let start=exchanges.length;await ct.getByRole('button',{name:'Find impact',exact:true}).click();await ready();await Promise.all(reads);
+      let first=exchanges.slice(start).find(row=>row.request.operation==='impact');assert.ok(first,id);
+      if(first.response.cursor) {
+        const wrong=await ct.request.post(new URL('/api/query',address).toString(),{data:{...first.request,services:['foreign-origin'],cursor:first.response.cursor}});assert.equal(wrong.status(),400);
+        if(id==='CTI-PATH-01') {
+          await ct.getByLabel('Origin service',{exact:true}).fill('gateway');await ct.getByLabel('Origin service',{exact:true}).press('Tab');
+          assert.equal(await ct.getByRole('button',{name:/^(More impact|Next impact page \(replace scene\))$/}).isDisabled(),true);
+          await ct.getByLabel('Origin service',{exact:true}).fill('');start=exchanges.length;await ct.getByRole('button',{name:'Find impact',exact:true}).click();await ready();await Promise.all(reads);
+          first=exchanges.slice(start).find(row=>row.request.operation==='impact');
+        }
+      }
+      const firstPosition=await ct.locator('.impact-element').count() ? await ct.locator('.impact-element').first().evaluate(card=>{window.__contractFirst=card;return {id:card.dataset.id,top:card.offsetTop,left:card.offsetLeft};}) : null;
+      let pages=0;
+      while(!await ct.getByRole('button',{name:/^(More impact|Next impact page \(replace scene\))$/}).isDisabled()) {
+        const button=ct.getByRole('button',{name:/^(More impact|Next impact page \(replace scene\))$/}),append=await button.innerText()==='More impact';
+        assert.ok(++pages<40,id+' bounded pages');await button.click();await ready();assert.ok(await ct.locator('.impact-element').count()<=24);
+        if(pages===1 && append && firstPosition)assert.deepEqual(await ct.locator('.impact-element').first().evaluate(card=>({id:card.dataset.id,top:card.offsetTop,left:card.offsetLeft})),firstPosition);
+      }
+      await Promise.all(reads);const pagesSeen=exchanges.slice(start).filter(row=>row.request.operation==='impact'),rows=pagesSeen.flatMap(row=>row.response.rows);
+      const byCase=new Map();
+      for(const exchange of pagesSeen) {
+        for(const filter of ['services','protocols','namespaces'])assert.deepEqual(exchange.response.scope[filter],key.request[filter] || null);
+        assert.equal(exchange.response.runtime_complete,false);assert.equal(exchange.response.live_source_observed,false);assert.equal(exchange.response.contract_membership_schema,'captured-contract-membership-v1');
+        for(const row of exchange.response.rows) {
+          const caseId=oracle.baseline_bindings[row.binding_id]?.case_id;assert.ok(caseId,row.binding_id);assert.equal(row.relation,'contract');assert.equal(row.runtime_qualified,false);
+          if(!byCase.has(caseId))byCase.set(caseId,new Set());if(row.target)byCase.get(caseId).add(row.target.id);
+          if(row.family==='contract_boundary')assert.equal(row.target,null);
+        }
+      }
+      assert.deepEqual([...byCase.keys()].sort(),key.expected.contract_case_ids);
+      for(const [caseId,targets] of byCase)assert.deepEqual([...targets].sort(),key.expected.targets_by_case[caseId]);
+      assert.ok(await ct.locator('.impact-element').count()<=24);
+      impactObservations.push({case:id,sourceKey:key.id,pages:pagesSeen.length,caseIds:[...byCase.keys()].sort(),scene:await scene()});
+      return {key,rows,pages:pagesSeen,first};
+    };
+    const all=await find('CTI-PATH-01');
+    assert.equal(new Set(all.rows.map(row=>row.site.id)).size,16);assert.equal(all.rows.filter(row=>row.target===null).length,12);
+    for(const row of all.rows) {
+      const gold=manifest.cases.find(value=>value.profile_binding_id===row.binding_id),span=gold.origin.range;
+      assert.equal(row.site.id,`${gold.origin.path}:${span.start_byte}:${span.end_byte}:${gold.expected.certainty==='resolved' ? 'contract' : 'contract_boundary'}`);
+    }
+    await find('CTI-FILTER-05');await find('CTI-FILTER-06');await find('CTI-FILTER-14');
+    const lookalike=oracle.proposed_assertions.find(row=>row.id==='CTI-LOOKALIKE-NO-CONTRACT');
+    const unbound=await ct.request.post(new URL('/api/query',address).toString(),{data:{operation:'impact',...lookalike.request,limits:{max_entities:8,max_edges:8,max_response_bytes:32768,max_excerpt_bytes:0}}});
+    assert.equal(unbound.status(),200);assert.deepEqual((await unbound.json()).rows,[]);
+    impactChecks.push('enrolled CT real server: admitted HTTP/RPC/queue physical IDs, duplicate service routes, all twelve zero-target unknowns, zero-row unbound control and source-key filter unions');
+    await find('CTI-FILTER-13');
+    const origin=ct.locator('.impact-element[data-relation="contract"]').filter({hasText:'source asserted'}).first(),inspect=origin.getByRole('button',{name:'Inspect contract origin',exact:true});
+    await inspect.focus();await ct.keyboard.press('Enter');await ct.locator('.impact-panel .call-evidence pre').waitFor();assert.match(await ct.locator('.impact-panel .call-evidence').innerText(),/excerpt digest verified/);await ct.keyboard.press('Escape');assert.equal(await inspect.evaluate(button=>button===document.activeElement),true);
+    const artifact=origin.getByRole('button',{name:/^Inspect witness orders\/openapi.json:/}).first();await artifact.click();await ct.locator('.impact-panel .call-evidence pre').waitFor();await ct.keyboard.press('Escape');
+    const declaration=ct.locator('.impact-element[data-type="symbol"]').first().getByRole('button',{name:'Inspect declaration',exact:true});await declaration.click();await ct.locator('.impact-panel .call-evidence pre').waitFor();await ct.keyboard.press('Escape');
+    await ct.route('**/api/source',async route=>{const response=await route.fetch();const body=await response.json();body.handle.source_sha256='0'.repeat(64);await route.fulfill({response,body:JSON.stringify(body)});});
+    await inspect.click();await ct.waitForFunction(()=>document.querySelector('.impact-panel .calls-status[role="status"]').textContent.includes('Source evidence identity mismatch'));assert.equal(await ct.locator('.impact-panel .call-evidence').isVisible(),false);await ct.unroute('**/api/source');
+    await origin.getByRole('button',{name:'Select impact item',exact:true}).click();
+    const saved=await ct.evaluate(()=>JSON.parse(localStorage.getItem('repo-graph:view:'+location.pathname)));assert.equal(saved.version,3);assert.deepEqual(saved.impact.services,['gateway']);assert.deepEqual(saved.impact.protocols,['http']);assert.deepEqual(saved.impact.namespaces,['orders-api']);
+    for(const key of ['cursor','rows','text','response','receipt'])assert.equal(JSON.stringify(saved).includes('"'+key+'"'),false);
+    const before=await scene();await ct.reload();await ct.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.startsWith('Restored Impact'));assert.deepEqual(await scene(),before);
+    await ct.getByRole('button',{name:'Copy bookmark',exact:true}).click();await ct.getByLabel('Bookmark URL').waitFor();const bookmark=await ct.getByLabel('Bookmark URL').inputValue(),tab=await context.newPage();
+    try{await tab.goto(bookmark);await tab.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.startsWith('Restored bookmark: Impact'));assert.deepEqual(await tab.locator('.impact-element').evaluateAll(cards=>cards.map(card=>({id:card.dataset.id,type:card.dataset.type,relation:card.dataset.relation,top:card.offsetTop,left:card.offsetLeft}))),before);}finally{await tab.close();}
+    await ct.setViewportSize({width:360,height:900});assert.ok(await ct.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    assert.ok(await ct.locator('.impact-panel form').evaluate(form=>[...form.querySelectorAll('input,select,button')].every(control=>control.getBoundingClientRect().height>=44 && control.getBoundingClientRect().width<=innerWidth)));
+    const narrow=ct.locator('.impact-element[data-relation="contract"]').first().getByRole('button',{name:'Inspect contract origin',exact:true});await narrow.focus();await ct.keyboard.press('Enter');await ct.locator('.impact-panel .call-evidence pre').waitFor();await ct.keyboard.press('Escape');assert.equal(await narrow.evaluate(button=>button===document.activeElement),true);
+    impactChecks.push('contract source origin/artifact/declaration digest guards, tampered-source refusal, saved v3 reload/bookmark, stable bounded scene and 360px keyboard controls');
+    await ct.setViewportSize({width:1440,height:1000});
+    let release,started;const waiting=new Promise(resolve=>{started=resolve;}),barrier=new Promise(resolve=>{release=resolve;});
+    await ct.route('**/api/query',async route=>{const response=await route.fetch();started();await barrier;try{await route.fulfill({response});}catch{}});
+    await ct.getByRole('button',{name:'Find impact',exact:true}).click();await waiting;await ct.getByRole('button',{name:'Cancel request',exact:true}).click();release();await ct.waitForTimeout(100);
+    assert.equal(await ct.locator('.impact-element').count(),0);assert.match(await ct.locator('.impact-panel .calls-status[role="status"]').innerText(),/Stopped waiting/);await ct.unroute('**/api/query');
+    impactChecks.push('contract filter changes retire continuation; real delayed contract response cannot publish after cancellation');
+    capture('CT-INC-PROFILE-IDENTITY-EDIT');await ct.reload();await ct.waitForFunction(()=>document.querySelector('#saved-view-status').textContent.includes('snapshot is stale'));assert.equal(await ct.locator('.impact-element').count(),0);
+    await ct.click('#tab-impact');const edited=await find('CT-INC-PROFILE-IDENTITY-EDIT-PATH-1');assert.equal(edited.rows.find(row=>row.binding_id==='gateway.ordersHttp').target,null);
+    const changed=await (await ct.request.get(new URL('/api/status',address).toString())).json();assert.notEqual(changed.structural.impact.receipt.identity,status.structural.impact.receipt.identity);assert.equal(changed.structural.impact.query_available,true);
+    capture('CT-INC-ARTIFACT-DELETE');await ct.reload();await ct.click('#tab-impact');await find('CT-INC-ARTIFACT-DELETE-PATH-1');
+    const missing=ct.locator('.impact-element[data-type="unavailable"]').filter({hasText:'worker/service.proto'});assert.equal(await missing.count(),1);assert.equal(await missing.getByRole('button',{name:/^Inspect/}).count(),0);assert.match(await missing.innerText(),/current closure unavailable/);
+    assert.equal(await ct.locator('.impact-panel').getByRole('button',{name:/^Inspect witness worker\/service.proto:/}).count(),0);
+    capture('CT-INC-PARTIAL-SOURCE');await ct.reload();await ct.click('#tab-impact');const partial=await find('CT-INC-PARTIAL-SOURCE-PATH-1');assert.ok(partial.rows.some(row=>row.partial && row.target===null));
+    capture();await ct.reload();await ct.click('#tab-impact');await find('CTI-FILTER-13');
+    const restored=await (await ct.request.get(new URL('/api/status',address).toString())).json();assert.equal(restored.structural.identities.source_identity,status.structural.identities.source_identity);
+    impactChecks.push('actual frozen profile membership edit invalidates saved selection; missing artifact has no fabricated source button; frozen partial source retains unknown; exact baseline restoration');
+    await Promise.all(reads);impactObservations.push({case:'contract lane HTTP exchanges',exchanges});
+  } finally {if(ct)await ct.close();contractServer.kill('SIGTERM');await ended;}
+}
 page.on('response',response=>{if(new URL(response.url()).pathname==='/api/search' && response.status()===200)responseReads.push((async()=>{try{searchResponses.push({request:response.request().postDataJSON(),response:await response.json()});}catch{}})());});
 try {
   const start=Date.now(); await page.goto(url); await page.locator('.node').first().waitFor();
@@ -570,6 +704,7 @@ try {
     if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-impact-narrow.png',fullPage:true});
     await page.setViewportSize({width:1440,height:1000});if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-impact.png'});
   }
+  await contractImpactLane();
   await Promise.all(responseReads);
   assert.deepEqual(errors,[]); assert.ok(loadMs<5000); checks.push('no browser errors; load under 5 seconds');
   if(process.env.REPO_GRAPH_UX_REPORT) {
