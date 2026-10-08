@@ -44,7 +44,8 @@ binding, call and framework coverage separately for every selected construct.
 | Django routes | Literal module `urlpatterns`, registration arguments and import witnesses retained in the same collection | Opt-in finite source identity for `path`/`re_path`; one ordinary relative/local callback | Computed routes, receiver callbacks, decorators, include expansion, mutation and ambiguous/partial dependencies remain explicit unknown boundaries |
 | Django management hooks | Class/base, decorator and local-method ownership retained | Direct imported `BaseCommand` and one ordinary local `Command.handle` | Installed-app precedence, inherited hooks, multiple bases and decorated/ambiguous hooks unqualified |
 | Django Manager hooks | Same collected class/base/local-method facts | Direct imported `Manager` and one ordinary local `get_queryset` | Factories and transitive inheritance remain unknown; model attachment and database execution unqualified |
-| Odoo hooks and service contracts | Source can be inventoried | Not yet implemented in this slice | Separate mandatory framework and explicit service-contract tasks remain open |
+| Odoo hooks | Source can be inventoried | Not yet implemented in this slice | Separate mandatory framework task remains open |
+| Explicit service contracts | Enrolled original artifacts and physical binding witnesses | Reviewed service-scoped HTTP/RPC/queue links with exact captured declaration affinity | Transport, runtime ordering, deployment and complete service discovery unqualified |
 
 Go provenance marks local bindings `inventoried_package_only`, with active
 build, runtime and MVS qualification false. A registered external source
@@ -132,3 +133,52 @@ Its configured private source map must supply the admitted Django revision.
 The business report retains individual source and mutation results, uncertainty,
 functional resource receipts and failures. These checks do not qualify population
 precision/recall, representative scale, agent answers, human UX or a release.
+
+
+## Explicit reviewed service contracts
+
+`repo-graph analyze SOURCE --output INDEX --contract-context ENROLLMENT.json`
+imports a finite trusted service/profile enrollment supplied outside the source
+root. Repository flags, names, matching route spellings and claimed generator
+validation cannot enroll themselves. The caller names one relative profile by
+SHA256, a reviewed-source receipt identity, the captured source-root identity,
+and up to eight disjoint service source prefixes. The profile admits at most
+16 original artifacts, 32 contracts and 64 endpoint bindings, within 64 KiB.
+Setup remains explicit; mapping never compiles protobuf, builds the project,
+executes its source, starts a daemon or installs a dependency.
+
+The existing source reads capture enrolled witness slices. The shared index
+matches complete declarations by exact path/name/range/full-file digest and
+imports a separate `contract` occurrence family. HTTP identities retain the
+contract-owner service, namespace, method/path, document operation reference and
+request/response schemas. RPC retains the owner, package namespace, RPC service,
+operation and message identities. Queue links require explicit producer and
+consumer ownership, namespace/topic and event schema. A spelling match alone
+never connects different service owners or promotes a transport call into a
+lexical call target. Original protobuf witnesses are reviewed input evidence;
+this is not a general protobuf parser or a generated-stub resolver.
+
+Use `repo-graph query INDEX --operation contract`, optionally filtered by
+`--service`, `--protocol http|rpc|queue` and `--namespace`. These queries reuse
+captured SQL snapshots, existing entity/edge/work/byte/deadline caps and fenced
+continuations. Queries never reread or parse live source. Captured source handles
+retain bounded redacted inspection through the existing source API. Ordinary
+call/reference and call/import impact operations do not relabel contract links.
+Contract impact traversal and a contract viewer remain separate interface work.
+
+Missing/computed service, route or topic, conflicting endpoints, mismatched
+namespace/schema/operation, unknown generated provenance, missing/stale artifact
+or source, and partial endpoints produce visible zero-target boundaries. If the
+origin's physical source affinity is stale, the unknown is anchored to the
+current captured profile row; stale source offsets are not presented as current
+evidence. A profile is explicitly trusted imported evidence, not an independent
+authenticity guarantee or proof of deployment. Its declared consumer revision
+is configuration provenance; actual captured source/config/analyzer/generation
+identities remain authoritative and no commit-byte equivalence is inferred.
+
+The frozen contract evaluation has 17 selected cases (four qualified static
+links, twelve explicit unknowns and one unbound zero-row lookalike) plus ten
+independently reviewed mutations. The `contracts` suite records actual serial/
+queued and clean/update/restoration outcomes, physical witnesses, errors and
+resources. These bounded synthetic results do not qualify representative scale,
+agent answers, human UX or release readiness.

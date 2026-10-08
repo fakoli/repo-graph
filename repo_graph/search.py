@@ -315,11 +315,13 @@ class _LegacyReceipt(ValueError):
     pass
 
 
-def _json_record(value):
+def _json_record(value, maximum=ATTEMPT_BYTES):
+    if type(maximum) is not int or not 1 <= maximum <= 65536:
+        raise ValueError('Finite JSON record byte bound required')
     try:
         data = value if isinstance(value, (str, bytes)) else json.dumps(
             value, ensure_ascii=True, separators=(',', ':'), allow_nan=False)
-        if len(data.encode() if isinstance(data, str) else data) > ATTEMPT_BYTES:
+        if len(data.encode() if isinstance(data, str) else data) > maximum:
             raise ValueError('Index receipt exceeds its byte budget')
         def pairs(items):
             result = {}
@@ -410,7 +412,7 @@ def _coverage_receipt(coverage):
             overflow['languages'] > 0 and (len(languages) != 32 or overflow['files_total'] < overflow['languages'])):
         raise ValueError('Language overflow does not reconcile')
     sites = coverage['sites_by_role_certainty']
-    if type(sites) is not dict or set(sites) - {'call', 'reference', 'framework', 'framework_boundary'}:
+    if type(sites) is not dict or set(sites) - {'call', 'reference', 'framework', 'framework_boundary', 'contract', 'contract_boundary'}:
         raise ValueError('Typed site roles required')
     for values in sites.values():
         _counts(values)
@@ -1565,7 +1567,7 @@ def captured_source(engine, request, *, cancel=None):
             substr(CAST(s.data AS BLOB),1,8388609),substr(CAST(f.record AS BLOB),1,32769),f.status
             FROM structural_sites s JOIN structural_files f ON f.path=s.path WHERE s.id=?'''
             arguments = [handle['id'], handle['id']]
-            if handle['id'].endswith(':assignment'):
+            if handle['id'].endswith((':assignment', ':contract_witness')):
                 sql += ''' UNION ALL SELECT 'assignment',s.id,s.path,NULL,
             substr(CAST(s.data AS BLOB),1,8388609),substr(CAST(f.record AS BLOB),1,32769),f.status
             FROM structural_evidence s JOIN structural_files f ON f.path=s.path WHERE s.id=?'''
@@ -1585,13 +1587,14 @@ def captured_source(engine, request, *, cancel=None):
         captured = SQLSnapshot._source_handle(dict(id=row['id'], path=row['path'],
             span=json.dumps(item['range']), span_type='object' if type(item['range']) is dict else None,
             digest=provenance.get('source_sha256'), file_digest=record['sha256']))
+        is_contract = provenance.get('syntax_kind') in ('contract_binding','contract_witness')
         if (captured != handle or item.get('id', row['id']) != row['id'] or item['path'] != row['path'] or
-                record['path'] != row['path'] or record['kind'] != 'source' or
-                row['status'] not in ('parsed', 'partial_parse') or item['language'] != record['language'] or
+                record['path'] != row['path'] or record['kind'] not in (('source','configuration') if is_contract else ('source',)) or
+                row['status'] not in (('parsed','partial_parse','configuration') if is_contract else ('parsed','partial_parse')) or item['language'] != record['language'] or
                 provenance.get('evidence_kind') != 'static_syntax' or
                 provenance.get('rule_version') != _json_record(meta['structural_receipt'])['versions']['rules']):
             raise ValueError('Captured member/source affinity differs')
-        if item['language'] not in ('python', 'go', 'javascript', 'typescript'):
+        if item['language'] not in (('python', 'go', 'javascript', 'typescript','contract') if is_contract else ('python', 'go', 'javascript', 'typescript')):
             raise ValueError('Unsupported captured source language')
         _string(provenance.get('syntax_kind'))
         certainty, exhaustive, reason = None, None, ''
@@ -1614,16 +1617,19 @@ def captured_source(engine, request, *, cancel=None):
             if type(reason) is not str or len(reason.encode()) > 4096: raise ValueError('Bounded captured reason required')
         elif row['member_kind'] == 'callsite':
             certainty, exhaustive, reason = item.get('certainty'), item.get('targets_exhaustive'), item.get('reason')
-            if (row['role'] not in ('call', 'reference', 'framework', 'framework_boundary') or item.get('role') != row['role'] or
+            if (row['role'] not in ('call', 'reference', 'framework', 'framework_boundary', 'contract', 'contract_boundary') or item.get('role') != row['role'] or
                     certainty not in ('resolved', 'candidate', 'unresolved') or type(exhaustive) is not bool):
                 raise ValueError('Invalid captured source occurrence')
             if type(reason) is not str or len(reason.encode()) > 4096:
                 raise ValueError('Bounded captured reason required')
             expected_id += ':' + row['role']
         elif row['member_kind'] == 'assignment':
-            if provenance['syntax_kind'] not in ('assignment', 'augmented_assignment') or item['language'] != 'python':
+            if handle['id'].endswith(':contract_witness'):
+                if provenance['syntax_kind'] != 'contract_witness': raise ValueError('Invalid captured contract witness')
+                expected_id += ':contract_witness'
+            elif provenance['syntax_kind'] not in ('assignment', 'augmented_assignment') or item['language'] != 'python':
                 raise ValueError('Invalid captured assignment witness')
-            expected_id += ':assignment'
+            else: expected_id += ':assignment'
         else:
             _string(item.get('kind'))
         if row['id'] != expected_id: raise ValueError('Captured source ID differs from its range')

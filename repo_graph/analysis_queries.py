@@ -54,7 +54,7 @@ def _row_entities(row):
         return {row['id']}
     entities = {handle['id'] for handle in (row['caller'], row['target']) if handle is not None}
     entities.update(handle['id'] for handle in row.get('evidence', []) if handle.get('source_role') in (
-        'framework_api_definition', 'framework_partial_callback', 'callback_definition', 'hook_definition'))
+        'framework_api_definition', 'framework_partial_callback', 'callback_definition', 'hook_definition', 'structural_declaration'))
     return entities
 
 
@@ -126,8 +126,26 @@ def _framework_filters(operation, families, kinds):
         'django_route', 'django_management_handle', 'django_orm_get_queryset', 'unknown_framework_candidate'))
 
 
+def _contract_filters(operation, services, protocols, namespaces):
+    if operation != 'contract':
+        if any(value is not None for value in (services, protocols, namespaces)):
+            raise ValueError('Contract filters require contract operation')
+        return None, None, None
+    def choices(value, maximum):
+        if value is None: return None
+        if (type(value) is not list or not 1 <= len(value) <= maximum or
+                any(type(item) is not str or not item or len(item.encode()) > 256 for item in value) or
+                len(set(value)) != len(value)):
+            raise ValueError('Bounded typed contract filters required')
+        return sorted(value)
+    services, protocols, namespaces = choices(services, 8), choices(protocols, 3), choices(namespaces, 8)
+    if protocols is not None and any(v not in ('http','rpc','queue') for v in protocols):
+        raise ValueError('Supported explicit contract protocol required')
+    return services, protocols, namespaces
+
+
 def _validate_query(seed, operation, depth, prefix, scope, role, cancel, selector=None, relations=None, certainties=None):
-    if (operation not in ('symbol', 'reference', 'call', 'framework', 'callees', 'callers', 'reachable', 'impact') or
+    if (operation not in ('symbol', 'reference', 'call', 'framework', 'contract', 'callees', 'callers', 'reachable', 'impact') or
             type(depth) is not int or not 1 <= depth <= 32 or role not in ('call', 'reference', 'all') or
             any(type(v) is not str or len(v) > 4096 for v in (prefix, scope)) or
             seed is not None and (type(seed) is not str or not seed or len(seed) > 8192) or
@@ -563,7 +581,7 @@ class SQLSnapshot(Snapshot):
             json_extract(s.data,'$.provenance.source_sha256') AS digest,
             json_extract(f.record,'$.sha256') AS file_digest
             FROM structural_sites s JOIN structural_files f ON f.path=s.path WHERE s.id=?''', (key[0],))
-        if (site is None or site['role'] not in ('call', 'reference', 'framework', 'framework_boundary') or
+        if (site is None or site['role'] not in ('call', 'reference', 'framework', 'framework_boundary', 'contract', 'contract_boundary') or
                 site['certainty'] not in ('resolved', 'candidate', 'unresolved') or
                 site['exhaustive_type'] not in ('true', 'false') or
                 site['caller_type'] not in ('text', 'null') or type(site['reason']) is not str):
@@ -583,6 +601,13 @@ class SQLSnapshot(Snapshot):
             result.update(family=site['role'], relation_kind=extra[0], candidate_relation_kind=extra[1],
                           framework_identity_asserted=bool(extra[2]), partial=bool(extra[3]),
                           partial_source_role=extra[4], evidence=json.loads(extra[5]), runtime_qualified=False)
+        elif site['role'] in ('contract','contract_boundary'):
+            extra = self._read('''SELECT substr(CAST(data AS BLOB),1,16385) FROM structural_sites WHERE id=?''', (key[0],))
+            if len(extra[0]) > 16384: raise ValueError('Contract witness byte ceiling exhausted')
+            data = json.loads(extra[0])
+            result.update({name: data[name] for name in ('binding_id','service_id','endpoint_role','protocol','namespace',
+                'contract_identity','contract_identity_asserted','partial','boundary_origin','evidence','relation_kind')})
+            result.update(family=site['role'],runtime_qualified=False)
         return result
 
     def _next(self, node, after, operation):
@@ -830,6 +855,9 @@ class SQLSnapshot(Snapshot):
                                 ' ORDER BY ' + ','.join(columns) + ' LIMIT 1', args)
                         if occurrence is None: frontier.popleft(); continue
                         position = [occurrence[k] for k in self._order_columns]
+                        if occurrence['role'] in ('contract','contract_boundary'):
+                            frontier[0][3] = position
+                            continue
                         value = dict(self._row((occurrence['site_id'], occurrence['target_id'] or None)),
                                      relation='call', evidence_kind='static_syntax')
                         output = 'edge'
@@ -914,7 +942,7 @@ class SQLSnapshot(Snapshot):
 
     def query(self, seed=None, *, operation='callees', depth=2, prefix='', scope='', role='call',
               limits=None, cursor=None, cancel=None, _setup=None, selector=None, relations=None, certainties=None,
-              families=None, kinds=None):
+              families=None, kinds=None, services=None, protocols=None, namespaces=None):
         """Return source handles with BFS reachability and indexed occurrence pages.
 
         call/reference list all occurrences, or a seed's outgoing occurrences.
@@ -927,13 +955,14 @@ class SQLSnapshot(Snapshot):
             raise ValueError('Invalid bounded persisted query')
         _validate_query(seed, operation, depth, prefix, scope, role, cancel, selector, relations, certainties)
         families, kinds = _framework_filters(operation, families, kinds)
+        services, protocols, namespaces = _contract_filters(operation, services, protocols, namespaces)
         if selector is not None or relations is not None or certainties is not None:
             return self._impact_query(seed, selector=selector, relations=relations, certainties=certainties,
                 depth=depth, prefix=prefix, scope=scope, role=role, limits=limits, cursor=cursor, cancel=cancel, setup=_setup)
         requested_role = role
         if operation in ('call', 'reference'):
             role = 'call' if operation == 'call' else 'reference'
-        elif operation == 'framework':
+        elif operation in ('framework','contract'):
             role = 'all'
         started, reason, storage_callbacks = self._clock(), None, 0
         signature = hashlib.sha256(encoded({'generation': self.generation,
@@ -942,7 +971,8 @@ class SQLSnapshot(Snapshot):
             'schema': self.schema, 'implementation': code_identity(), 'order': QUERY_RULE_VERSION,
             'impact': self.impact_receipt if operation == 'impact' else None,
             'operation': operation, 'seed': seed, 'depth': depth, 'prefix': prefix, 'scope': scope,
-            'role': role, 'requested_role': requested_role, 'families': families, 'kinds': kinds})).hexdigest()
+            'role': role, 'requested_role': requested_role, 'families': families, 'kinds': kinds,
+            'services':services, 'protocols':protocols, 'namespaces':namespaces})).hexdigest()
         if cursor is not None:
             if type(cursor) is not str or len(cursor) != 64 or cursor not in self._continuations:
                 raise ValueError('Unknown, evicted or foreign snapshot cursor')
@@ -1003,6 +1033,20 @@ class SQLSnapshot(Snapshot):
             if operation == 'framework' and self.framework_enrollment is None:
                 frontier.clear()
                 reason = 'framework_not_enrolled'
+            if operation == 'contract':
+                schema = self._read("SELECT value FROM meta WHERE key='structural_contract_schema'")
+                if schema is None or schema[0] != 'reviewed-explicit-contracts-v1':
+                    raise ValueError('Missing captured contract projection; explicitly enroll a reviewed profile')
+                captured = self._read("SELECT substr(value,1,32769) FROM meta WHERE key='structural_receipt'")
+                if captured is None or len(captured[0].encode()) > 32768:
+                    raise ValueError('Missing bounded captured contract enrollment')
+                receipt = json.loads(captured[0])
+                from .analysis import _contract_context
+                enrollment = _contract_context(receipt.get('contract_enrollment'),self.repository_identity)
+                if enrollment is None or any(receipt.get(key)!=value for key,value in (
+                        ('generation',self.generation),('source_identity',self.source_identity),('analyzer_identity',self.analyzer_identity),
+                        ('config_identity',self.config_identity),('repository_identity',self.repository_identity))):
+                    raise ValueError('Foreign or stale captured contract enrollment')
             if seed is not None:
                 if self._read('SELECT 1 FROM structural_symbols WHERE id=?', (seed,)) is None:
                     raise ValueError('Unknown structural seed')
@@ -1033,6 +1077,12 @@ class SQLSnapshot(Snapshot):
                     if operation == 'framework' and occurrence['role'] not in families:
                         frontier[0][2] = position
                         continue
+                    if operation == 'contract' and occurrence['role'] not in ('contract','contract_boundary'):
+                        frontier[0][2] = position
+                        continue
+                    if operation not in ('framework','contract') and occurrence['role'] in ('contract','contract_boundary'):
+                        frontier[0][2] = position
+                        continue
                     if symbols:
                         target = occurrence['id']
                         row = self._handle(target)
@@ -1040,6 +1090,10 @@ class SQLSnapshot(Snapshot):
                         target = (occurrence['caller_id'] if reverse else occurrence['target_id']) or None
                         row = self._row((occurrence['site_id'], occurrence['target_id'] or None))
                     if operation == 'framework' and row['relation_kind'] not in kinds:
+                        frontier[0][2] = position
+                        continue
+                    if operation == 'contract' and any(values is not None and row[name] not in values
+                            for name, values in (('service_id',services),('protocol',protocols),('namespace',namespaces))):
                         frontier[0][2] = position
                         continue
                     if prefix:
@@ -1177,9 +1231,9 @@ class Queries:
             'cursor': None, 'truncated': True, 'stop_reason': reason}
 
     def run(self, payload, cancel=None):
-        if (self._closed or type(payload) is not dict or len(payload) > 13 or
+        if (self._closed or type(payload) is not dict or len(payload) > 16 or
                 set(payload) - {'seed', 'operation', 'depth', 'prefix', 'scope', 'role', 'limits', 'cursor',
-                               'selector', 'relations', 'certainties', 'families', 'kinds'}):
+                               'selector', 'relations', 'certainties', 'families', 'kinds', 'services', 'protocols', 'namespaces'}):
             raise ValueError('Invalid public query payload or closed sessions')
         extra = {'selector', 'relations', 'certainties'} & set(payload)
         if extra and (payload.get('operation') != 'impact' or any(payload[key] is None for key in extra)):
@@ -1210,6 +1264,8 @@ class Queries:
         _validate_query(**arguments, cancel=cancel)
         _framework_filters(arguments['operation'], payload.get('families'), payload.get('kinds'))
         arguments.update(families=payload.get('families'), kinds=payload.get('kinds'))
+        _contract_filters(arguments['operation'],payload.get('services'),payload.get('protocols'),payload.get('namespaces'))
+        arguments.update(services=payload.get('services'),protocols=payload.get('protocols'),namespaces=payload.get('namespaces'))
         cursor = payload.get('cursor')
         if cursor is not None and (type(cursor) is not str or len(cursor) != 64):
             raise ValueError('Invalid public query cursor')
@@ -1269,7 +1325,7 @@ class Queries:
                 session = next((item for item in self._sessions if cursor in item[0]._continuations), None)
                 if session is None:
                     raise ValueError('Unknown, expired, consumed or foreign session cursor')
-                if arguments['operation'] == 'impact' and session[1].get('impact_token', session[1].get('token')) != token:
+                if arguments['operation'] in ('impact','contract') and session[1].get('impact_token', session[1].get('token')) != token:
                     cache, current = {}, None
                     try:
                         current = SQLSnapshot(self.output, self.repository_identity, self.owner,
@@ -1278,7 +1334,7 @@ class Queries:
                         if (current.generation, current.source_identity, current.analyzer_identity, current.config_identity,
                                 current.impact_receipt) != (prior.generation, prior.source_identity, prior.analyzer_identity,
                                 prior.config_identity, prior.impact_receipt):
-                            raise ValueError('Impact continuation is stale after source or captured commit publication')
+                            raise ValueError(arguments['operation'].capitalize() + ' continuation is stale after source or captured commit publication')
                         session[1]['impact_token'] = token
                     finally:
                         if current is not None:

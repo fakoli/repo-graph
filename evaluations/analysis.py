@@ -3247,6 +3247,244 @@ def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None)
         'shared serial/queued facts, clean/update/restore and captured source/query parity. Runtime order, full business paths, scale and human UX unqualified.')
 
 
+
+def contract_inputs(root=ROOT):
+    """Admitted synthetic source bytes; read judgments before any producer runs."""
+    from evaluations.acceptance import committed
+    root = Path(root)
+    with SourceRoot(root) as owner:
+        manifest, input_sha = read_json(owner, INPUTS + 'contract-inputs.json')
+        review, review_sha = read_json(owner, INPUTS + 'contract-review.json')
+        if (input_sha != '404969d67cd2ba621e3355e3de4346c84d6179c653307ce4d211d10f3f967e96' or
+                review_sha != '3060839500456a14e5494a840f265364e436cbf7f5ef2d57215ec3df3f8156c9' or
+                review['status'] != 'admitted_frozen_source_key' or review['task'] != 'T020' or
+                review['input_manifest']['sha256'] != input_sha):
+            raise ValueError('Admitted contract source key required before extraction')
+        hashes = {INPUTS + 'contract-inputs.json': input_sha, INPUTS + 'contract-review.json': review_sha}
+        original = {}
+        for row in manifest['synthetic_inventory']:
+            full = manifest['fixture_root'] + '/' + row['path']
+            raw, sha, info = owner.read(full, 1024 * 1024, hash_full=True)
+            if sha != row['sha256'] or len(raw) != row['bytes'] or info.st_size != row['bytes']:
+                raise ValueError('Frozen contract fixture bytes differ')
+            original[row['path']] = raw; hashes[full] = sha
+    if not committed(root,hashes): raise ValueError('Contract inputs must match committed reviewed bytes')
+    return manifest, original, dict(input_manifest_sha256=input_sha, independent_review_sha256=review_sha,
+        inventory_sha256=manifest['synthetic_inventory_sha256'], profile_sha256=hashlib.sha256(original['bindings.json']).hexdigest())
+
+
+def contract_inventory(blobs):
+    return [dict(path=path,sha256=hashlib.sha256(raw).hexdigest(),bytes=len(raw),encoding='utf-8',
+        kind='source' if path.endswith(('.py','.ts','.go')) else 'configuration',
+        language='python' if path.endswith('.py') else 'typescript' if path.endswith('.ts') else 'go' if path.endswith(('.go','go.mod')) else 'contract',
+        role='original_synthetic_source' if path.endswith(('.py','.ts','.go')) else 'original_reviewed_binding_profile' if path=='bindings.json' else 'original_contract_source' if path.endswith(('.proto','.json')) else 'configuration')
+        for path,raw in sorted(blobs.items())]
+
+
+def contract_inventory_identity(blobs):
+    return hashlib.sha256(json.dumps(contract_inventory(blobs),ensure_ascii=True,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+
+
+def contract_context(root, blobs, review_sha, revision):
+    with SourceRoot(root) as owner: identity = owner.identity
+    profile = json.loads(blobs['bindings.json'])
+    return dict(schema_version=1,enabled=True,policy_id='reviewed-explicit-contracts-v1',
+        consumer=dict(repository_id='contracts-synthetic',revision=revision,source_root_id=identity),
+        profiles=[dict(relative_path='bindings.json',sha256=hashlib.sha256(blobs['bindings.json']).hexdigest(),
+                       byte_limit=65536,external_review_receipt_id=review_sha)],
+        services=[dict(service_id=s['service_id'],source_prefix=s['source_prefix'],source_root_id=identity) for s in profile['services']])
+
+
+def contract_mutation(original, mutation):
+    """Apply only independently frozen byte/JSON edits, never renew stale witnesses."""
+    blobs = dict(original)
+    for operation in mutation['operations']:
+        path,kind = operation['path'],operation['operation']
+        if kind != 'add' and hashlib.sha256(blobs[path]).hexdigest() != operation['before_sha256']:
+            raise ValueError('Contract mutation preimage differs')
+        if kind=='edit':
+            old,new = operation['before_utf8'].encode(),operation['after_utf8'].encode()
+            if blobs[path].count(old)!=1: raise ValueError('Ambiguous frozen edit')
+            blobs[path]=blobs[path].replace(old,new)
+        elif kind=='add': blobs[path]=operation['content_utf8'].encode()
+        elif kind=='delete': del blobs[path]
+        elif kind=='rename': blobs[operation['new_path']]=blobs.pop(path)
+        else: raise ValueError('Unknown frozen mutation')
+        target=operation.get('new_path',path)
+        if 'after_sha256' in operation and hashlib.sha256(blobs[target]).hexdigest()!=operation['after_sha256']:
+            raise ValueError('Contract mutation output differs')
+    if mutation.get('profile_json_patches'):
+        profile=json.loads(blobs['bindings.json'])
+        for patch in mutation['profile_json_patches']:
+            fields=patch['path'].split('/')[1:]; container=profile
+            for field in fields[:-1]:container=container[int(field)] if isinstance(container,list) else container[field]
+            final=fields[-1]
+            if final=='-' and patch['op']=='add':container.append(patch['value'])
+            elif isinstance(container,list):container[int(final)]=patch['value']
+            else:container[final]=patch['value']
+        blobs['bindings.json']=(json.dumps(profile,ensure_ascii=False,indent=2)+'\n').encode()
+        if hashlib.sha256(blobs['bindings.json']).hexdigest()!=mutation['profile_after_sha256']:
+            raise ValueError('Reviewed mutation profile differs')
+    if contract_inventory_identity(blobs)!=mutation['result_inventory_sha256']:
+        raise ValueError('Frozen mutation inventory differs')
+    return blobs
+
+
+def contract_facts(index):
+    """Finite synthetic full-parity oracle; production queries stay targeted SQL."""
+    result={kind:sorted(index.read_facts(kind),key=lambda row:json.dumps(row,sort_keys=True))
+            for kind in ('definitions','sites','scopes','imports','relationships','evidence')}
+    from repo_graph.search import connect
+    with closing(connect(index.output,readonly=True,owner=index.output_owner)) as db:
+        for table in ('structural_dependencies','structural_import_relationships'):
+            result[table]=[dict(row) for row in db.execute('SELECT * FROM '+table+' ORDER BY path')]
+            result[table].sort(key=lambda row:json.dumps(row,sort_keys=True,default=lambda value:value.decode() if isinstance(value,bytes) else value))
+    return result
+
+
+def contract_pages(output, **filters):
+    from repo_graph.analysis_queries import Queries
+    with Queries(output) as queries:
+        payload=dict(operation='contract',limits=dict(max_edges=1),**filters)
+        rows=[]; pages=[]
+        for _ in range(64):
+            page=queries.run(payload); pages.append(page); rows.extend(page['rows'])
+            if not page['cursor']:
+                if page['truncated']:raise ValueError('Frozen bounded contract query stopped before exhaustion')
+                break
+            payload['cursor']=page['cursor']
+        else:raise ValueError('Contract continuation cap exceeded')
+    if len({r['site']['id'] for r in rows})!=len(rows):raise ValueError('Duplicate contract occurrence page')
+    return rows,pages
+
+
+def contract_grade(index, manifest, expected=None):
+    rows=[r for r in index.read_facts('sites') if r['role'] in ('contract','contract_boundary')]
+    by_id={row['binding_id']:row for row in rows}; results=[]
+    definitions={r['id']:r for r in index.read_facts('definitions')}
+    for case in manifest['cases']:
+        if expected is not None and case['id'] not in expected: continue
+        key=case.get('profile_binding_id'); row=by_id.get(key)
+        # Mutation judgments name only changed expectations. Do not carry a
+        # baseline unknown reason into an independently frozen positive change.
+        gold=dict(case['expected'] if expected is None else expected[case['id']]); checks={}
+        checks['row_cardinality']=(row is not None)==bool(gold.get('source_row_count',case['expected']['source_row_count']))
+        target=None
+        if gold['target_cardinality']:
+            if gold.get('target_binding_id'):
+                matches=[patch['value']['declaration'] for mutation in manifest['incremental_mutations']
+                    if mutation['expected_cases']==expected for patch in mutation.get('profile_json_patches',[])
+                    if type(patch.get('value')) is dict and patch['value'].get('id')==gold['target_binding_id']]
+                if len(matches)!=1:raise ValueError('Frozen added endpoint witness is missing or ambiguous')
+                target=matches[0]
+            else:target=gold['targets'][0]['declaration']
+        expected_targets={f"{target['path']}:{target['range']['start_byte']}:{target['range']['end_byte']}"} if target else set()
+        actual_targets=set(row['targets']) if row else set()
+        if row is not None:
+            checks.update(certainty=row['certainty']==gold['certainty'],targets=len(row['targets'])==gold['target_cardinality'])
+            if gold.get('reason') is not None:checks['reason']=row['reason']==gold['reason']
+            if gold.get('partial') is not None:checks['partial']=row['partial']==gold['partial']
+            if gold.get('boundary_origin'):checks['boundary_origin']=row['boundary_origin']==gold['boundary_origin']
+            for gold_key,row_key in (('contract_identity_asserted','contract_identity_asserted'),
+                    ('targets_exhaustive_under_assumptions','targets_exhaustive')):
+                if gold_key in gold:checks[gold_key]=row[row_key]==gold[gold_key]
+            if expected is None:
+                origin=case['origin']
+                checks['origin_physical_affinity']=(row['path']==origin['path'] and
+                    row['range']=={k:origin['range'][k] for k in ('start_byte','end_byte','start_line','end_line')} and
+                    row['provenance']['source_sha256']==origin['source_sha256'])
+                checks['service_contract_identity']=(row['service_id']==case['origin_service_id'] and
+                    row['endpoint_role']==case['origin_role'] and row['contract_identity']==case['declared_contract_identity'])
+            if target:
+                actual=definitions.get(next(iter(actual_targets))) if len(actual_targets)==1 else None
+                checks['target_physical_affinity']=(actual is not None and actual_targets==expected_targets and
+                    actual['path']==target['path'] and actual['name']==target['name'] and
+                    actual['range']=={k:target['range'][k] for k in ('start_byte','end_byte','start_line','end_line')} and
+                    actual['provenance']['source_sha256']==target['source_sha256'])
+        true_positive=len(actual_targets & expected_targets)
+        results.append(dict(id=case['id'],status='passed' if all(checks.values()) else 'failed',checks=checks,
+            observed=None if row is None else {k:row[k] for k in ('binding_id','path','range','certainty','reason','targets','contract_identity','partial','boundary_origin','provenance')},
+            expected=gold,target_metrics=dict(true_positive=true_positive,false_positive=len(actual_targets-expected_targets),
+                false_negative=len(expected_targets-actual_targets),predicted=len(actual_targets),expected=len(expected_targets),
+                precision=true_positive/len(actual_targets) if actual_targets else None,
+                recall=true_positive/len(expected_targets) if expected_targets else None,
+                scope='Selected frozen physical targets only; unknown and unbound zero-target cases retained')))
+    return results
+
+
+def contracts(root=ROOT,budget=None):
+    from repo_graph.analysis import StructuralIndex
+    root=Path(root); manifest,original,identity=contract_inputs(root)
+    with SourceRoot(root) as owner:
+        paths=('repo_graph/analysis.py','repo_graph/analysis_native.py','repo_graph/analysis_queue.py','repo_graph/analysis_queries.py',
+            'repo_graph/search.py','repo_graph/source.py','repo_graph/cli.py','evaluations/analysis.py','tests/test_contracts.py','pyproject.toml','uv.lock')
+        identity['implementation']=dict(commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),
+            sha256={path:owner.read(path,1024*1024,hash_full=True)[1] for path in paths})
+    results=[]; failures=[]; receipts=[]
+    def capture(name, action):
+        try: details=action(); results.append(dict(id=name,status='passed',details=details)); return details
+        except Exception as error:
+            failures.append(dict(id=name,error_kind=type(error).__name__,message=str(error)[:512]))
+            results.append(dict(id=name,status='failed',error_kind=type(error).__name__)); return None
+    with tempfile.TemporaryDirectory(prefix='contract-evaluation-') as scratch:
+        scratch=Path(scratch); source=scratch/'source'; source.mkdir()
+        def write(blobs):
+            for path in list(source.rglob('*')):
+                if path.is_file():path.unlink()
+            for path,raw in blobs.items():
+                file=source/path; file.parent.mkdir(parents=True,exist_ok=True); file.write_bytes(raw)
+        def refreshed(output,blobs,mode='serial',prior=None):
+            context=contract_context(source,blobs,identity['independent_review_sha256'],contract_inventory_identity(blobs))
+            index=StructuralIndex(source,output,budget=budget,contract_context=context)
+            receipt=index.refresh([{k:r[k] for k in ('path','language','kind','sha256','bytes')} for r in contract_inventory(blobs)],
+                mode=mode,concurrency=2 if mode=='queued' else 1)
+            receipts.append(dict(mode=mode,**receipt))
+            if receipt['status']!='ready':raise ValueError('Contract producer failed: '+str(receipt))
+            return index
+        write(original)
+        baseline=None
+        for mode in ('serial','queued'):
+            def baseline_action(mode=mode):
+                nonlocal baseline
+                index=refreshed(scratch/mode,original,mode)
+                cases=contract_grade(index,manifest)
+                results.extend(dict(case,mode=mode) for case in cases)
+                if any(case['status']!='passed' for case in cases):raise AssertionError('Frozen contract baseline case failed')
+                facts=contract_facts(index)
+                if baseline is not None and baseline!=facts:raise AssertionError('Serial/queued contract facts differ')
+                baseline=facts
+                rows,pages=contract_pages(index.output)
+                if {r['binding_id'] for r in rows}!={r['binding_id'] for r in facts['sites'] if r['role'] in ('contract','contract_boundary')}:
+                    raise AssertionError('Contract paged union differs')
+                return dict(rows=len(rows),pages=len(pages),resolved=sum(r['certainty']=='resolved' for r in rows),unresolved=sum(r['certainty']=='unresolved' for r in rows),
+                    actual_query_rows=rows, pages_identity=[dict(generation=p['generation'],source_identity=p['source_identity'],analyzer_identity=p['analyzer_identity'],config_identity=p['config_identity'],
+                        returned_edges=p['returned_edges'],examined_relationships=p['examined_relationships'],limits=p['limits'] if 'limits' in p else None) for p in pages])
+            capture('baseline-'+mode,baseline_action)
+        for mutation in manifest['incremental_mutations']:
+            def mutation_action(mutation=mutation):
+                write(original); index=refreshed(scratch/'incremental',original)
+                changed=contract_mutation(original,mutation); write(changed)
+                index=refreshed(index.output,changed)
+                cases=contract_grade(index,manifest,mutation['expected_cases']); results.extend(dict(case,mutation=mutation['id']) for case in cases)
+                if any(case['status']!='passed' for case in cases):raise AssertionError('Frozen contract mutation case failed')
+                clean=refreshed(scratch/('clean-'+mutation['id']),changed,'queued')
+                if contract_facts(index)!=contract_facts(clean):raise AssertionError('Updated contract facts/dependencies differ from clean queued rebuild')
+                if contract_pages(index.output)[0]!=contract_pages(clean.output)[0]:raise AssertionError('Updated contract query rows differ from clean')
+                write(original); restored=refreshed(index.output,original)
+                if contract_facts(restored)!=baseline:raise AssertionError('Restored contract facts differ from baseline')
+                return dict(update_equals_clean=True,restoration_equals_baseline=True,result_inventory_sha256=mutation['result_inventory_sha256'])
+            capture(mutation['id'],mutation_action)
+    positives=[r for r in results if r.get('mode') in ('serial','queued') and r['id'].startswith('CT-') and r.get('expected',{}).get('target_cardinality')==1]
+    true_positive=sum(r['status']=='passed' for r in positives)
+    return dict(schema_version=1,suite='contracts',status='failed' if failures or any(r['status']=='failed' for r in results) else 'passed',
+        source_identity=identity,case_results=results,failures=failures,producer_receipts=receipts,environment=environment(),
+        counts=dict(selected_cases=17,qualified_baseline_links=4,explicit_unknowns=12,unbound_zero_rows=1,mutations=10),
+        selected_target_metrics=dict(true_positive=true_positive,false_negative=len(positives)-true_positive,denominator=len(positives),
+            precision=None,recall=true_positive/len(positives) if positives else None,scope='reviewed selected positives only; unresolved failures retained individually'),
+        limits_qualified=False,qualification_complete=False,
+        scope='Explicit reviewed static contract links; no runtime transport/order/deployment, complete business path, model, scale or human qualification.')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group()
@@ -3265,7 +3503,7 @@ def main(argv=None):
                         help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
-    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact', 'impact-interface', 'django-framework'], default='component')
+    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact', 'impact-interface', 'django-framework', 'contracts'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
                         help='finite report cap: 2 MiB for comparison/structural suites, 1 MiB otherwise')
@@ -3280,7 +3518,7 @@ def main(argv=None):
         parser.error('--repetition beyond one requires --protocol')
     structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012', 'coverage': 'T013', 'evidence': 'T014'}.get(args.suite)
     view_task = {'impact': 'T043', 'impact-interface': 'T044'}.get(args.suite)
-    business_task = 'T018' if args.suite == 'django-framework' else None
+    business_task = {'django-framework':'T018','contracts':'T020'}.get(args.suite)
     if not (args.engine or args.screen_engines or args.compare or args.profile or args.profile_pilot) and structural_task is None and view_task is None and business_task is None:
         parser.error('an engine, screening, comparison or profiling mode is required for component')
     if (structural_task or view_task or business_task) and (args.screen_engines or args.compare or args.profile or args.profile_pilot):
@@ -3321,8 +3559,9 @@ def main(argv=None):
         if args.max_result_bytes <= 0:
             raise ValueError('Output budget must be positive')
         if business_task:
-            result = django_framework(ROOT, Budget(max_files=args.max_files,
-                max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes), source_map=args.source_map, work_root=args.work_root)
+            result = (contracts(ROOT,Budget(max_files=args.max_files,max_total_bytes=args.max_source_bytes,max_nodes=args.max_nodes))
+                if args.suite=='contracts' else django_framework(ROOT, Budget(max_files=args.max_files,
+                max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes), source_map=args.source_map, work_root=args.work_root))
             result['resources'] = {'finite_framework_elapsed_seconds': time.perf_counter() - started,
                                    'tokens': None, 'native_peak_rss': None}
             if args.output == BUSINESS_OUTPUT:
