@@ -11,7 +11,7 @@ import io
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -625,6 +625,53 @@ class FrameworkEvaluatorTests(unittest.TestCase):
             self.assertEqual(prior.read_bytes(), prior_bytes); self.assertEqual(facts.read_bytes(), fact_bytes)
         with self.assertRaisesRegex(AssertionError, 'did not publish a coherent generation'):
             analysis.framework_ready_receipt(failed, phase=1)
+
+    def test_framework_full_pages_are_retained_before_failure_and_audit_limits_are_explicit(self):
+        from repo_graph.analysis_queries import Limits
+        limits = Limits(**analysis.FRAMEWORK_AUDIT_LIMITS)
+        self.assertEqual((limits.max_response_bytes, limits.max_excerpt_bytes), (262144, 0))
+        self.assertEqual((limits.max_entities, limits.max_edges, limits.max_examined_relationships, limits.timeout_seconds),
+                         (50, 100, 10000, .5))
+        first = dict(generation='a' * 64, rows=[{'id': 'first'}], returned_edges=1, examined_relationships=1,
+            total_count={'value': 1, 'kind': 'lower_bound'}, truncated=True, cursor='b' * 64,
+            stop_reason='response_byte_budget_exceeded', coverage={'status': 'enabled'})
+        failed = dict(first, rows=[{'id': 'terminal'}], cursor=None, stop_reason='deadline_exceeded')
+        request = {'operation': 'framework', 'limits': dict(analysis.FRAMEWORK_AUDIT_LIMITS)}
+        with tempfile.TemporaryDirectory() as scratch:
+            retained = Path(scratch); session = SimpleNamespace(run=Mock(side_effect=[first, failed]))
+            with self.assertRaisesRegex(AssertionError, 'did not exhaust'):
+                analysis.framework_query_rows(session, request, retained=retained, prefix='phase-051-query')
+            self.assertEqual(json.loads((retained / 'phase-051-query-001.json').read_text()), first)
+            self.assertEqual(json.loads((retained / 'phase-051-query-002.json').read_text()), failed)
+            self.assertEqual(session.run.call_args_list[1].args[0], request | {'cursor': first['cursor']})
+            final = dict(failed, truncated=False, stop_reason=None, total_count={'value': 2, 'kind': 'exact'})
+            rows, pages = analysis.framework_query_rows(SimpleNamespace(run=Mock(side_effect=[first, final])), request,
+                retained=retained, prefix='phase-052-query')
+            self.assertEqual(rows, first['rows'] + final['rows'])
+            for page in pages:
+                artifact = page['artifact']; raw = (retained / artifact['path']).read_bytes()
+                self.assertEqual(artifact['stream'], 'framework_query_rows'); self.assertEqual(artifact['format'], 'query_page')
+                self.assertEqual(artifact['bytes'], len(raw)); self.assertEqual(artifact['sha256'], hashlib.sha256(raw).hexdigest())
+        held_request = {'operation': 'framework', 'limits': {'max_edges': 1}}
+        session = SimpleNamespace(run=Mock(return_value=first))
+        with self.assertRaisesRegex(AssertionError, 'did not exhaust'):
+            analysis.framework_query_rows(session, held_request)
+        self.assertEqual(session.run.call_count, 128)
+        self.assertTrue(all(call.args[0]['limits'] == {'max_edges': 1} for call in session.run.call_args_list))
+
+    def test_odoo_private_final_report_survives_public_writer_refusal(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            directory = Path(scratch); source_map = directory / 'source-map.json'
+            source_map.write_text('{"corpora":[]}')
+            evidence = directory / 'odoo-framework-evidence-test'; evidence.mkdir()
+            result = dict(status='passed', counts={}, failures=[], case_results=[{'id': 'synthetic-observation'}],
+                          private_evidence_id=evidence.name)
+            with patch.object(analysis, 'odoo_framework', return_value=result), \
+                    patch.object(analysis, 'write_result', side_effect=ValueError('Public report byte bound exceeded')), \
+                    redirect_stdout(io.StringIO()):
+                self.assertEqual(analysis.main(['--suite', 'odoo-framework', '--source-map', str(source_map),
+                    '--work-root', str(directory), '--output', 'synthetic-framework-result.json']), 1)
+            self.assertEqual(json.loads((evidence / 'report.json').read_text()), result)
 
     def test_framework_cli_selects_odoo_and_retains_django_entrypoint(self):
         for suite, helper in (('odoo-framework', 'odoo_framework'), ('django-framework', 'django_framework')):

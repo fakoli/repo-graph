@@ -3105,6 +3105,32 @@ def odoo_source_key(reference, blobs):
         raise ValueError('Frozen framework physical source key differs')
 
 
+FRAMEWORK_AUDIT_LIMITS = {'max_response_bytes': 262144, 'max_excerpt_bytes': 0}
+
+
+def framework_query_rows(queries, request, page=None, *, retained=None, prefix='framework-query'):
+    """Retain every bounded full page before checking finite audit exhaustion."""
+    page = queries.run(request) if page is None else page
+    rows, pages = [], []
+    for number in range(1, 129):
+        observed = {key: page[key] for key in ('generation', 'returned_edges', 'examined_relationships',
+            'total_count', 'truncated', 'stop_reason', 'coverage')}
+        if retained is not None:
+            from evaluations.engine_checks import _adapter_dump
+            filename = f'{prefix}-{number:03}.json'
+            _adapter_dump(retained, filename, page)
+            with SourceRoot(retained) as owner:
+                _, digest, info = owner.read(filename, 0, hash_full=True)
+            observed['artifact'] = dict(stream='framework_query_rows', format='query_page', page=number,
+                                        path=filename, sha256=digest, bytes=info.st_size)
+        rows.extend(page['rows']); pages.append(observed)
+        if not page['cursor'] or number == 128: break
+        page = queries.run(request | {'cursor': page['cursor']})
+    if page['truncated'] or page['stop_reason'] is not None:
+        raise AssertionError('Framework query did not exhaust under its finite bounds')
+    return sorted(rows, key=lambda row: json.dumps(row, sort_keys=True)), pages
+
+
 def framework_ready_receipt(receipt, *, retained=None, phase):
     """Retain the full private refresh outcome before refusing failed publication."""
     if retained is not None:
@@ -3386,30 +3412,24 @@ def _framework(root=ROOT, budget=None, *, source_map=None, work_root=None, frame
                     slices.append({key: result[key] for key in ('handle', 'text', 'range', 'raw_digest', 'truncated', 'redacted', 'certainty')})
             facts['source_slices'] = sorted(slices, key=lambda row: json.dumps(row, sort_keys=True))
         finally: engine.close()
-    def query_rows(queries, request, page=None):
-        page = queries.run(request) if page is None else page
-        rows, pages = [], []
-        for _ in range(128):
-            rows.extend(page['rows'])
-            pages.append({key: page[key] for key in ('generation', 'returned_edges', 'examined_relationships',
-                'total_count', 'truncated', 'stop_reason', 'coverage')})
-            if not page['cursor']: break
-            page = queries.run(request | {'cursor': page['cursor']})
-        require(not page['truncated'] and page['stop_reason'] is None, 'Framework query did not exhaust under its finite bounds')
-        return sorted(rows, key=lambda row: json.dumps(row, sort_keys=True)), pages
     def produce(source, output, blobs, context, mode):
         index = StructuralIndex(source, output, budget=budget, framework_context=context)
         receipt = index.refresh(sorted(blobs), mode=mode, concurrency=1 if mode == 'serial' else 2)
         receipts.append({'mode': mode, 'status': receipt['status'], 'coverage': receipt.get('coverage'), 'resources': receipt['resources']})
         framework_ready_receipt(receipt, retained=retained, phase=len(receipts))
         facts = normalized(index); inspect(index, receipt, facts, blobs)
+        request = {'operation': 'framework'}
+        if framework == 'odoo': request['limits'] = dict(FRAMEWORK_AUDIT_LIMITS)
         with Queries(index.output) as queries:
-            rows, pages = query_rows(queries, {'operation': 'framework'})
+            rows, pages = framework_query_rows(queries, request, retained=retained, prefix=f'phase-{len(receipts):03}-query')
         facts['framework_query_rows'] = rows
         artifacts = []
         if framework == 'odoo':
             from evaluations.engine_checks import _adapter_dump
             for key, values in facts.items():
+                if key == 'framework_query_rows':
+                    artifacts.extend(page['artifact'] for page in pages)
+                    continue
                 filename = f'phase-{len(receipts):03}-{key}.json'
                 _adapter_dump(retained, filename, values)
                 with SourceRoot(retained) as owner:
@@ -3508,7 +3528,8 @@ def _framework(root=ROOT, budget=None, *, source_map=None, work_root=None, frame
                                         try: fresh.run(request | {'cursor': first['cursor']})
                                         except ValueError: pass
                                         else: raise AssertionError('Fresh session accepted a prior snapshot cursor')
-                                    rows, pages = query_rows(queries, request, first)
+                                    rows, pages = framework_query_rows(queries, request, first, retained=retained,
+                                        prefix=f'phase-{len(receipts):03}-held-{mode}-query')
                                     require(rows == mode_facts[mode]['framework_query_rows'], 'Held snapshot rows changed after refresh')
                                     require(all(page['generation'] == first['generation'] for page in pages) and
                                         first['generation'] != updated_index.last_attempt['generation'], 'Held/fresh generation identity differs incorrectly')
@@ -4284,6 +4305,10 @@ def main(argv=None):
                 max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes), source_map=args.source_map, work_root=args.work_root))
             result['resources'] = {'finite_framework_elapsed_seconds': time.perf_counter() - started,
                                    'tokens': None, 'native_peak_rss': None}
+            if args.suite == 'odoo-framework' and result.get('private_evidence_id'):
+                from evaluations.engine_checks import _adapter_dump
+                with worker_directory(args.source_map, args.work_root) as directory:
+                    _adapter_dump(directory / result['private_evidence_id'], 'report.json', result)
             if args.output == BUSINESS_OUTPUT:
                 with SourceRoot(ROOT) as source: report, _ = read_json(source, BUSINESS_OUTPUT, args.max_result_bytes)
                 if type(report.get('tasks')) is not dict: raise ValueError('Existing business evidence required')
