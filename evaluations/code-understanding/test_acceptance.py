@@ -21,6 +21,21 @@ from repo_graph.source import SourceRoot
 
 
 class AdapterEvidence(unittest.TestCase):
+    def test_business_contract_observations_distinguish_modes_and_mutations(self):
+        with SourceRoot(gate.ROOT) as source:
+            business,_=gate.read_json(source,'evaluations/results/code-understanding/business.json',analysis.BUSINESS_RESULT_BYTES)
+            views,_=gate.read_json(source,'evaluations/results/code-understanding/views.json',analysis.BUSINESS_RESULT_BYTES)
+        with tempfile.TemporaryDirectory() as scratch:
+            root=Path(scratch);directory=root/'evaluations/results/code-understanding';directory.mkdir(parents=True)
+            path=directory/'business.json';path.write_text(json.dumps(business))
+            (directory/'views.json').write_text(json.dumps(views))
+            def contract_check():
+                return next(row['status'] for row in gate.business_workflow_gate(root)['case_results'] if row['id']=='T020:observations')
+            self.assertEqual(contract_check(),'passed')
+            rows=business['tasks']['T020']['case_results'];rows[1]=rows[0]
+            path.write_text(json.dumps(business))
+            self.assertEqual(contract_check(),'failed')
+
     def test_business_workflow_missing_children_cannot_pass_as_human_evidence(self):
         with tempfile.TemporaryDirectory() as scratch:
             root=Path(scratch)

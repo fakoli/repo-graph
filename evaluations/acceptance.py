@@ -2566,7 +2566,7 @@ def business_workflow_gate(root=None):
                 child = children[task]; rows = child['case_results']
                 bindings[task] = digest(canonical(child))
                 check(task + ':observations', child['status']=='passed' and child['source_identity'] is not None
-                    and len(rows)==count and len({row['id'] for row in rows})==count
+                    and len(rows)==count and len({(row['id'],row.get('mode'),row.get('mutation')) for row in rows})==count
                     and all(row['status']=='passed' for row in rows), 'All registered functional observations retained')
             viewer, human = children['T050'], children['T051']
             paths = ('evaluations/acceptance.py', 'evaluations/human.py', 'repo_graph/assets/diagram.html',
