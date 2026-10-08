@@ -607,6 +607,25 @@ class FrameworkEvaluatorTests(unittest.TestCase):
         malformed = dict(origin); malformed['slice_sha256'] = 'f' * 64
         with self.assertRaises(ValueError): analysis.odoo_source_key(malformed, original)
 
+    def test_framework_failed_receipt_is_retained_before_ready_refusal(self):
+        ready = {'status': 'ready', 'generation': 'a' * 64, 'source_identity': 'b' * 64, 'resources': {'files': 3}}
+        failed = {'status': 'failed', 'previous_generation': 'a' * 64, 'published': False,
+            'reason': 'native_collection_failed', 'coverage': {'files_total': 20, 'knowledge': 'lower_bound'},
+            'resources': {'collection': {'status': 'failed', 'workers': [{'status': 'timed_out', 'exit_code': -9}]}},
+            'failures': [{'path': 'synthetic/large.py', 'reason': 'deadline_exceeded'}]}
+        with tempfile.TemporaryDirectory() as scratch:
+            retained = Path(scratch)
+            analysis.framework_ready_receipt(ready, retained=retained, phase=1)
+            prior = retained / 'phase-001-receipt.json'; prior_bytes = prior.read_bytes()
+            facts = retained / 'phase-001-sites.json'; facts.write_bytes(b'[{"id":"synthetic-site"}]\n')
+            fact_bytes = facts.read_bytes()
+            with self.assertRaisesRegex(AssertionError, 'did not publish a coherent generation'):
+                analysis.framework_ready_receipt(failed, retained=retained, phase=51)
+            self.assertEqual(json.loads((retained / 'phase-051-receipt.json').read_text()), failed)
+            self.assertEqual(prior.read_bytes(), prior_bytes); self.assertEqual(facts.read_bytes(), fact_bytes)
+        with self.assertRaisesRegex(AssertionError, 'did not publish a coherent generation'):
+            analysis.framework_ready_receipt(failed, phase=1)
+
     def test_framework_cli_selects_odoo_and_retains_django_entrypoint(self):
         for suite, helper in (('odoo-framework', 'odoo_framework'), ('django-framework', 'django_framework')):
             with self.subTest(suite=suite), patch.object(analysis, helper,

@@ -3105,6 +3105,15 @@ def odoo_source_key(reference, blobs):
         raise ValueError('Frozen framework physical source key differs')
 
 
+def framework_ready_receipt(receipt, *, retained=None, phase):
+    """Retain the full private refresh outcome before refusing failed publication."""
+    if retained is not None:
+        from evaluations.engine_checks import _adapter_dump
+        _adapter_dump(retained, f'phase-{phase:03}-receipt.json', receipt)
+    if receipt['status'] != 'ready':
+        raise AssertionError('Shared index did not publish a coherent generation')
+
+
 def odoo_case_grade(facts, expected):
     """Independent physical pair grading; missing/foreign targets are failures."""
     label = expected['expected']; origin = expected['origin']; fields = ('start_byte', 'end_byte', 'start_line', 'end_line')
@@ -3389,7 +3398,7 @@ def _framework(root=ROOT, budget=None, *, source_map=None, work_root=None, frame
         index = StructuralIndex(source, output, budget=budget, framework_context=context)
         receipt = index.refresh(sorted(blobs), mode=mode, concurrency=1 if mode == 'serial' else 2)
         receipts.append({'mode': mode, 'status': receipt['status'], 'coverage': receipt.get('coverage'), 'resources': receipt['resources']})
-        require(receipt['status'] == 'ready', 'Shared index did not publish a coherent generation')
+        framework_ready_receipt(receipt, retained=retained, phase=len(receipts))
         facts = normalized(index); inspect(index, receipt, facts, blobs)
         with Queries(index.output) as queries:
             rows, pages = query_rows(queries, {'operation': 'framework'})
