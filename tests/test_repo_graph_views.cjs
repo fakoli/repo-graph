@@ -147,6 +147,15 @@ const impactPage=(rows,request=impactRequest)=>{
 views.impactPage(impactPage([contract()]),impactRequest,impactCapture);
 const unknownContract=contract('boundary',true);unknownContract.partial=true;
 views.impactPage(impactPage([unknownContract]),impactRequest,impactCapture);
+for(const [protocol,fields] of Object.entries({http:contract().contract_identity,rpc:{contract_service_id:'worker',namespace:'fixture.worker',protocol:'rpc',rpc_service:'EchoService',operation:'Echo',request_schema:'EchoRequest',response_schema:'EchoReply'},queue:{contract_service_id:'orders',namespace:'orders.events',protocol:'queue',topic:'created',schema:'OrderCreated'}})) {
+  const request={...impactRequest,protocols:[protocol],namespaces:null},row={...contract(),protocol,relation_kind:'explicit_'+protocol,namespace:fields.namespace,contract_identity:fields};
+  views.impactPage(impactPage([row],request),request,impactCapture);
+  for(const key of Object.keys(fields).filter(key=>key!=='protocol'))for(const value of [null,'']) {
+    const bad={...row,contract_identity:{...fields,[key]:value},...(key==='namespace' ? {namespace:value} : {})},page=impactPage([bad],request);
+    assert.throws(()=>views.impactPage(page,request,impactCapture),/contract evidence/);
+    assert.throws(()=>views.impactScene(null,page),/contract evidence/);
+  }
+}
 for(const captured of [{...impactCapture,contracts_available:false},{...impactCapture,contract_membership_schema:null}])assert.throws(()=>views.impactPage(impactPage([contract()]),impactRequest,captured),/membership/);
 for(const key of ['services','protocols','namespaces']) {
   const response=impactPage([contract()]);response.scope[key]=null;assert.throws(()=>views.impactPage(response,impactRequest,impactCapture),/filter/);
@@ -167,6 +176,9 @@ assert.throws(()=>views.impactPage(impactPage([{...contract(),runtime_qualified:
 const badWitness=contract();badWitness.evidence=[{...witness,source_sha256:'bad'}];assert.throws(()=>views.impactPage(impactPage([badWitness]),impactRequest,impactCapture),/source handle/);
 const firstContract=views.impactScene(null,impactPage([contract()])),nextContract=views.impactScene(firstContract,impactPage([unknownContract]));
 assert.deepEqual(firstContract.sites.map(value=>value.site.id),['contract-one']);assert.deepEqual(nextContract.sites.map(value=>value.site.id),['contract-one','boundary']);
+assert.equal(views.impactScene(firstContract,impactPage([contract()])).sites[0].targets.length,1);
+const changedContractTarget=impactPage([{...contract(),target:entry}]);views.impactPage(changedContractTarget,impactRequest,impactCapture);
+assert.throws(()=>views.impactScene(firstContract,changedContractTarget),/Changed impact occurrence/);
 assert.equal(nextContract.sites[1].targets.length,0);assert.equal(nextContract.symbols.length,3);assert.equal(nextContract.sites[0].targets.some(value=>value.id===witness.id),false);
 for(const changed of [{service_id:'worker'},{contract_identity:{...contract().contract_identity,contract_service_id:'worker'}},{partial:true,target:null,certainty:'unresolved',targets_exhaustive:false},{evidence:[{...witness,slice_sha256:'0'.repeat(64)}]}])assert.throws(()=>views.impactScene(firstContract,impactPage([{...contract(),...changed}])),/Changed impact|Invalid imported contract|Changed contract source/);
 assert.throws(()=>views.impactPage(impactPage([{...contract(),service_id:'worker'}]),impactRequest,impactCapture),/row filter/);

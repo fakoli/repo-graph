@@ -325,7 +325,7 @@ const RepoViews = (() => {
         !['current_profile_row','captured_source_binding'].includes(row.boundary_origin) ||
         !Array.isArray(row.evidence) || row.evidence.length>64 ||
         (row.family==='contract_boundary' || !row.contract_identity_asserted || row.partial) && (row.target!==null || row.targets_exhaustive!==false || row.certainty!=='unresolved') ||
-        row.family==='contract' && (!row.target || !row.contract_identity_asserted || row.partial || row.certainty!=='resolved' || row.targets_exhaustive!==true))throw new Error('Invalid imported contract evidence');
+        row.family==='contract' && (!row.target || !row.contract_identity_asserted || row.partial || row.certainty!=='resolved' || row.targets_exhaustive!==true || fields.some(key=>!identity[key])))throw new Error('Invalid imported contract evidence');
     const witnesses=new Map();
     for(const witness of row.evidence) {
       sourceHandle(witness);
@@ -416,7 +416,7 @@ const RepoViews = (() => {
       }else{file(row.importer);if(row.target)file(row.target);}
       let site=sites.get(row.site.id);
       if(site) {if(!sameHandle(site.site,row.site) || site.relation!==row.relation || site.certainty!==row.certainty || site.targets_exhaustive!==row.targets_exhaustive || site.reason!==row.reason || site.caller?.id!==row.caller?.id || site.importer?.id!==row.importer?.id || row.relation==='contract' &&
-          ['binding_id','service_id','endpoint_role','protocol','namespace','contract_identity','contract_identity_asserted','partial','boundary_origin','evidence','relation_kind','family','runtime_qualified'].some(key=>JSON.stringify(site[key])!==JSON.stringify(row[key])))throw new Error('Changed impact occurrence');}
+          ((site.target===null)!==(row.target===null) || site.target && !sameHandle(site.target,row.target) || ['binding_id','service_id','endpoint_role','protocol','namespace','contract_identity','contract_identity_asserted','partial','boundary_origin','evidence','relation_kind','family','runtime_qualified'].some(key=>JSON.stringify(site[key])!==JSON.stringify(row[key]))))throw new Error('Changed impact occurrence');}
       else {site={...row,targets:[]};sites.set(row.site.id,site);}
       if(row.target && !site.targets.some(value=>value.id===row.target.id))site.targets.push(row.target);
     }
