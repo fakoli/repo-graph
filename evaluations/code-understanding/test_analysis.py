@@ -43,6 +43,7 @@ class BackendTests(unittest.TestCase):
             mapping = Path(scratch) / 'map.json'
             mapping.write_text(json.dumps({'corpora': [{'source': str(original)}, {'source': str(unused)}]}))
             result = dict(kind='persistent_corpus_profile', status='complete', cases=[],
+                repetition=1, planned_repetitions=3, protocol_sha256='a' * 64,
                 **{key: False for key in ('engine_selected', 'qualification_complete',
                     'resource_budgets_frozen', 'all_owned_source_reads_measured')})
             arguments = ['--profile-pilot', '--protocol', str(protocol), '--source-map', str(mapping),
@@ -95,7 +96,7 @@ class BackendTests(unittest.TestCase):
             observed, loads = [], []
             def load(protocol_bridge, original_bridge):
                 with performance.SourceRoot(protocol_bridge) as p, performance.SourceRoot(original_bridge) as s:
-                    loaded = dict(config=dict(ceilings=dict(launcher_wall_seconds=2410)),
+                    loaded = dict(config=dict(repetition=1, planned_repetitions=3, ceilings=dict(launcher_wall_seconds=2410)),
                                   protocol_owner=p.identity, original_owner=s.identity, protocol_sha256='a' * 64)
                     loads.append(loaded)
                     return loaded
