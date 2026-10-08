@@ -19,6 +19,270 @@ from evaluations.acceptance import PINS
 
 
 class ObservedProfile(unittest.TestCase):
+    def test_persistent_launcher_refuses_unregistered_identity_before_process_admission(self):
+        from evaluations import analysis
+        with tempfile.TemporaryDirectory() as scratch:
+            original, protocol, evidence = (Path(scratch) / name for name in ('original', 'protocol', 'evidence'))
+            for directory in (original, protocol, evidence): directory.mkdir()
+            with patch.object(analysis.subprocess, 'Popen') as launched:
+                for invalid in (True, 0, 2, 3, 4, 1.0, '1'):
+                    with self.subTest(fixture_identity=invalid), self.assertRaises(ValueError):
+                        analysis.profile_fixture_pilot(PROFILE_ROOT, evidence, repetition=invalid)
+                with patch.object(performance, '_persistent_protocol', return_value=dict(config=dict(
+                        repetition=1, planned_repetitions=3))):
+                    result = analysis.profile_fixture_pilot(PROFILE_ROOT, evidence, protocol=protocol,
+                        original_source=original, repetition=2)
+                self.assertNotEqual(result['status'], 'complete'); launched.assert_not_called()
+                command = json.loads(next(evidence.glob('persistent-pilot-command-*/command.json')).read_bytes())
+                self.assertEqual(command['failure']['error_kind'], 'ValueError')
+
+    def test_persistent_launcher_binds_portable_identity_even_when_supervisor_failed(self):
+        from evaluations import analysis, engine_checks as checks
+        cases = [(False, 'complete', None, None), (True, 'complete', None, None),
+            (True, 'failed', None, None), (True, 'failed', 'repetition', 1),
+            (True, 'failed', 'repetition', 2.0), (True, 'failed', 'planned_repetitions', 3.0),
+            (True, 'failed', 'protocol_sha256', 'b' * 64)]
+        for representative, status, changed, value in cases:
+            with self.subTest(representative=representative, status=status, changed=changed, value=value), \
+                    tempfile.TemporaryDirectory() as scratch:
+                original, protocol, evidence = (Path(scratch) / name for name in ('original', 'protocol', 'evidence'))
+                for directory in (original, protocol, evidence): directory.mkdir()
+                repetition = 2 if representative else 1
+                observed = dict(kind='persistent_corpus_profile' if representative else 'persistent_fixture_profile',
+                    status=status, engine_selected=False, qualification_complete=False, resource_budgets_frozen=False,
+                    representative_corpus_profiled=False, all_owned_source_reads_measured=False, cases=[])
+                if representative:
+                    observed.update(repetition=2, planned_repetitions=3, protocol_sha256='a' * 64)
+                if status == 'failed': observed['failure'] = dict(error_kind='ValueError', stage='selectors')
+                if changed: observed[changed] = value
+                raw = json.dumps(observed, sort_keys=True).encode() + b'\n'
+                with performance.SourceRoot(original) as source, performance.SourceRoot(protocol) as inputs:
+                    loaded = dict(protocol_sha256='a' * 64, original_owner=source.identity, protocol_owner=inputs.identity,
+                        config=dict(repetition=2, planned_repetitions=3, ceilings=dict(performance.REPRESENTATIVE_CEILINGS)))
+                commands = []
+                class Child:
+                    pid = 999999999
+                    def __init__(self, command, **options):
+                        commands.append(command)
+                        for fd in options['pass_fds']: os.fstat(fd)
+                        os.write(options['stdout'].fileno(), raw)
+                        os.write(options['stderr'].fileno(), b'synthetic supervisor diagnostic\n')
+                    def wait(self, timeout): return 1 if status == 'failed' else 0
+                options = dict(repetition=repetition)
+                if representative: options.update(protocol=protocol, original_source=original)
+                with patch.object(performance, '_persistent_protocol', return_value=loaded), \
+                        patch.object(analysis.subprocess, 'Popen', Child), \
+                        patch.object(checks, '_stop_and_reap', return_value=dict(leader_reaped=True, group_absent=True)):
+                    result = analysis.profile_fixture_pilot(PROFILE_ROOT, evidence, **options)
+                self.assertEqual(commands[0][commands[0].index('--repetition') + 1], str(repetition))
+                run = next(evidence.glob('persistent-pilot-command-*'))
+                receipt = json.loads((run / 'command.json').read_bytes())
+                self.assertEqual(receipt['repetition'], repetition)
+                if representative:
+                    self.assertEqual(receipt['planned_repetitions'], 3)
+                    self.assertEqual(receipt['protocol_sha256'], 'a' * 64)
+                self.assertEqual((run / 'stdout.log').read_bytes(), raw)
+                stdout = next(row for row in receipt['logs'] if row['path'] == 'stdout.log')
+                self.assertEqual(stdout['sha256'], hashlib.sha256(raw).hexdigest())
+                self.assertTrue(stdout['complete']); self.assertTrue(receipt['cleanup']['leader_reaped'])
+                if changed:
+                    self.assertEqual(receipt['failure']['error_kind'], 'ValueError')
+                    self.assertEqual(result['status'], 'failed')
+                    self.assertEqual(result['repetition'], repetition)
+                else:
+                    self.assertEqual(result, observed)
+
+    def test_persistent_cli_repetition_scope_and_both_pilot_paths(self):
+        from contextlib import nullcontext
+        from evaluations import analysis
+        invalid = [('--profile', '--repetition', '1'), ('--suite', 'queries', '--repetition=1'),
+            ('--profile-pilot', '--repetition', '2'), ('--profile-pilot', '--repetition', '0'),
+            ('--profile-pilot', '--repetition', '4'), ('--profile-pilot', '--repetition', '1.0')]
+        with patch.dict(os.environ, {}, clear=True), redirect_stdout(io.StringIO()), \
+                patch('sys.stderr', new_callable=io.StringIO), \
+                patch.object(analysis, 'profile_fixture_pilot') as pilot, patch.object(analysis, 'write_result') as write:
+            for argv in invalid:
+                with self.subTest(argv=argv), self.assertRaises(SystemExit) as rejected:
+                    analysis.main(list(argv))
+                self.assertEqual(rejected.exception.code, 2)
+            pilot.assert_not_called(); write.assert_not_called()
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            mapping = root / 'map.json'; mapping.write_text('{}')
+            for repetition, representative in ((1, False), (1, True), (2, True)):
+                argv = ['--profile-pilot', '--work-root', str(root)]
+                if representative:
+                    argv += ['--repetition', str(repetition), '--protocol', str(root / 'protocol'), '--source-map', str(mapping)]
+                with self.subTest(repetition=repetition, representative=representative), \
+                        patch.dict(os.environ, {}, clear=True), redirect_stdout(io.StringIO()), \
+                        patch.object(analysis, 'ROOT', root), \
+                        patch.object(analysis, 'profile_fixture_pilot', return_value=dict(status='complete')) as pilot, \
+                        patch.object(analysis, 'write_result', return_value=2), \
+                        patch.object(performance, 'mapped_corpora', return_value=dict(django=dict(source=str(root / 'original')))), \
+                        patch.object(analysis, 'worker_directory', side_effect=lambda *args: nullcontext(root)):
+                    self.assertEqual(analysis.main(argv), 0)
+                    self.assertEqual(pilot.call_args.kwargs['repetition'], repetition)
+                    self.assertEqual('protocol' in pilot.call_args.kwargs, representative)
+
+    def test_persistent_repetition_requires_exact_typed_registration(self):
+        """Admission controls only; no private protocol, corpus or worker run."""
+        self.assertEqual(performance._persistent_repetition(None), 1)
+        for invalid in (False, True, 0, -1, 4, 1.0, '1', None):
+            with self.subTest(request=invalid), self.assertRaises(ValueError):
+                performance._persistent_repetition(None, invalid)
+        for repetition in (1, 2, 3):
+            loaded = dict(config=dict(repetition=repetition, planned_repetitions=3))
+            self.assertEqual(performance._persistent_repetition(loaded, repetition), repetition)
+            for requested in (1, 2, 3):
+                if requested != repetition:
+                    with self.subTest(registered=repetition, requested=requested), self.assertRaises(ValueError):
+                        performance._persistent_repetition(loaded, requested)
+            for count in (True, 2, 4, 3.0, '3', None):
+                with self.subTest(count=count), self.assertRaises(ValueError):
+                    performance._persistent_repetition(dict(config=dict(
+                        repetition=repetition, planned_repetitions=count)), repetition)
+        for repetition in (2, 3):
+            with self.assertRaisesRegex(ValueError, 'protocol required'):
+                performance._persistent_repetition(None, repetition)
+        for registered in (True, 0, 4, 1.0, '1', None):
+            with self.subTest(registered=registered), self.assertRaises(ValueError):
+                performance._persistent_repetition(dict(config=dict(
+                    repetition=registered, planned_repetitions=3)))
+        with tempfile.TemporaryDirectory() as scratch:
+            with patch.object(performance, '_persistent_protocol', return_value=dict(config=dict(
+                    repetition=1, planned_repetitions=3))), \
+                    patch.object(performance.subprocess, 'Popen') as launched, \
+                    patch.object(performance, '_dual_supervisor_limits') as envelope:
+                with self.assertRaisesRegex(ValueError, 'preregistered protocol identity'):
+                    performance.profile_persistent_fixture(PROFILE_ROOT, Path(scratch),
+                        protocol=Path(scratch), original_source=Path(scratch), repetition=2)
+                launched.assert_not_called(); envelope.assert_not_called()
+
+    def test_persistent_supervisor_passes_explicit_repetition_with_default_one(self):
+        from repo_graph import analysis_queue
+        for repetition in (1, 2, 3):
+            argv = ['synthetic-evidence', '--creator-pid', str(os.getpid())]
+            if repetition > 1:
+                argv += ['--repetition', str(repetition), '--protocol-fd', '91', '--original-fd', '92']
+            with self.subTest(repetition=repetition), redirect_stdout(io.StringIO()), \
+                    patch.object(analysis_queue, '_guard_controller'), \
+                    patch.object(performance, 'profile_persistent_fixture', return_value=dict(status='complete')) as profile, \
+                    patch.object(performance, 'compact_persistent_result', return_value={}):
+                self.assertEqual(performance.persistent_supervisor(argv), 0)
+                self.assertEqual(profile.call_args.kwargs['repetition'], repetition)
+                self.assertEqual('protocol' in profile.call_args.kwargs, repetition > 1)
+
+    def test_persistent_failed_report_binds_registered_repetition_without_losing_failure(self):
+        failure = dict(error_kind='ValueError', stage='selectors', error='synthetic unchanged failure')
+        for repetition in (1, 2, 3):
+            loaded = dict(protocol_sha256='a' * 64, config=dict(repetition=repetition,
+                planned_repetitions=3, updates=[dict(id='U-PY-BODY'), dict(id='U-PY-EXPORT')], impacts_sha256={}))
+            report = dict(schema_version=1, kind='persistent_corpus', status='failed', mode='serial', concurrency=1,
+                binding_before={}, phases=[], qualification_complete=False, resource_budgets_frozen=False,
+                engine_selected=False, all_owned_source_reads_measured=False, protocol_sha256='a' * 64,
+                repetition=repetition, planned_repetitions=3, representative_matrix_complete=False, failure=failure)
+            original = json.dumps(report, sort_keys=True)
+            self.assertIs(performance._persistent_validate(report, {}, 'serial', 1, loaded, repetition), report)
+            self.assertEqual(json.dumps(report, sort_keys=True), original)
+            for key, invalid in (('repetition', True), ('repetition', float(repetition)),
+                    ('repetition', 4), ('repetition', 1 if repetition != 1 else 2),
+                    ('planned_repetitions', 3.0), ('protocol_sha256', 'b' * 64)):
+                with self.subTest(repetition=repetition, key=key, invalid=invalid), self.assertRaisesRegex(
+                        ValueError, 'repetition/protocol identity'):
+                    performance._persistent_validate(dict(report, **{key: invalid}), {}, 'serial', 1, loaded, repetition)
+            compact = performance.compact_persistent_result(dict(kind='persistent_corpus_profile', status='failed',
+                repetition=repetition, planned_repetitions=3, protocol_sha256='a' * 64, failure=failure))
+            self.assertEqual(compact['repetition'], repetition)
+            self.assertEqual(compact['failure'], dict(error_kind='ValueError', stage='selectors'))
+        report = dict(report, kind='persistent_fixture')
+        for key in ('repetition', 'planned_repetitions', 'protocol_sha256', 'representative_matrix_complete'):
+            report.pop(key)
+        self.assertIs(performance._persistent_validate(report, {}, 'serial', 1), report)
+
+    def test_persistent_worker_threads_registered_repetition_and_accepts_legacy_one(self):
+        """Descriptor/control seam with stubbed run, guards and OS resource setters."""
+        import resource
+        from evaluations import engine_checks as checks
+        from repo_graph import analysis_queue
+        for repetition, explicit in ((1, False), (1, True), (2, True), (3, True), (2, False)):
+            with self.subTest(repetition=repetition, explicit=explicit), tempfile.TemporaryDirectory() as scratch:
+                roots = [Path(scratch) / name for name in ('job', 'source', 'protocol', 'original', 'pair')]
+                for root in roots: root.mkdir()
+                from contextlib import ExitStack
+                with ExitStack() as stack:
+                    job, source, protocol, original, pair = [stack.enter_context(performance.SourceRoot(root)) for root in roots]
+                    loaded = dict(protocol_sha256='a' * 64,
+                        config=dict(repetition=repetition, planned_repetitions=3))
+                    control = dict(schema_version=1, mode='serial', concurrency=1, binding={},
+                        directory_owner=job.identity, supervisor=dict(pid=os.getpid()), source_owner=source.identity,
+                        protocol_sha256='a' * 64, pair_owner=pair.identity, invoker=None)
+                    if explicit: control['repetition'] = repetition
+                    checks._adapter_dump(roots[0], 'control.json', control)
+                    argv = [str(job.fd), str(source.fd), str(os.getpid()), '--protocol-fd', str(protocol.fd),
+                        '--original-fd', str(original.fd), '--pair-fd', str(pair.fd)]
+                    with patch.object(analysis_queue, '_guard_controller'), patch('faulthandler.enable'), \
+                            patch.object(resource, 'setrlimit'), patch.object(performance.signal, 'signal'), \
+                            patch.object(performance, '_persistent_protocol', return_value=loaded), \
+                            patch.object(performance, '_persistent_capture', return_value={}), \
+                            patch.object(performance, '_persistent_run', return_value=dict(status='complete')) as run:
+                        if repetition > 1 and not explicit:
+                            with self.assertRaisesRegex(ValueError, 'preregistered protocol identity'):
+                                performance.persistent_worker(argv)
+                            run.assert_not_called()
+                        else:
+                            self.assertEqual(performance.persistent_worker(argv), 0)
+                            self.assertEqual(run.call_args.kwargs['repetition'], repetition)
+
+    def test_live_storage_scan_retains_unlink_and_atomic_publication_gaps(self):
+        """Synthetic list/stat races; no collector, parser, corpus or profile run."""
+        for operation in ('unlink_request', 'atomic_publish'):
+            with self.subTest(operation=operation), tempfile.TemporaryDirectory() as scratch:
+                root = Path(scratch); (root / 'stable.bin').write_bytes(b'abc')
+                with performance.SourceRoot(root) as owner:
+                    if operation == 'unlink_request':
+                        (root / 'request.json').write_bytes(b'pending')
+                        publish = lambda: os.unlink('request.json', dir_fd=owner.fd)
+                    else:
+                        writer = owner.atomic_writer('ready.json')
+                        writer.__enter__().write(b'ready')
+                        publish = lambda: writer.__exit__(None, None, None)
+                    listed = os.listdir
+                    pending = [True]
+                    def raced(fd):
+                        names = listed(fd)
+                        if pending[0]: pending[0] = False; publish()
+                        return names
+                    with patch.object(performance.os, 'listdir', side_effect=raced):
+                        usage = performance._persistent_storage_usage(root, max_files=16, check=lambda: None)
+                    self.assertEqual(usage, dict(bytes=3, files=1, missing_entry_observations=1))
+                    settled = performance._persistent_storage_usage(root, max_files=16, check=lambda: None)
+                    self.assertEqual(settled['missing_entry_observations'], 0)
+                    self.assertEqual(settled['bytes'], 3 if operation == 'unlink_request' else 8)
+                    with self.assertRaisesRegex(ValueError, 'reference ceiling'):
+                        performance._persistent_storage_usage(root, max_files=0, check=lambda: None)
+                    (root / 'link').symlink_to(root / 'stable.bin')
+                    with self.assertRaisesRegex(ValueError, 'nonregular'):
+                        performance._persistent_storage_usage(root, max_files=16, check=lambda: None)
+                    (root / 'link').unlink()
+                    stated = os.stat
+                    def denied(name, **kwargs):
+                        if name == 'stable.bin' and 'dir_fd' in kwargs:
+                            raise PermissionError(errno.EACCES, 'synthetic denied metadata')
+                        return stated(name, **kwargs)
+                    with patch.object(performance.os, 'stat', side_effect=denied), self.assertRaises(PermissionError):
+                        performance._persistent_storage_usage(root, max_files=16, check=lambda: None)
+                    budget = performance._persistent_budget(root, root, performance.time.monotonic() + 5)
+                    self.assertEqual(budget.observed['missing_entry_observations'], 0)
+                    self.assertIn('non-atomic', budget.observed['scope'])
+                    (root / 'request.json').write_bytes(b'pending')
+                    pending[0] = True
+                    publish = lambda: os.unlink('request.json', dir_fd=owner.fd)
+                    with patch.object(performance.os, 'listdir', side_effect=raced): budget()
+                    self.assertEqual(budget.observed['missing_entry_observations'], 1)
+                    compact = performance.compact_persistent_result(dict(kind='persistent_corpus_profile',
+                        status='failed', artifact_budget_observations=budget.observed))
+                    self.assertEqual(compact['artifact_budget_observations']['missing_entry_observations'], 1)
+
     def test_representative_watchdog_bounds_each_job_and_retains_unknown_descendants(self):
         """Immediate synthetic timeouts; no worker, query, parser or profile pair."""
         from evaluations import engine_checks as checks
@@ -27,7 +291,8 @@ class ObservedProfile(unittest.TestCase):
                 original, protocol, evidence = (Path(scratch) / name for name in ('original', 'protocol', 'evidence'))
                 for directory in (original, protocol, evidence): directory.mkdir()
                 with performance.SourceRoot(original) as source, performance.SourceRoot(protocol) as inputs:
-                    loaded = dict(config=dict(ceilings=dict(performance.REPRESENTATIVE_CEILINGS)),
+                    loaded = dict(config=dict(ceilings=dict(performance.REPRESENTATIVE_CEILINGS),
+                        repetition=1, planned_repetitions=3),
                         original_owner=source.identity, protocol_owner=inputs.identity, protocol_sha256='a' * 64)
                 clock, waits, cleaned = [0], [], []
                 class Child:
@@ -226,6 +491,67 @@ class ObservedProfile(unittest.TestCase):
             self.assertEqual(proof['semantic_facts_sha256'], hashlib.sha256(semantic).hexdigest())
             self.assertTrue(proof['snapshot']['sealed']); self.assertTrue(proof['snapshot']['metadata_verified'])
             self.assertGreater(proof['snapshot']['backup_progress_callbacks'], 1)
+            self.assertEqual(proof['retention']['kind'], 'independent_sealed')
+            self.assertEqual(proof['retention']['measured_artifact'], proof['artifact'])
+            alias = performance._persistent_snapshot(index, retained, 'alias', check=lambda: None,
+                limits=dict(snapshot_bytes=1024 * 1024), prior_proofs=(proof,))
+            self.assertEqual(alias['retention']['kind'], 'canonical_alias_v1')
+            self.assertEqual(alias['artifact'], proof['artifact'])
+            self.assertEqual(alias['retention']['alias_source_artifact'], proof['artifact'])
+            measured = alias['retention']['measured_artifact']
+            self.assertEqual(measured['path'], 'alias.facts.sqlite')
+            self.assertEqual(measured['bytes'], proof['artifact']['bytes'])
+            self.assertFalse((retained / measured['path']).exists())
+            self.assertTrue(alias['snapshot']['sealed']); self.assertTrue(alias['snapshot']['metadata_verified'])
+            self.assertGreater(alias['snapshot']['backup_progress_callbacks'], 1)
+            for key in ('identities', 'counts', 'semantic_facts_sha256'):
+                self.assertEqual(alias[key], proof[key])
+            with performance._persistent_snapshot_view(retained, alias, lambda: None) as view:
+                self.assertEqual(list(view.read_facts('definitions')), facts['definitions'])
+            # Independent observed differences must retain their own sealed proof.
+            identity_keys = dict(generation='structural_generation', source_identity='structural_source',
+                analyzer_identity='structural_analyzer', config_identity='structural_config',
+                repository_identity='structural_repository')
+            for change in ('count', 'digest', *identity_keys):
+                with self.subTest(snapshot_change=change):
+                    if change == 'count':
+                        writer.execute('INSERT INTO structural_symbols VALUES(?,?,?)',
+                            ('main.py', 1, json.dumps(dict(facts['definitions'][0], id='extra', name='extra'))))
+                    elif change == 'digest':
+                        writer.execute('UPDATE structural_symbols SET data=? WHERE ordinal=0',
+                            (json.dumps(dict(facts['definitions'][0], text='def h():')),))
+                    else:
+                        writer.execute('UPDATE meta SET value=? WHERE key=?', ('0' * 64, identity_keys[change]))
+                        if change == 'repository_identity':
+                            writer.execute("UPDATE meta SET value=? WHERE key='repository'", ('0' * 64,))
+                            index.owner = '0' * 64
+                    writer.commit()
+                    changed_proof = performance._persistent_snapshot(index, retained, 'changed-' + change.replace('_', '-'),
+                        check=lambda: None, limits=dict(snapshot_bytes=1024 * 1024), prior_proofs=(proof,))
+                    self.assertEqual(changed_proof['retention']['kind'], 'independent_sealed')
+                    self.assertNotEqual(changed_proof['artifact']['path'], proof['artifact']['path'])
+                    self.assertTrue((retained / changed_proof['artifact']['path']).exists())
+                    key = 'counts' if change == 'count' else 'semantic_facts_sha256' if change == 'digest' else 'identities'
+                    self.assertNotEqual(changed_proof[key], proof[key])
+                    if change == 'count': writer.execute('DELETE FROM structural_symbols WHERE ordinal=1')
+                    elif change == 'digest':
+                        writer.execute('UPDATE structural_symbols SET data=? WHERE ordinal=0',
+                            (json.dumps(facts['definitions'][0]),))
+                    else:
+                        writer.execute('UPDATE meta SET value=? WHERE key=?', (identities[change], identity_keys[change]))
+                        if change == 'repository_identity':
+                            writer.execute("UPDATE meta SET value=? WHERE key='repository'", (identities[change],))
+                            index.owner = identities[change]
+                    writer.commit()
+            corrupt = json.loads(json.dumps(proof))
+            corrupt['artifact']['path'] = 'corrupt-prior.facts.sqlite'
+            original_proof_bytes = (retained / proof['artifact']['path']).read_bytes()
+            (retained / corrupt['artifact']['path']).write_bytes(
+                original_proof_bytes.replace(b'c' * 64, b'f' * 64, 1))
+            with self.assertRaises(ValueError):
+                performance._persistent_snapshot(index, retained, 'corrupt-match', check=lambda: None,
+                    limits=dict(snapshot_bytes=1024 * 1024), prior_proofs=(corrupt,))
+            self.assertEqual((retained / proof['artifact']['path']).read_bytes(), original_proof_bytes)
             # Refresh is stubbed over the existing hand-built WAL owner; no parser runs.
             from repo_graph.analysis_native import Budget
             receipt = dict(identities, status='ready', published=True)
@@ -312,7 +638,7 @@ class ObservedProfile(unittest.TestCase):
                     connect(*args, **dict(kwargs, factory=InterruptedConnection))):
                 with self.assertRaisesRegex(InterruptedError, 'synthetic interrupted backup'):
                     performance._persistent_snapshot(index, retained, 'interrupted', check=cancel_backup,
-                                                     limits=dict(snapshot_bytes=1024 * 1024))
+                                                     limits=dict(snapshot_bytes=1024 * 1024), prior_proofs=(proof,))
             for label in ('foreign', 'schema', 'capped', 'interrupted'):
                 failure = json.loads((retained / (label + '-snapshot-failure.json')).read_bytes())
                 self.assertFalse(failure['sealed'])
@@ -334,6 +660,51 @@ class ObservedProfile(unittest.TestCase):
                     with performance._persistent_snapshot_view(retained, saved, lambda: None) as view:
                         list(view.read_facts('definitions'))
             writer.close()
+            sealed.write_bytes(initial)
+            # Only validated evidence permits removing a registered direct-child live index.
+            from evaluations import engine_checks as checks
+            live = retained / 'obsolete-index'; live.mkdir()
+            (live / 'search.db').write_bytes(initial)
+            with performance.SourceRoot(live) as owner: live_owner = owner.identity
+            obsolete = SimpleNamespace(owner=index.owner, output=live, output_owner=live_owner,
+                last_attempt=dict(identities, status='ready', published=True))
+            unrelated = retained / 'unrelated.log'; unrelated.write_bytes(b'keep')
+            bad_proof = dict(proof, artifact=dict(proof['artifact'], sha256='0' * 64))
+            with patch.object(checks, '_missing_remove_runtime') as remove:
+                with self.assertRaises(ValueError):
+                    performance._persistent_retire(obsolete, retained, bad_proof, 'bad-proof', lambda: None)
+                remove.assert_not_called()
+            self.assertEqual((live / 'search.db').read_bytes(), initial)
+            foreign_live = retained / 'foreign-index'; foreign_live.mkdir()
+            (foreign_live / 'canary').write_bytes(b'foreign')
+            linked = retained / 'linked-index'; linked.symlink_to(live, target_is_directory=True)
+            for label, path in (('foreign-output', foreign_live), ('linked-output', linked)):
+                with self.subTest(retire=label), self.assertRaises((OSError, ValueError)):
+                    performance._persistent_retire(SimpleNamespace(**dict(vars(obsolete), output=path)),
+                        retained, proof, label, lambda: None)
+                self.assertTrue(live.exists()); self.assertEqual((foreign_live / 'canary').read_bytes(), b'foreign')
+                self.assertFalse(json.loads((retained / (label + '-live-index-cleanup.json')).read_bytes())['removed'])
+            held = retained / 'held-index'; live.rename(held); live.mkdir()
+            (live / 'canary').write_bytes(b'replaced')
+            with self.assertRaises((OSError, ValueError)):
+                performance._persistent_retire(obsolete, retained, proof, 'replaced-output', lambda: None)
+            self.assertEqual((live / 'canary').read_bytes(), b'replaced')
+            self.assertTrue((held / 'search.db').exists())
+            replaced = retained / 'replaced-index'; live.rename(replaced); held.rename(live)
+            with performance.SourceRoot(live) as owner: self.assertEqual(owner.identity, live_owner)
+            events, validate, remove = [], performance._persistent_snapshot_view, checks._missing_remove_runtime
+            def validated(*args): events.append('validate-proof'); return validate(*args)
+            def removed(*args): events.append('remove-live'); return remove(*args)
+            with patch.object(performance, '_persistent_snapshot_view', side_effect=validated), \
+                    patch.object(checks, '_missing_remove_runtime', side_effect=removed):
+                cleanup = performance._persistent_retire(obsolete, retained, proof, 'retired', lambda: None)
+            self.assertEqual(events, ['validate-proof', 'remove-live'])
+            self.assertTrue(cleanup['removed']); self.assertFalse(live.exists())
+            self.assertEqual(cleanup['identities'], identities)
+            self.assertEqual(cleanup['proof_artifact'], proof['artifact'])
+            self.assertEqual(json.loads((retained / 'retired-live-index-cleanup.json').read_bytes()), cleanup)
+            self.assertEqual(sealed.read_bytes(), initial); self.assertEqual(unrelated.read_bytes(), b'keep')
+            self.assertEqual((replaced / 'canary').read_bytes(), b'replaced')
 
     @unittest.skipUnless(sys.platform == 'linux', 'Owned native process limits require Linux')
     def test_small_native_children_lower_inherited_cpu_and_file_envelopes(self):
@@ -630,7 +1001,8 @@ class ObservedProfile(unittest.TestCase):
 
     def test_persistent_early_query_failure_retains_empty_progress_and_prior_phase(self):
         from repo_graph import analysis_queries as queries
-        spec = dict(id='synthetic-missing', operation='symbol', name='missing', path='main.py', span=(0, 10, 1, 1))
+        specs = tuple(dict(id='synthetic-missing-' + str(number), operation='symbol', name='missing' + str(number),
+            path='main.py', span=(0, 10, 1, 1)) for number in range(6))
         meta = dict(generation='g' * 64, source_identity='s' * 64, repository_identity='r' * 64,
                     analyzer_identity='a' * 64, config_identity='c' * 64)
         for failure in ('missing_selector', 'metadata'):
@@ -638,20 +1010,30 @@ class ObservedProfile(unittest.TestCase):
                 def metadata(self):
                     if failure == 'metadata': raise RuntimeError('synthetic metadata unavailable')
                     return dict(meta)
-                def read_facts(self, kind): return iter(())
+                def read_facts(self, kind):
+                    if kind != 'definitions': raise AssertionError('Only selector facts required')
+                    return iter(dict(id=spec['id'] + ':' + str(end), path=spec['path'], name=spec['name'],
+                        range=dict(start_byte=0, end_byte=end, start_line=1, end_line=1))
+                        for spec in specs for end in (11, 12, 13))
             with self.subTest(failure=failure), tempfile.TemporaryDirectory(prefix='persistent-early-query-') as scratch:
                 directory, progress = Path(scratch), {}
                 error_kind, message = ((RuntimeError, 'synthetic metadata unavailable') if failure == 'metadata'
                     else (ValueError, 'Missing or changed frozen query selector'))
                 with patch.object(queries, 'Queries') as session:
                     with self.assertRaisesRegex(error_kind, message):
-                        performance._persistent_queries(Index(), directory, specs=(spec,), progress=progress)
+                        performance._persistent_queries(Index(), directory, specs=specs, progress=progress)
                 session.assert_not_called()
                 self.assertFalse(progress['passed'])
                 self.assertEqual(progress['workloads'], [])
                 self.assertIsNone(progress['cursor_control'])
                 self.assertEqual(progress['failure']['error_kind'], error_kind.__name__)
                 self.assertEqual(progress['failure']['stage'], 'metadata' if failure == 'metadata' else 'selectors')
+                mismatches = progress.get('selector_mismatches', [])
+                self.assertLessEqual(len(mismatches), 6)
+                if failure == 'missing_selector':
+                    self.assertEqual(mismatches, [dict(id=spec['id'], expected_span=[0, 10, 1, 1],
+                        matching_name_ranges=[[0, 11, 1, 1], [0, 12, 1, 1]], match_count=0) for spec in specs])
+                else: self.assertEqual(mismatches, [])
                 self.assertEqual(json.loads((directory / 'queries.json').read_bytes()), progress)
                 self.assertEqual(sorted(path.name for path in directory.iterdir()), ['queries.json'])
                 phase = dict(label='already-observed', status='ready', wall_seconds=.25,
@@ -793,22 +1175,33 @@ class ObservedProfile(unittest.TestCase):
         """Stubbed worker admission only; no collector, process or measurement run."""
         from evaluations import engine_checks as checks
         raw = b'def f(): pass\n'
-        for code in (0, 7, -9):
+        selector_failure = dict(error_kind='ValueError', error='Missing or changed frozen query selector',
+            stage='selectors', traceback='synthetic selector diagnostic', diagnostic_truncated=False)
+        for code in (0, 7, -9, 1):
             observed, cleaned, source_roots = [], [], []
             class Child:
                 pid, returncode = 999999999, code
                 def __init__(self, command, **kwargs):
-                    job = Path('/proc/self/fd') / command[-3]
-                    source = Path('/proc/self/fd') / command[-2]
+                    marker = command.index('--persistent-worker')
+                    job = Path('/proc/self/fd') / command[marker + 1]
+                    source = Path('/proc/self/fd') / command[marker + 2]
                     with performance.SourceRoot(source) as owner:
                         content, sha, _ = owner.read('a.py', 128)
                         observed.append((owner.identity, sha, content))
                         source_roots.append(owner.root)
-                        produced = dict(status='complete', stub_only=True,
+                        produced = dict(status='failed' if code == 1 else 'complete', stub_only=True,
                             source_owner_identity=owner.identity, source_owner_identity_after=owner.identity,
                             phases=[dict(label=label, streamed_facts=dict(
-                                semantic_facts_sha256='a' * 64, stub_only=True))
+                                semantic_facts_sha256='a' * 64, counts={}, stub_only=True))
                                 for label in performance.PERSISTENT_PHASES])
+                        if code == 1:
+                            produced.pop('source_owner_identity_after')
+                            produced.update(failure=selector_failure, queries=dict(passed=False, workloads=[],
+                                cursor_control=None, failure=selector_failure))
+                            control = json.loads((job / 'control.json').read_bytes())
+                            if control['repetition'] != 2: raise AssertionError('Registered repetition lost at control boundary')
+                            produced.update(repetition=control['repetition'], planned_repetitions=3,
+                                protocol_sha256=control['protocol_sha256'])
                         with owner.atomic_writer('a.py') as stream:
                             stream.write(b'def changed(): pass\n')
                     checks._adapter_dump(job, 'result.json', produced)
@@ -820,19 +1213,32 @@ class ObservedProfile(unittest.TestCase):
                 return dict(leader_reaped=True, group_absent=True, stub_only=True)
             with self.subTest(exit_code=code), tempfile.TemporaryDirectory(prefix='persistent-admission-control-') as scratch:
                 destination = Path(scratch)
+                loaded, options = None, {}
+                if code == 1:
+                    original, protocol, destination = (destination / name for name in ('original', 'protocol', 'evidence'))
+                    for path in (original, protocol, destination): path.mkdir()
+                    with performance.SourceRoot(original) as original_owner, performance.SourceRoot(protocol) as inputs:
+                        loaded = dict(config=dict(ceilings=dict(performance.REPRESENTATIVE_CEILINGS),
+                            repetition=2, planned_repetitions=3),
+                            original_owner=original_owner.identity, protocol_owner=inputs.identity, protocol_sha256='a' * 64)
+                    options = dict(protocol=protocol, original_source=original, repetition=2)
                 with patch.object(performance, '_dual_supervisor_limits', return_value={}), \
+                        patch.object(performance, '_persistent_protocol', return_value=loaded), \
+                        patch.object(performance, '_persistent_materialize', side_effect=lambda source, *args:
+                            checks._adapter_materialize(source, {'a.py': raw})), \
                         patch.object(performance, '_persistent_capture', return_value={}), \
                         patch.object(performance, '_persistent_recheck', return_value={}), \
                         patch.object(performance, '_dual_inputs', return_value=({'a.py': raw}, [], {})), \
                         patch.object(performance, '_persistent_validate', side_effect=lambda value, *args: value), \
                         patch.object(performance.subprocess, 'Popen', Child), \
                         patch.object(checks, '_stop_and_reap', side_effect=cleanup):
-                    result = performance.profile_persistent_fixture(PROFILE_ROOT, destination)
+                    result = performance.profile_persistent_fixture(PROFILE_ROOT, destination, **options)
                 report = result['full_private_report']
                 self.assertEqual(len(report['cases']), 2 if code == 0 else 1)
                 self.assertEqual(len(cleaned), len(report['cases']))
                 self.assertTrue(all(content == raw for _, _, content in observed))
                 self.assertTrue(all(not path.exists() for path in source_roots))
+                self.assertTrue(report['source_cleanup']['completed'])
                 self.assertFalse(result['qualification_complete'])
                 self.assertFalse(result['engine_selected'])
                 if code == 0:
@@ -840,6 +1246,16 @@ class ObservedProfile(unittest.TestCase):
                     self.assertEqual(observed[0], observed[1])
                     self.assertTrue(report['same_source_owner_across_modes'])
                     self.assertTrue(report['source_cleanup']['completed'])
+                elif code == 1:
+                    self.assertEqual(report['status'], 'failed')
+                    self.assertEqual(report['repetition'], 2)
+                    self.assertEqual(performance.compact_persistent_result(result)['repetition'], 2)
+                    self.assertEqual(report['cases'][0]['failure'], selector_failure)
+                    self.assertEqual(report['failure'], selector_failure)
+                    self.assertEqual(report['cases'][0]['source_owner_observation'], dict(
+                        before_matches=True, after_knowledge='missing', after_matches=None))
+                    self.assertEqual(report['cases'][0]['descendant_cleanup']['status'], 'unknown')
+                    self.assertIsNone(report['cases'][0]['descendant_cleanup']['collector_sessions_reaped'])
                 else:
                     self.assertEqual(report['status'], 'failed')
                     self.assertEqual(report['cases'][0]['failure']['error_kind'], 'ChildProcessError')
@@ -847,7 +1263,7 @@ class ObservedProfile(unittest.TestCase):
                 for case in report['cases']:
                     self.assertEqual(case['returncode'], code)
                     self.assertEqual(case['status'], 'complete' if code == 0 else 'failed')
-                    self.assertEqual(case['report']['status'], 'complete')
+                    self.assertEqual(case['report']['status'], 'failed' if code == 1 else 'complete')
                     self.assertTrue(case['report']['stub_only'])
                     self.assertTrue(case['cleanup']['leader_reaped'] and case['cleanup']['group_absent'])
                     stored = archive / case['report_artifact']['path']

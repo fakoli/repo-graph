@@ -2897,15 +2897,17 @@ def profile_component(source_map, work_root=None, freeze_budgets=False, recorded
             'Rust adoption requires separate approval and ADR0006 measured equivalent-workload thresholds.']}
 
 
-def profile_fixture_pilot(root, evidence_directory, *, protocol=None, original_source=None):
+def profile_fixture_pilot(root, evidence_directory, *, protocol=None, original_source=None, repetition=1):
     """Launch the finite pilot in its own bounded supervisor, retaining raw logs."""
     from evaluations import engine_checks as checks
+    from evaluations.performance import _persistent_repetition
     from evaluations.supplement_preparation import decode
     if evidence_directory is None:
         raise ValueError('Private --work-root or REPO_GRAPH_EVAL_WORK_ROOT required')
     root = checks._adapter_root(root)
     if protocol is None and original_source is not None:
         raise ValueError('Original source requires a preregistered protocol')
+    if protocol is None: _persistent_repetition(None, repetition)
     if protocol is not None:
         if original_source is None:
             raise ValueError('Representative protocol requires the pinned original source')
@@ -2921,21 +2923,26 @@ def profile_fixture_pilot(root, evidence_directory, *, protocol=None, original_s
         receipt = {'schema_version': 1, 'returncode': None}
         try:
             command = [sys.executable, '-I', '-B', str(root / 'evaluations/performance.py'),
-                '--persistent-supervisor', str(Path('/proc/self/fd') / str(owner.fd)), '--creator-pid', str(os.getpid())]
+                '--persistent-supervisor', str(Path('/proc/self/fd') / str(owner.fd)), '--creator-pid', str(os.getpid()),
+                '--repetition', str(repetition)]
             descriptors, timeout = [owner.fd], 95
+            if protocol is None: receipt['repetition'] = repetition
             if protocol is not None:
                 from evaluations.performance import _dual_self_identity, _persistent_protocol
                 protocol_owner = holds.enter_context(SourceRoot(protocol))
                 original_owner = holds.enter_context(SourceRoot(original_source))
                 loaded = _persistent_protocol(Path('/proc/self/fd') / str(protocol_owner.fd),
                     Path('/proc/self/fd') / str(original_owner.fd))
+                _persistent_repetition(loaded, repetition)
                 command.extend(['--protocol-fd', str(protocol_owner.fd), '--original-fd', str(original_owner.fd),
                     '--invoker', json.dumps(_dual_self_identity(), sort_keys=True, separators=(',', ':'))])
                 descriptors.extend([protocol_owner.fd, original_owner.fd])
                 timeout = loaded['config']['ceilings']['launcher_wall_seconds']
                 receipt.update(protocol_sha256=loaded['protocol_sha256'], protocol_owner=loaded['protocol_owner'],
-                    original_owner=loaded['original_owner'], timeout_seconds=timeout)
-                result['kind'] = 'persistent_corpus_profile'
+                    original_owner=loaded['original_owner'], timeout_seconds=timeout,
+                    repetition=repetition, planned_repetitions=loaded['config']['planned_repetitions'])
+                result.update(kind='persistent_corpus_profile', repetition=repetition,
+                    planned_repetitions=loaded['config']['planned_repetitions'], protocol_sha256=loaded['protocol_sha256'])
             with owner.open('stdout.log', create=True) as stdout, owner.open('stderr.log', create=True) as stderr:
                 process = subprocess.Popen(command,
                     cwd=bridge, env=checks._environment(bridge), pass_fds=tuple(descriptors),
@@ -2951,6 +2958,11 @@ def profile_fixture_pilot(root, evidence_directory, *, protocol=None, original_s
                         'resource_budgets_frozen', 'all_owned_source_reads_measured')) or
                     protocol is None and observed.get('representative_corpus_profiled') is not False):
                 raise ValueError('Finite pilot output required')
+            if protocol is not None and (type(observed.get('repetition')) is not int or
+                    observed['repetition'] != repetition or type(observed.get('planned_repetitions')) is not int or
+                    observed['planned_repetitions'] != loaded['config']['planned_repetitions'] or
+                    observed.get('protocol_sha256') != loaded['protocol_sha256']):
+                raise ValueError('Portable pilot repetition/protocol identity mismatch')
             result = observed
             if receipt['returncode'] != 0:
                 result['status'] = 'failed'
@@ -2986,6 +2998,8 @@ def main(argv=None):
     modes.add_argument('--compare', action='store_true')
     modes.add_argument('--profile', action='store_true')
     modes.add_argument('--profile-pilot', action='store_true', help='one finite fixture serial/queued pair; no task qualification')
+    parser.add_argument('--repetition', type=int, choices=(1, 2, 3), default=None,
+                        help='registered repetition identity; requires --profile-pilot, and --protocol beyond one')
     parser.add_argument('--protocol', type=Path, help='private preregistered representative protocol directory; requires --profile-pilot and --source-map')
     parser.add_argument('--freeze-budgets', action='store_true')
     parser.add_argument('--source-map', type=Path, default=os.environ.get('REPO_GRAPH_EVAL_SOURCE_MAP'),
@@ -3002,6 +3016,11 @@ def main(argv=None):
     parser.add_argument('--max-source-bytes', type=int, default=4 * 1024 * 1024)
     parser.add_argument('--max-nodes', type=int, default=200_000)
     args = parser.parse_args(argv)
+    if args.repetition is not None and not args.profile_pilot:
+        parser.error('--repetition requires --profile-pilot')
+    if args.repetition is None: args.repetition = 1
+    if args.repetition > 1 and args.protocol is None:
+        parser.error('--repetition beyond one requires --protocol')
     structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012', 'coverage': 'T013', 'evidence': 'T014'}.get(args.suite)
     view_task = {'impact': 'T043', 'impact-interface': 'T044'}.get(args.suite)
     if not (args.engine or args.screen_engines or args.compare or args.profile or args.profile_pilot) and structural_task is None and view_task is None:
@@ -3052,9 +3071,10 @@ def main(argv=None):
                     mapping, _ = read_json(owner, args.source_map.name)
                 original = Path(mapped_corpora(mapping)['django']['source'])
                 with worker_directory(args.source_map, args.work_root) as directory:
-                    result = profile_fixture_pilot(ROOT, directory, protocol=args.protocol, original_source=original)
+                    result = profile_fixture_pilot(ROOT, directory, protocol=args.protocol, original_source=original,
+                        repetition=args.repetition)
             else:
-                result = profile_fixture_pilot(ROOT, args.work_root)
+                result = profile_fixture_pilot(ROOT, args.work_root, repetition=args.repetition)
             size = write_result(ROOT, args.output, result, args.max_result_bytes)
             print(json.dumps({'status': result['status'], 'result': args.output, 'result_bytes': size,
                 'qualification_complete': False, 'resource_budgets_frozen': False}, separators=(',', ':')))

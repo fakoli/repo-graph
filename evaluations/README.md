@@ -115,8 +115,8 @@ uv run python evaluations/analysis.py --profile-pilot --protocol path/to/reviewe
 ```
 
 Only the preregistered first repetition is admitted. Correctness and adversarial
-preflight approval must precede corpus execution. It retains one SQLite snapshot
-and a digest of the five canonical fact streams per phase, then writes
+preflight approval must precede corpus execution. Every phase independently
+captures SQLite and measures the five canonical fact streams, then writes
 `persistent-Django.json` without replacing an existing report. Serial and queued
 modes share the same copied source owner. The run stops for evidence review
 before repetitions two and three; it does not qualify the remaining corpora,
@@ -128,6 +128,19 @@ job deadline within the pair deadline. Outer group cleanup covers only that
 group; absent collector receipts leave descendant cleanup unknown and stop
 further admission. Each captured snapshot must match all five identities in
 its ready refresh receipt, including generation and source.
+The revised private protocol preserves the failed first attempt and corrects
+only independently reviewed source selector bounds. After a phase's full
+measurement, equal identities, counts and canonical digest may share a verified
+earlier sealed snapshot. Its own snapshot timings, size and digest remain in
+the phase receipt. Obsolete evaluator-owned live indexes are removed only after
+their retained evidence is validated. The 4 GiB job and 8 GiB pair caps remain;
+this storage policy is a measured-size feasibility correction, not qualified
+capacity. Failed controller causes and actual source cleanup remain observable
+when execution stops. Live storage scans retain gaps when a worker removes a
+listed request or publishes a temporary file before its metadata is read.
+These scans observe allocated lengths without claiming an atomic total; other
+metadata and ownership errors still stop the run. Use a distinct `--output`
+path for the revised attempt; previous reports are never overwritten.
 
 For the pinned local corpus checkouts, supply a private JSON source map with
 `schema_version: 1` and a `corpora` array of `{id, source, revision}` entries.

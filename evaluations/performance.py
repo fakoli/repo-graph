@@ -1380,6 +1380,9 @@ REPRESENTATIVE_CEILINGS = dict(source_total_bytes=25165824, source_file_bytes=52
 REPRESENTATIVE_HEADER_SHA = '3cc1dfc1600ff8e2b5d59f14d638e84a044766825c7efc9c74134e44453926de'
 REPRESENTATIVE_DECISION_SHA = '4bbdccee0227226d842ef34b85f940f6f1193ac2c88bf7b444d34b8c025ced72'
 REPRESENTATIVE_MANIFEST_SHA = '7a11c33217f28cabd24eff8804cde6151a3ab6f30101e12fe1f0511e5e95aec2'
+REPRESENTATIVE_RETENTION = dict(kind='independent_phase_digest_then_sealed_alias_v1',
+    obsolete_live_indexes='remove_after_retained_proof_validation',
+    predecessor_protocol_sha256='652cecc1136121d7f91f0c54da77410a5b918ece0a22962f8164e70f472d33c6')
 
 
 def _persistent_hex(value):
@@ -1426,6 +1429,22 @@ def _persistent_records(directory, loaded, changed=None):
             raise ValueError('Manifest locked content identity mismatch')
 
 
+def _persistent_repetition(protocol, repetition=1):
+    """One explicit registered identity, never an argv-authorized matrix run."""
+    if type(repetition) is not int or not 1 <= repetition <= 3:
+        raise ValueError('Typed registered repetition identity required')
+    if protocol is None:
+        if repetition != 1: raise ValueError('Representative protocol required for repetition beyond one')
+        return repetition
+    config = protocol.get('config') if type(protocol) is dict else None
+    if (type(config) is not dict or type(config.get('planned_repetitions')) is not int or
+            config['planned_repetitions'] != 3 or type(config.get('repetition')) is not int or
+            not 1 <= config['repetition'] <= config['planned_repetitions'] or
+            repetition != config['repetition']):
+        raise ValueError('Requested repetition differs from explicit preregistered protocol identity')
+    return repetition
+
+
 def _persistent_protocol(directory, original_source=None):
     """Load the single preregistered representative protocol without source reads."""
     from evaluations import engine_checks as checks
@@ -1434,9 +1453,12 @@ def _persistent_protocol(directory, original_source=None):
     config = decode(raw)
     fields = {'schema_version', 'kind', 'corpus', 'repetition', 'planned_repetitions', 'header_sha256',
         'decision_sha256', 'ceilings', 'queries', 'updates', 'impacts', 'impacts_sha256', 'freeze_sha256'}
+    revised = type(config) is dict and config.get('schema_version') == 2
+    if revised: fields.add('retention')
     if (type(config) is not dict or set(config) != fields or type(config['schema_version']) is not int or
-            config['schema_version'] != 1 or config['kind'] != 'persistent_representative' or config['corpus'] != 'Django' or
-            type(config['repetition']) is not int or config['repetition'] != 1 or
+            config['schema_version'] not in (1, 2) or revised and config['retention'] != REPRESENTATIVE_RETENTION or
+            config['kind'] != 'persistent_representative' or config['corpus'] != 'Django' or
+            type(config['repetition']) is not int or not 1 <= config['repetition'] <= 3 or
             type(config['planned_repetitions']) is not int or config['planned_repetitions'] != 3 or
             config['header_sha256'] != REPRESENTATIVE_HEADER_SHA or config['decision_sha256'] != REPRESENTATIVE_DECISION_SHA or
             config['freeze_sha256'] != PERSISTENT_FREEZE_SHA or type(config['ceilings']) is not dict or
@@ -1444,6 +1466,7 @@ def _persistent_protocol(directory, original_source=None):
             any(type(config['ceilings'][key]) is not type(value) or config['ceilings'][key] != value
                 for key, value in REPRESENTATIVE_CEILINGS.items())):
         raise ValueError('Exact preregistered representative protocol required')
+    _persistent_repetition(dict(config=config), config['repetition'])
     header_raw, _ = checks._adapter_bytes(directory, 'header.json', expected=REPRESENTATIVE_HEADER_SHA, cap=16384)
     header = decode(header_raw); manifest = header.get('manifest') if type(header) is dict else None
     if (header.get('corpus') != 'Django' or header.get('revision') != '3b7ae042cef02a09caab70ba54077a6f4cffac80' or
@@ -1580,12 +1603,13 @@ def _persistent_check_receipt_facts(receipt, proof):
     return expected
 
 
-def _persistent_snapshot(index, directory, label, *, check, limits):
+def _persistent_snapshot(index, directory, label, *, check, limits, prior_proofs=()):
     """Pin a read transaction including WAL, retain SQLite, digest five streams."""
     from evaluations import engine_checks as checks
     if (not callable(check) or type(limits) is not dict or type(limits.get('snapshot_bytes')) is not int or
             not 0 < limits['snapshot_bytes'] <= 2147483648 or
-            type(label) is not str or not label.replace('-', '').isalnum()):
+            type(label) is not str or not label.replace('-', '').isalnum() or
+            type(prior_proofs) not in (tuple, list) or len(prior_proofs) > 6):
         raise ValueError('Finite snapshot ceiling, label and cooperative check required')
     clock = check.clock if hasattr(check, 'clock') else check
     check(); began = time.monotonic(); callbacks = [0]; counts = {}; hasher = hashlib.sha256()
@@ -1596,6 +1620,7 @@ def _persistent_snapshot(index, directory, label, *, check, limits):
     try:
         with SourceRoot(index.output) as output, SourceRoot(directory) as retained:
             if output.identity != index.output_owner or not retained.secure: raise ValueError('Snapshot directory owner mismatch')
+            retained_owner = retained.identity
             try: retained.info(name)
             except FileNotFoundError: pass
             else: raise ValueError('Sealed snapshot already exists')
@@ -1643,14 +1668,34 @@ def _persistent_snapshot(index, directory, label, *, check, limits):
                     if destination_bytes > limits['snapshot_bytes']: raise ValueError('Snapshot size ceiling exceeded')
                     os.close(destination_fd); destination_fd = None
                     os.rename(building, name, src_dir_fd=retained.fd, dst_dir_fd=retained.fd); os.fsync(retained.fd)
-                    _, sha, info = retained.read(name, 0, cancel=lambda: (clock(), False)[1], max_bytes=limits['snapshot_bytes'])
-                    if info.st_size != destination_bytes: raise ValueError('Sealed snapshot size changed')
+                    _, sha, sealed_info = retained.read(name, 0, cancel=lambda: (clock(), False)[1], max_bytes=limits['snapshot_bytes'])
+                    if sealed_info.st_size != destination_bytes: raise ValueError('Sealed snapshot size changed')
                     check()
-        return dict(evidence_mode='pinned_sqlite_backup_v1', semantic_facts_sha256=hasher.hexdigest(), counts=counts,
+        proof = dict(evidence_mode='pinned_sqlite_backup_v1', semantic_facts_sha256=hasher.hexdigest(), counts=counts,
             identities=identities, artifact=dict(path=name, sha256=sha, bytes=destination_bytes),
             snapshot=dict(source_bytes=source_bytes, destination_bytes=destination_bytes, backup_seconds=backup_seconds,
                 digest_seconds=digest_seconds, backup_progress_callbacks=callbacks[0], sealed=True, metadata_verified=True),
             scope='Pinned SQLite read transaction; sealed database reconstructs canonical streams; proof outside refresh wall')
+        proof['retention'] = dict(kind='independent_sealed', measured_artifact=dict(proof['artifact']))
+        for previous in prior_proofs:
+            if any(previous.get(key) != proof[key] for key in ('identities', 'counts', 'semantic_facts_sha256')):
+                continue
+            # Every phase measures its own backup and canonical streams before sharing bytes.
+            with SourceRoot(directory) as retained:
+                if retained.identity != retained_owner: raise ValueError('Snapshot retention owner changed')
+            with _persistent_snapshot_view(directory, previous, check): pass
+            if previous['artifact']['path'] == name: raise ValueError('Snapshot cannot alias itself')
+            with SourceRoot(directory) as retained:
+                if retained.identity != retained_owner: raise ValueError('Snapshot retention owner changed')
+                info = retained.info(name)
+                if (info.st_size != destination_bytes or info.st_dev != sealed_info.st_dev or info.st_ino != sealed_info.st_ino or
+                        info.st_mtime_ns != sealed_info.st_mtime_ns or info.st_ctime_ns != sealed_info.st_ctime_ns):
+                    raise ValueError('Measured duplicate snapshot changed before retirement')
+                os.unlink(name, dir_fd=retained.fd); os.fsync(retained.fd)
+            proof['artifact'] = dict(previous['artifact'])
+            proof['retention'].update(kind='canonical_alias_v1', alias_source_artifact=dict(previous['artifact']))
+            check(); break
+        return proof
     except BaseException as error:
         checks._adapter_dump(directory, label + '-snapshot-failure.json', dict(stage=stage, sealed=False,
             counts=counts, backup_progress_callbacks=callbacks[0], **checks._adapter_error(error)))
@@ -1661,22 +1706,28 @@ def _persistent_snapshot(index, directory, label, *, check, limits):
 
 def _persistent_storage_usage(directory, *, max_files, check):
     """Count allocated artifact lengths, including live temporary SQLite files."""
-    total, files = 0, 0
+    total, files, missing = 0, 0, 0
     with SourceRoot(directory) as root:
         def visit(fd):
-            nonlocal total, files
+            nonlocal total, files, missing
             for name in os.listdir(fd):
-                check(); info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                check()
+                try: info = os.stat(name, dir_fd=fd, follow_symlinks=False)
+                except FileNotFoundError:
+                    # Owned workers unlink requests and atomically publish temporary files.
+                    missing += 1
+                    if files + missing > max_files: raise ValueError('Artifact reference ceiling exhausted')
+                    continue
                 if stat.S_ISDIR(info.st_mode):
                     child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
                     try: visit(child)
                     finally: os.close(child)
                 elif stat.S_ISREG(info.st_mode):
                     files += 1; total += info.st_size
-                    if files > max_files: raise ValueError('Artifact reference ceiling exhausted')
+                    if files + missing > max_files: raise ValueError('Artifact reference ceiling exhausted')
                 else: raise ValueError('Owned artifact tree contains a nonregular entry')
         visit(root.fd)
-    return dict(bytes=total, files=files)
+    return dict(bytes=total, files=files, missing_entry_observations=missing)
 
 
 def _persistent_budget(directory, pair, deadline, *, cancel=None, pair_only=False):
@@ -1684,7 +1735,8 @@ def _persistent_budget(directory, pair, deadline, *, cancel=None, pair_only=Fals
     identities = {}
     observed = dict(checks=0, job_bytes=None if pair_only else 0, pair_bytes=0,
         job_files=None if pair_only else 0, pair_files=0,
-        scope='cooperative observed file lengths including live/tmp; full scans at allocation, phase, batch and one-second SQL checkpoints; no kernel aggregate quota')
+        missing_entry_observations=0,
+        scope='cooperative non-atomic observed file lengths including live/tmp; disappeared entries retained as scan gaps; full scans at allocation, phase, batch and one-second SQL checkpoints; no kernel aggregate quota')
     for path in (directory, pair):
         with SourceRoot(path) as owner: identities[str(path)] = owner.identity
     def clock():
@@ -1698,6 +1750,7 @@ def _persistent_budget(directory, pair, deadline, *, cancel=None, pair_only=Fals
             with SourceRoot(path) as owner:
                 if owner.identity != identities[str(path)]: raise ValueError('Artifact directory owner changed')
             usage = _persistent_storage_usage(path, max_files=refs, check=clock)
+            observed['missing_entry_observations'] += usage.get('missing_entry_observations', 0)
             label = 'pair' if path == pair else 'job'
             observed[label + '_bytes'] = max(observed[label + '_bytes'], usage['bytes'])
             observed[label + '_files'] = max(observed[label + '_files'], usage['files'])
@@ -1773,6 +1826,37 @@ def _persistent_snapshot_view(directory, proof, check):
                         raise ValueError('Retained proof metadata changed')
                     yield _PersistentFacts(db, proof['identities'])
     return view()
+
+
+def _persistent_retire(index, directory, proof, label, check):
+    """Retire one obsolete evaluator-owned live index after its sealed evidence."""
+    from evaluations import engine_checks as checks
+    result = dict(output=index.output.name, removed=False, identities=proof.get('identities'),
+        proof_artifact=proof.get('artifact'), cleanup=[],
+        scope='Captured private direct child; observed name swaps rejected; same-name race requires one writer')
+    try:
+        check(); _persistent_check_receipt_facts(index.last_attempt, proof)
+        with _persistent_snapshot_view(directory, proof, check): pass
+        with SourceRoot(directory) as parent:
+            name = index.output.name
+            if index.output.parent.resolve(strict=True) != parent.root:
+                raise ValueError('Obsolete index is not its captured direct child owner')
+            named = os.stat(name, dir_fd=parent.fd, follow_symlinks=False)
+            if not stat.S_ISDIR(named.st_mode): raise ValueError('Obsolete index declared child is not a directory')
+            with SourceRoot(index.output) as output:
+                info = os.fstat(output.fd)
+                if (output.identity != index.output_owner or output.root.parent != parent.root or output.root.name != name or
+                        (info.st_dev, info.st_ino) != (named.st_dev, named.st_ino)):
+                    raise ValueError('Obsolete index is not its captured direct child owner')
+                result['cleanup'] = checks._missing_remove_runtime(parent, {name: dict(device=info.st_dev, inode=info.st_ino)})
+        result.update(output=name, removed=result['cleanup'][0]['removed'])
+        if result['removed'] is not True: raise ValueError('Obsolete live index cleanup refused')
+        check(); return result
+    except BaseException as error:
+        result['failure'] = checks._adapter_error(error)
+        raise
+    finally:
+        checks._adapter_dump(directory, label + '-live-index-cleanup.json', result)
 
 
 class _PersistentLog:
@@ -2195,13 +2279,19 @@ def _persistent_queries(index, directory, *, specs=PERSISTENT_QUERY_SPECS, fanou
         stage = 'metadata'; metadata = facts_reader.metadata()
         results.update(generation=metadata['generation'], identities=metadata)
         stage = 'selectors'; selected = {spec['id']: [] for spec in specs}
+        near = {spec['id']: [] for spec in specs}
         for definition in facts_reader.read_facts('definitions'):
             for spec in specs:
                 span = tuple(definition['range'][key] for key in ('start_byte', 'end_byte', 'start_line', 'end_line'))
+                if definition['path'] == spec['path'] and definition['name'] == spec['name'] and len(near[spec['id']]) < 2:
+                    near[spec['id']].append(list(span))
                 if definition['path'] == spec['path'] and definition['name'] == spec['name'] and span == tuple(spec['span']):
                     selected[spec['id']].append(definition['id'])
                     if len(selected[spec['id']]) > 1: raise ValueError('Ambiguous frozen query selector')
-        if facts_reader.metadata() != metadata or any(len(values) != 1 for values in selected.values()):
+        results['selector_mismatches'] = [dict(id=spec['id'], expected_span=list(spec['span']),
+            matching_name_ranges=near[spec['id']], match_count=len(selected[spec['id']]))
+            for spec in specs if len(selected[spec['id']]) != 1]
+        if facts_reader.metadata() != metadata or results['selector_mismatches']:
             raise ValueError('Missing or changed frozen query selector')
         anchors = {spec['id']: spec['required_site'] for spec in specs if 'required_site' in spec}
         matched = Counter()
@@ -2357,7 +2447,8 @@ def _persistent_add_source_accounting(total, result, budget):
         raise ValueError('Canonical accounting receipt count changed')
 
 
-def _persistent_attempt(index, records, label, mode, concurrency, directory, sampler, *, protocol=None, check=None):
+def _persistent_attempt(index, records, label, mode, concurrency, directory, sampler, *, protocol=None, check=None,
+                        prior_proofs=()):
     """Observe the canonical writer alias and retain bounded full batch receipts."""
     from contextlib import ExitStack
     from unittest.mock import patch
@@ -2500,7 +2591,7 @@ def _persistent_attempt(index, records, label, mode, concurrency, directory, sam
             sampler.set_phase(label + '-proof-retention'); proof_began = time.monotonic_ns()
             try:
                 attempt['streamed_facts'] = (_persistent_snapshot(index, directory, label, check=check,
-                    limits=protocol['config']['ceilings']) if protocol else _persistent_fact_digest(index, directory, label))
+                    limits=protocol['config']['ceilings'], prior_proofs=prior_proofs) if protocol else _persistent_fact_digest(index, directory, label))
                 _persistent_check_receipt_facts(attempt['receipt'], attempt['streamed_facts'])
                 attempt.update(status='ready', snapshot_receipt_identities_verified=True)
             finally: attempt['proof_retention_seconds'] = (time.monotonic_ns() - proof_began) / 1e9
@@ -2549,6 +2640,7 @@ def _persistent_capture(root, protocol=None):
     bound['persistent_limits'] = _persistent_limits()
     if protocol is not None:
         bound['representative_protocol'] = dict(protocol_sha256=protocol['protocol_sha256'],
+            repetition=protocol['config']['repetition'], planned_repetitions=protocol['config']['planned_repetitions'],
             header_sha256=REPRESENTATIVE_HEADER_SHA, manifest_sha256=REPRESENTATIVE_MANIFEST_SHA,
             decision_sha256=REPRESENTATIVE_DECISION_SHA, ceilings=protocol['config']['ceilings'],
             query_projection_sha256=digest(protocol['config']['queries']),
@@ -2579,12 +2671,13 @@ def _persistent_limits():
 
 
 def _persistent_run(root, directory, source, source_owner, bound, mode, concurrency, supervisor,
-                    *, protocol=None, protocol_directory=None, original_source=None, pair=None, invoker=None):
+                    *, protocol=None, protocol_directory=None, original_source=None, pair=None, invoker=None, repetition=1):
     """One finite job over the supervisor's held shared source owner."""
     import resource
     from dataclasses import asdict
     from repo_graph.analysis import StructuralIndex
     from evaluations import engine_checks as checks
+    _persistent_repetition(protocol, repetition)
     if protocol is None:
         blobs, records, edits = _dual_inputs(root, bound)
         edit_ids, impact_sha, specs = ('U-PY-BODY', 'U-PY-EXPORT'), PERSISTENT_IMPACT_SHA, PERSISTENT_QUERY_SPECS
@@ -2603,20 +2696,25 @@ def _persistent_run(root, directory, source, source_owner, bound, mode, concurre
                                 'source_fence_children_excluded_from_rss'],
         input_inventory_sha256=protocol['header']['manifest']['records_sha256'] if protocol else digest(records),
         input_file_count=2978 if protocol else len(records),
-        limitations=['one representative repetition of three; remaining corpora pending' if protocol else 'finite fixture only',
+        limitations=['one registered representative repetition; remaining matrix entries pending' if protocol else 'finite fixture only',
                      'sampled current RSS is not exact peak or a hard tree bound',
                      'inclusive stage timings overlap; child timing sums are not wall time',
                      'production wall includes instrumentation and batch receipt retention'])
     sampler = None
     children = None
+    if protocol:
+        report.update(protocol_sha256=protocol['protocol_sha256'], repetition=repetition,
+            planned_repetitions=protocol['config']['planned_repetitions'],
+            representative_matrix_complete=False, corpus='Django', ceilings=protocol['config']['ceilings'])
     try:
         report['isolation'] = _dual_isolation(directory)
         if protocol:
             oracle = None; impacts = protocol['config']['impacts']
-            report.update(protocol_sha256=protocol['protocol_sha256'], repetition=1, planned_repetitions=3,
-                representative_matrix_complete=False, corpus='Django', ceilings=protocol['config']['ceilings'])
             report['qualification_blockers'] = ['representative_matrix_incomplete', 'resource_budgets_unfrozen',
                 'sampled_rss_has_unbounded_startup_and_short_child_gaps', 'supervisor_materialization_io_not_phase_metered']
+            if protocol['config'].get('retention'):
+                report['retention_protocol'] = protocol['config']['retention']
+                report['live_index_cleanup'] = []
         else:
             _persistent_recheck(root, bound)
             oracle = checks._adapter_json(root, 'evaluations/code-understanding/supplement-oracle.json', bound)
@@ -2645,7 +2743,8 @@ def _persistent_run(root, directory, source, source_owner, bound, mode, concurre
                 current = _persistent_protocol(protocol_directory, original_source)
                 if current != protocol: raise ValueError('Protocol or original owner changed')
                 observed = _persistent_attempt(index, items, label, mode, concurrency, directory, sampler,
-                                               protocol=protocol, check=check)
+                    protocol=protocol, check=check, prior_proofs=tuple(phase['streamed_facts']
+                        for phase in report['phases']) if protocol['config'].get('retention') else ())
             else:
                 with sampler.exclude_source_fence(label): _persistent_recheck(root, bound)
                 observed = _persistent_attempt(index, items, label, mode, concurrency, directory, sampler)
@@ -2691,6 +2790,9 @@ def _persistent_run(root, directory, source, source_owner, bound, mode, concurre
             checks._adapter_materialize(source, changed)
             incremental = attempt(index, changed_records, edit_id + '-changed')
             grade(index, incremental, edit_id + '-changed', (edit_id,), 'after')
+            if protocol and protocol['config'].get('retention'):
+                report['live_index_cleanup'].append(_persistent_retire(index, directory, incremental,
+                    edit_id + '-changed', check))
             clean = StructuralIndex(source, directory / (edit_id.lower() + '-clean'))
             rebuilt = attempt(clean, inventory(edits[edit_id]) if protocol else changed_records, edit_id + '-clean-rebuild')
             grade(clean, rebuilt, edit_id + '-clean-rebuild', (edit_id,), 'after')
@@ -2699,6 +2801,9 @@ def _persistent_run(root, directory, source, source_owner, bound, mode, concurre
                 counts=incremental['counts'] == rebuilt['counts'],
                 generation_changed=incremental['identities']['generation'] != fresh['identities']['generation'],
                 source_identity_changed=incremental['identities']['source_identity'] != fresh['identities']['source_identity'])
+            if protocol and protocol['config'].get('retention'):
+                report['live_index_cleanup'].append(_persistent_retire(clean, directory, rebuilt,
+                    edit_id + '-clean-rebuild', check))
         with SourceRoot(source) as owner:
             report['source_owner_identity_after'] = owner.identity
             if owner.identity != source_owner: raise ValueError('Measured source owner changed')
@@ -2739,7 +2844,8 @@ def _persistent_run(root, directory, source, source_owner, bound, mode, concurre
     return report
 
 
-def _persistent_validate(report, bound, mode, concurrency, protocol=None):
+def _persistent_validate(report, bound, mode, concurrency, protocol=None, repetition=1):
+    _persistent_repetition(protocol, repetition)
     edits = tuple(row['id'] for row in protocol['config']['updates']) if protocol else ('U-PY-BODY', 'U-PY-EXPORT')
     labels = (['fresh-output', 'unchanged-repeat', edits[0] + '-changed', edits[0] + '-clean-rebuild',
                edits[1] + '-reset-prime', edits[1] + '-changed', edits[1] + '-clean-rebuild'])
@@ -2755,6 +2861,12 @@ def _persistent_validate(report, bound, mode, concurrency, protocol=None):
             any(type(row) is not dict for row in report['phases']) or
             [row.get('label') for row in report['phases']] != labels[:len(report['phases'])] or len(report['phases']) > 7):
         raise ValueError('Persistent fixture report identity/phase mismatch')
+    if protocol and (report.get('protocol_sha256') != protocol['protocol_sha256'] or
+            type(report.get('repetition')) is not int or report['repetition'] != repetition or
+            type(report.get('planned_repetitions')) is not int or
+            report['planned_repetitions'] != protocol['config']['planned_repetitions'] or
+            report.get('representative_matrix_complete') is not False):
+        raise ValueError('Persistent report repetition/protocol identity mismatch')
     if report['status'] == 'complete':
         for phase in report['phases']:
             _persistent_check_receipt_facts(phase.get('receipt'), phase.get('streamed_facts'))
@@ -2782,11 +2894,43 @@ def _persistent_validate(report, bound, mode, concurrency, protocol=None):
             raise ValueError('Missing complete persistent experiment evidence')
         if protocol and (report.get('protocol_sha256') != protocol['protocol_sha256'] or report.get('input_file_count') != 2978 or
                 report.get('input_inventory_sha256') != protocol['header']['manifest']['records_sha256'] or
-                report.get('ceilings') != protocol['config']['ceilings'] or report.get('repetition') != 1 or
-                report.get('planned_repetitions') != 3 or report.get('representative_matrix_complete') is not False or
+                report.get('ceilings') != protocol['config']['ceilings'] or
                 rss.get('max_windows') != 32 or any(row.get('streamed_facts', {}).get('evidence_mode') != 'pinned_sqlite_backup_v1' or
                 row['streamed_facts'].get('snapshot', {}).get('sealed') is not True for row in report['phases'])):
             raise ValueError('Missing preregistered retained representative evidence')
+        if protocol and protocol['config'].get('retention'):
+            if report.get('retention_protocol') != protocol['config']['retention']:
+                raise ValueError('Representative retention protocol changed')
+            for number, phase in enumerate(report['phases']):
+                proof = phase['streamed_facts']; retention = proof.get('retention') or {}
+                measured = retention.get('measured_artifact') or {}
+                if (measured.get('path') != phase['label'] + '.facts.sqlite' or
+                        not _persistent_hex(measured.get('sha256')) or type(measured.get('bytes')) is not int or
+                        not 0 < measured['bytes'] <= protocol['config']['ceilings']['snapshot_bytes'] or
+                        measured['bytes'] != proof['snapshot']['destination_bytes']):
+                    raise ValueError('Missing independent phase snapshot measurement')
+                if retention.get('kind') == 'independent_sealed':
+                    if proof['artifact'] != measured or 'alias_source_artifact' in retention:
+                        raise ValueError('Independent sealed artifact differs from measurement')
+                elif retention.get('kind') == 'canonical_alias_v1':
+                    if (proof['artifact'] != retention.get('alias_source_artifact') or
+                            proof['artifact']['path'] == measured['path'] or not any(
+                                old['streamed_facts']['artifact'] == proof['artifact'] and all(
+                                    old['streamed_facts'][key] == proof[key] for key in
+                                    ('identities', 'counts', 'semantic_facts_sha256'))
+                                for old in report['phases'][:number])):
+                        raise ValueError('Snapshot alias lacks an earlier equal sealed proof')
+                else: raise ValueError('Unknown representative snapshot retention')
+            cleanup = report.get('live_index_cleanup')
+            retired = [label for label in labels if label.endswith(('-changed', '-clean-rebuild'))]
+            if type(cleanup) is not list or len(cleanup) != len(retired):
+                raise ValueError('Missing obsolete live index cleanup receipts')
+            for label, removed in zip(retired, cleanup):
+                proof = next(phase['streamed_facts'] for phase in report['phases'] if phase['label'] == label)
+                if (removed.get('removed') is not True or removed.get('identities') != proof['identities'] or
+                        removed.get('proof_artifact') != proof['artifact'] or not removed.get('cleanup') or
+                        any(row.get('removed') is not True for row in removed['cleanup'])):
+                    raise ValueError('Obsolete live index was not retired after its retained proof')
         for phase in report['phases']:
             accounting = phase.get('source_accounting')
             if (type(accounting) is not dict or accounting.get('accounting_complete') is not True or
@@ -2873,12 +3017,14 @@ def persistent_worker(argv):
         control = decode(raw)
         fields = {'schema_version', 'mode', 'concurrency', 'binding', 'directory_owner', 'supervisor', 'source_owner'}
         if loaded: fields |= {'protocol_sha256', 'pair_owner', 'invoker'}
+        if loaded and type(control) is dict and 'repetition' in control: fields.add('repetition')
         if (type(control) is not dict or set(control) != fields or control.get('schema_version') != 1 or
                 type(control.get('schema_version')) is not int or type(control.get('concurrency')) is not int or
                 (control['mode'], control['concurrency']) not in PERSISTENT_MODES or
                 control['directory_owner'] != owner.identity or type(control.get('supervisor')) is not dict or
                 control['supervisor'].get('pid') != args.creator_pid):
             raise ValueError('Typed persistent controller ownership required')
+    repetition = _persistent_repetition(loaded, control.get('repetition', 1))
     if loaded:
         with SourceRoot(pair) as pair_owner:
             if pair_owner.identity != control['pair_owner']: raise ValueError('Supervisor pair owner changed')
@@ -2893,7 +3039,7 @@ def persistent_worker(argv):
     bound = _persistent_capture(root, loaded) if loaded else _persistent_capture(root)
     if bound != control['binding']: raise ValueError('Parent/controller committed binding mismatch')
     kwargs = dict(protocol=loaded, protocol_directory=protocol_directory, original_source=original,
-                  pair=pair, invoker=control['invoker']) if loaded else {}
+                  pair=pair, invoker=control['invoker'], repetition=repetition) if loaded else {}
     report = _persistent_run(root, directory, source, control['source_owner'], bound,
                              control['mode'], control['concurrency'], control['supervisor'], **kwargs)
     return 0 if report['status'] == 'complete' else 1
@@ -2905,6 +3051,7 @@ def persistent_supervisor(argv):
     parser = argparse.ArgumentParser(); parser.add_argument('evidence_directory', type=Path)
     parser.add_argument('--cpu-affinity', type=int, nargs='+'); parser.add_argument('--creator-pid', type=int, required=True)
     parser.add_argument('--protocol-fd', type=int); parser.add_argument('--original-fd', type=int); parser.add_argument('--invoker')
+    parser.add_argument('--repetition', type=int, default=1)
     args = parser.parse_args(argv); _guard_controller(args.creator_pid)
     if (args.protocol_fd is None) != (args.original_fd is None): raise ValueError('Protocol and original descriptors required together')
     options = {}
@@ -2912,7 +3059,8 @@ def persistent_supervisor(argv):
         options = dict(protocol=Path('/proc/self/fd') / str(args.protocol_fd),
                        original_source=Path('/proc/self/fd') / str(args.original_fd), invoker=decode(args.invoker.encode()) if args.invoker else None)
     elif args.invoker is not None: raise ValueError('Invoker observation requires representative protocol')
-    result = profile_persistent_fixture(Path(__file__).resolve().parents[1], args.evidence_directory, affinity=args.cpu_affinity, **options)
+    result = profile_persistent_fixture(Path(__file__).resolve().parents[1], args.evidence_directory,
+        affinity=args.cpu_affinity, repetition=args.repetition, **options)
     print(json.dumps(compact_persistent_result(result), sort_keys=True, separators=(',', ':'), allow_nan=False))
     return 0 if result['status'] == 'complete' else 1
 
@@ -2950,7 +3098,7 @@ def compact_persistent_result(wrapper):
     if representative:
         result.update(select(report, 'corpus protocol_sha256 repetition planned_repetitions representative_matrix_complete ceilings'))
         result['artifact_budget_observations'] = select(report.get('artifact_budget_observations'),
-            'checks job_bytes pair_bytes job_files pair_files scope')
+            'checks job_bytes pair_bytes job_files pair_files missing_entry_observations scope')
         result['source_materialization'] = [select(row, 'mode operations successful_operations failed_operations open_operations '
             'stream_bytes hashed_bytes returned_prefix_bytes hash_passes inclusive_read_ns by_pass scope')
             for row in report.get('source_materialization') or []]
@@ -2989,6 +3137,11 @@ def compact_persistent_result(wrapper):
                     item['facts'].update(select(phase['streamed_facts'], 'evidence_mode identities'))
                     item['facts']['snapshot'] = select(phase['streamed_facts'].get('snapshot'), 'source_bytes destination_bytes '
                         'backup_seconds digest_seconds backup_progress_callbacks sealed metadata_verified')
+                    retention = phase['streamed_facts'].get('retention')
+                    if retention:
+                        item['facts']['retention'] = select(retention, 'kind')
+                        for key in ('measured_artifact', 'alias_source_artifact'):
+                            if key in retention: item['facts']['retention'][key] = select(retention[key], 'path sha256 bytes')
             if 'receipt' in phase:
                 receipt = phase.get('receipt') or {}
                 item['coverage'] = select(receipt.get('coverage'), 'files_total files_supported files_unsupported '
@@ -3000,6 +3153,9 @@ def compact_persistent_result(wrapper):
                     'unknown_closure_files_rebuilt dependency_lookups_checked inventory_entries_consumed invalidation_reason elapsed_seconds')
             row['phases'].append(item)
         row['equivalence'] = raw.get('equivalence')
+        if 'live_index_cleanup' in raw:
+            row['live_index_cleanup'] = [select(item, 'output removed identities proof_artifact scope')
+                for item in raw['live_index_cleanup']]
         row['source_impacts'] = {label: {key: select(impact, 'passed checked_impacts expected_sha256 identities '
             'selected_declarations selected_sites oracle_projection_sha256') for key, impact in (values or {}).items()}
             for label, values in (raw.get('source_impacts') or {}).items()}
@@ -3010,6 +3166,7 @@ def compact_persistent_result(wrapper):
                     'examined_relationships examined_symbols returned_entities returned_symbol_handles returned_edges '
                     'excerpt_bytes storage_progress_callbacks storage_setup_seconds snapshot_copy_seconds total_count truncated stop_reason')
             row['queries'] = select(queries, 'freeze_sha256 generation identities scope cold_calls warm_calls limits passed')
+            if 'selector_mismatches' in queries: row['queries']['selector_mismatches'] = queries['selector_mismatches']
             errors(queries, row['queries'], 'failure retention_failure')
             row['queries']['workloads'] = [dict(select(workload, 'id operation seed limits warm_p50_seconds '
                 'warm_p95_seconds rows_sha256 passed'), samples=[sample(value) for value in workload.get('samples') or []])
@@ -3020,7 +3177,7 @@ def compact_persistent_result(wrapper):
                 if control is not None else None)
         rss = raw.get('owned_rss') or {}
         if representative: row['artifact_budget_observations'] = select(raw.get('artifact_budget_observations'),
-            'checks job_bytes pair_bytes job_files pair_files scope')
+            'checks job_bytes pair_bytes job_files pair_files missing_entry_observations scope')
         row['owned_rss'] = {key: rss[key] for key in ('peak_sampled_owned_rss_bytes', 'sample_count', 'complete_sample_count',
             'sample_gap_count', 'created_child_count', 'largest_start_interval_ns', 'max_read_skew_ns', 'queue_high_water',
             'requested_interval_seconds', 'per_window_limits', 'max_windows', 'unsampled_peak_bound', 'all_created_children_registered',
@@ -3037,15 +3194,17 @@ def compact_persistent_result(wrapper):
 
 
 def profile_persistent_fixture(root, evidence_directory, runs=1, *, affinity=None,
-                               protocol=None, original_source=None, invoker=None):
+                               protocol=None, original_source=None, invoker=None, repetition=1):
     """One owned serial1/queued2 pair; finite proof, never a representative matrix."""
     from evaluations import engine_checks as checks
     from evaluations.supplement_preparation import decode
     if type(runs) is not int or runs != 1: raise ValueError('Exactly one finite paired pilot repetition required')
     if (protocol is None) != (original_source is None): raise ValueError('Protocol and original source required together')
     if protocol is None and invoker is not None: raise ValueError('Invoker observation requires representative protocol')
+    if protocol is None: _persistent_repetition(None, repetition)
     root = checks._adapter_root(root)
     loaded = _persistent_protocol(protocol, original_source) if protocol is not None else None
+    _persistent_repetition(loaded, repetition)
     if loaded:
         destination = Path(evidence_directory).resolve(strict=True)
         for protected in (Path(protocol).resolve(strict=True), Path(original_source).resolve(strict=True)):
@@ -3064,7 +3223,8 @@ def profile_persistent_fixture(root, evidence_directory, runs=1, *, affinity=Non
                                 'representative_query_costs_unmeasured', 'resource_budgets_unfrozen',
                                 'source_fence_children_excluded_from_rss'])
     if loaded:
-        report.update(corpus='Django', protocol_sha256=loaded['protocol_sha256'], repetition=1, planned_repetitions=3,
+        report.update(corpus='Django', protocol_sha256=loaded['protocol_sha256'], repetition=repetition,
+            planned_repetitions=loaded['config']['planned_repetitions'],
             representative_matrix_complete=False, ceilings=loaded['config']['ceilings'],
             qualification_blockers=['representative_matrix_incomplete', 'resource_budgets_unfrozen',
                 'sampled_rss_has_unbounded_startup_and_short_child_gaps'])
@@ -3079,90 +3239,113 @@ def profile_persistent_fixture(root, evidence_directory, runs=1, *, affinity=Non
             report['binding_before'] = bound
             blobs = _dual_inputs(root, bound)[0] if loaded is None else None
             report['source_cleanup'] = dict(completed=False, scope='supervisor descriptor-owned shared source cleanup')
-            with checks._adapter_source(run) as source, SourceRoot(source) as shared:
-                report['shared_source_owner_identity'] = shared.identity
-                for mode, concurrency in PERSISTENT_MODES:
-                    label = mode + '-' + str(concurrency); row = dict(id=label, mode=mode, concurrency=concurrency, status='running')
-                    report['cases'].append(row); process = None
-                    if loaded:
-                        if _persistent_protocol(protocol, original_source) != loaded: raise ValueError('Protocol changed before mode admission')
-                        with _PersistentReadMeter(loaded['original_owner'], label + '-materialization', run, max_windows=32) as meter:
-                            _persistent_materialize(source, original_source, protocol, loaded, check)
-                        report.setdefault('source_materialization', []).append(dict(mode=mode, **meter.summary()))
-                    else: checks._adapter_materialize(source, blobs)
-                    if shared.identity != report['shared_source_owner_identity']: raise ValueError('Shared source owner changed')
-                    with checks._adapter_child(run, label) as job, SourceRoot(job) as owner:
-                        _persistent_recheck(root, bound)
-                        control = dict(schema_version=1, mode=mode, concurrency=concurrency,
-                            binding=bound, directory_owner=owner.identity, supervisor=_dual_self_identity(), source_owner=shared.identity)
-                        if loaded: control.update(protocol_sha256=loaded['protocol_sha256'], pair_owner=pair_hold.identity, invoker=invoker)
-                        checks._adapter_dump(job, 'control.json', control)
-                        try:
-                            if time.monotonic() >= deadline: raise TimeoutError('Persistent pilot wall budget exhausted')
-                            with owner.open('stdout.log', create=True) as stdout, owner.open('stderr.log', create=True) as stderr:
-                                bridge = Path('/proc/' + str(os.getpid()) + '/fd/' + str(owner.fd))
-                                command = [sys.executable, '-I', '-B', str(root / 'evaluations/performance.py'),
-                                    '--persistent-worker', str(owner.fd), str(shared.fd), str(os.getpid())]
-                                descriptors = (owner.fd, shared.fd)
-                                if loaded:
-                                    command += ['--protocol-fd', str(protocol_hold.fd), '--original-fd', str(original_hold.fd),
-                                                '--pair-fd', str(pair_hold.fd)]
-                                    descriptors += (protocol_hold.fd, original_hold.fd, pair_hold.fd)
-                                job_started = time.monotonic()
-                                process = subprocess.Popen(command, cwd=bridge,
-                                    env=checks._environment(bridge), pass_fds=descriptors, stdin=subprocess.DEVNULL,
-                                    stdout=stdout, stderr=stderr, start_new_session=True)
-                                if loaded:
-                                    job_deadline = job_started + loaded['config']['ceilings']['job_wall_seconds']
-                                    remaining = min(job_deadline, deadline) - time.monotonic()
-                                    row['watchdog'] = dict(job_wall_seconds=loaded['config']['ceilings']['job_wall_seconds'],
-                                        wait_timeout_seconds=max(0.0, remaining), scope='controller spawn to exit; bounded by remaining pair wall')
-                                    if remaining <= 0: raise subprocess.TimeoutExpired(command, 0)
-                                    row['returncode'] = process.wait(timeout=remaining)
-                                else: row['returncode'] = process.wait(timeout=max(.001, deadline - time.monotonic()))
-                            raw, sha, info = owner.read('result.json', DUAL_LOG_BYTES + 1, hash_full=False)
-                            if len(raw) != info.st_size or len(raw) > DUAL_LOG_BYTES: raise ValueError('Bounded complete pilot report required')
-                            row['report_artifact'] = dict(path=label + '/result.json', sha256=sha, bytes=info.st_size)
-                            produced = decode(raw)
-                            if type(produced) is dict: row['report'] = produced
-                            result = _persistent_validate(produced, bound, mode, concurrency, loaded) if loaded else \
-                                     _persistent_validate(produced, bound, mode, concurrency)
-                            if (result.get('source_owner_identity') != shared.identity or
-                                    result.get('source_owner_identity_after') != shared.identity):
-                                raise ValueError('Both modes require the same admitted source owner')
-                            row['status'] = result['status']
-                            if loaded and result.get('representative_corpus_profiled') is True: report['representative_corpus_profiled'] = True
-                            if row['returncode'] != 0: raise ChildProcessError('Owned fixture worker exited nonzero')
-                        except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError) as error:
-                            row.update(status='failed', failure=checks._adapter_error(error))
-                        finally:
-                            row['cleanup'] = checks._stop_and_reap(process) if process is not None else None
-                            if loaded:
-                                row['controller_cleanup_scope'] = 'controller leader and controller process group only'
-                                verified = (row['status'] == 'complete' and row.get('returncode') == 0 and
-                                    type(row.get('report')) is dict and
-                                    row['report'].get('owned_rss', {}).get('error') is None and
-                                    row['report'].get('owned_rss', {}).get('remaining_registered_owned_child_owners') == [])
-                                row['descendant_cleanup'] = dict(status='verified' if verified else 'unknown',
-                                    collector_sessions_reaped=True if verified else None,
-                                    knowledge='validated_controller_terminal_receipts' if verified else 'no_validated_terminal_reaping_proof',
-                                    scope='separate collector sessions; controller-group cleanup and parent-death signals are not reaping proof')
-                                if not verified and row['status'] == 'complete': row['status'] = 'failed'
-                            row['logs'] = []
-                            for log in ('stdout.log', 'stderr.log'):
-                                try:
-                                    raw, sha, info = owner.read(log, DUAL_LOG_BYTES + 1, hash_full=False)
-                                    row['logs'].append(dict(path=label + '/' + log, sha256=sha, bytes=info.st_size,
-                                        complete=len(raw) == info.st_size and len(raw) <= DUAL_LOG_BYTES))
-                                except OSError as error: row['logs'].append(dict(path=label + '/' + log, error_kind=type(error).__name__))
-                            if not row['cleanup'] or not row['cleanup']['leader_reaped'] or not row['cleanup']['group_absent']:
-                                row['status'] = 'cleanup_failed'
+            source_context = checks._adapter_source(run)
+            source = source_context.__enter__()
+            try:
+                with SourceRoot(source) as shared:
+                    report['shared_source_owner_identity'] = shared.identity
+                    for mode, concurrency in PERSISTENT_MODES:
+                        label = mode + '-' + str(concurrency); row = dict(id=label, mode=mode, concurrency=concurrency, status='running')
+                        report['cases'].append(row); process = None
+                        if loaded:
+                            if _persistent_protocol(protocol, original_source) != loaded: raise ValueError('Protocol changed before mode admission')
+                            with _PersistentReadMeter(loaded['original_owner'], label + '-materialization', run, max_windows=32) as meter:
+                                _persistent_materialize(source, original_source, protocol, loaded, check)
+                            report.setdefault('source_materialization', []).append(dict(mode=mode, **meter.summary()))
+                        else: checks._adapter_materialize(source, blobs)
+                        if shared.identity != report['shared_source_owner_identity']: raise ValueError('Shared source owner changed')
+                        with checks._adapter_child(run, label) as job, SourceRoot(job) as owner:
                             _persistent_recheck(root, bound)
-                            if check: check()
-                            checks._adapter_dump(run, 'report.json', report)
-                    if row['status'] != 'complete': raise ValueError('Persistent pilot case failed; no further admission')
-                report['same_source_owner_across_modes'] = all(case['report']['source_owner_identity'] == shared.identity for case in report['cases'])
-            report['source_cleanup']['completed'] = True
+                            control = dict(schema_version=1, mode=mode, concurrency=concurrency,
+                                binding=bound, directory_owner=owner.identity, supervisor=_dual_self_identity(), source_owner=shared.identity)
+                            if loaded: control.update(protocol_sha256=loaded['protocol_sha256'], pair_owner=pair_hold.identity,
+                                invoker=invoker, repetition=repetition)
+                            checks._adapter_dump(job, 'control.json', control)
+                            try:
+                                if time.monotonic() >= deadline: raise TimeoutError('Persistent pilot wall budget exhausted')
+                                with owner.open('stdout.log', create=True) as stdout, owner.open('stderr.log', create=True) as stderr:
+                                    bridge = Path('/proc/' + str(os.getpid()) + '/fd/' + str(owner.fd))
+                                    command = [sys.executable, '-I', '-B', str(root / 'evaluations/performance.py'),
+                                        '--persistent-worker', str(owner.fd), str(shared.fd), str(os.getpid())]
+                                    descriptors = (owner.fd, shared.fd)
+                                    if loaded:
+                                        command += ['--protocol-fd', str(protocol_hold.fd), '--original-fd', str(original_hold.fd),
+                                                    '--pair-fd', str(pair_hold.fd)]
+                                        descriptors += (protocol_hold.fd, original_hold.fd, pair_hold.fd)
+                                    job_started = time.monotonic()
+                                    process = subprocess.Popen(command, cwd=bridge,
+                                        env=checks._environment(bridge), pass_fds=descriptors, stdin=subprocess.DEVNULL,
+                                        stdout=stdout, stderr=stderr, start_new_session=True)
+                                    if loaded:
+                                        job_deadline = job_started + loaded['config']['ceilings']['job_wall_seconds']
+                                        remaining = min(job_deadline, deadline) - time.monotonic()
+                                        row['watchdog'] = dict(job_wall_seconds=loaded['config']['ceilings']['job_wall_seconds'],
+                                            wait_timeout_seconds=max(0.0, remaining), scope='controller spawn to exit; bounded by remaining pair wall')
+                                        if remaining <= 0: raise subprocess.TimeoutExpired(command, 0)
+                                        row['returncode'] = process.wait(timeout=remaining)
+                                    else: row['returncode'] = process.wait(timeout=max(.001, deadline - time.monotonic()))
+                                raw, sha, info = owner.read('result.json', DUAL_LOG_BYTES + 1, hash_full=False)
+                                if len(raw) != info.st_size or len(raw) > DUAL_LOG_BYTES: raise ValueError('Bounded complete pilot report required')
+                                row['report_artifact'] = dict(path=label + '/result.json', sha256=sha, bytes=info.st_size)
+                                produced = decode(raw)
+                                if type(produced) is dict: row['report'] = produced
+                                result = _persistent_validate(produced, bound, mode, concurrency, loaded, repetition) if loaded else \
+                                         _persistent_validate(produced, bound, mode, concurrency)
+                                after = result.get('source_owner_identity_after')
+                                row['source_owner_observation'] = dict(
+                                    before_matches=result.get('source_owner_identity') == shared.identity,
+                                    after_knowledge='missing' if after is None else 'observed',
+                                    after_matches=None if after is None else after == shared.identity)
+                                if result['status'] == 'complete':
+                                    if result.get('source_owner_identity') != shared.identity or after != shared.identity:
+                                        raise ValueError('Both modes require the same admitted source owner')
+                                elif result.get('source_owner_identity') != shared.identity or after is not None and after != shared.identity:
+                                    row['identity_failure'] = dict(error_kind='ValueError',
+                                        reason='Failed controller source owner differs from admission')
+                                row['status'] = result['status']
+                                if result.get('failure') is not None: row['failure'] = result['failure']
+                                if loaded and result.get('representative_corpus_profiled') is True: report['representative_corpus_profiled'] = True
+                                if row['status'] == 'complete' and row['returncode'] != 0:
+                                    raise ChildProcessError('Owned fixture worker exited nonzero')
+                            except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError) as error:
+                                row.update(status='failed', failure=checks._adapter_error(error))
+                            finally:
+                                row['cleanup'] = checks._stop_and_reap(process) if process is not None else None
+                                if loaded:
+                                    row['controller_cleanup_scope'] = 'controller leader and controller process group only'
+                                    verified = (row['status'] == 'complete' and row.get('returncode') == 0 and
+                                        type(row.get('report')) is dict and
+                                        row['report'].get('owned_rss', {}).get('error') is None and
+                                        row['report'].get('owned_rss', {}).get('remaining_registered_owned_child_owners') == [])
+                                    row['descendant_cleanup'] = dict(status='verified' if verified else 'unknown',
+                                        collector_sessions_reaped=True if verified else None,
+                                        knowledge='validated_controller_terminal_receipts' if verified else 'no_validated_terminal_reaping_proof',
+                                        scope='separate collector sessions; controller-group cleanup and parent-death signals are not reaping proof')
+                                    if not verified and row['status'] == 'complete': row['status'] = 'failed'
+                                row['logs'] = []
+                                for log in ('stdout.log', 'stderr.log'):
+                                    try:
+                                        raw, sha, info = owner.read(log, DUAL_LOG_BYTES + 1, hash_full=False)
+                                        row['logs'].append(dict(path=label + '/' + log, sha256=sha, bytes=info.st_size,
+                                            complete=len(raw) == info.st_size and len(raw) <= DUAL_LOG_BYTES))
+                                    except OSError as error: row['logs'].append(dict(path=label + '/' + log, error_kind=type(error).__name__))
+                                if not row['cleanup'] or not row['cleanup']['leader_reaped'] or not row['cleanup']['group_absent']:
+                                    row['status'] = 'cleanup_failed'
+                                _persistent_recheck(root, bound)
+                                if check: check()
+                                checks._adapter_dump(run, 'report.json', report)
+                        if row['status'] != 'complete':
+                            if row.get('failure') is not None: report['failure'] = row['failure']
+                            raise ValueError('Persistent pilot case failed; no further admission')
+                    report['same_source_owner_across_modes'] = all(case['report']['source_owner_identity'] == shared.identity for case in report['cases'])
+            finally:
+                try:
+                    source_context.__exit__(*sys.exc_info())
+                except BaseException as error:
+                    report['source_cleanup']['failure'] = checks._adapter_error(error)
+                    raise
+                else:
+                    report['source_cleanup']['completed'] = True
             reference = report['cases'][0]['report']['phases']
             report['phase_semantic_agreement'] = {phase['label']: all(
                 next(other for other in case['report']['phases'] if other['label'] == phase['label'])['streamed_facts']['semantic_facts_sha256'] ==
@@ -3172,7 +3355,8 @@ def profile_persistent_fixture(root, evidence_directory, runs=1, *, affinity=Non
                 report['qualification_blockers'].remove('source_data_accounting_unsettled')
             report['status'] = 'complete' if len(reference) == 7 and report['same_source_owner_across_modes'] and all(report['phase_semantic_agreement'].values()) else 'equivalence_failed'
         except (OSError, ValueError, RuntimeError, KeyError, TypeError, subprocess.SubprocessError) as error:
-            report.update(status='failed', failure=checks._adapter_error(error))
+            report['status'] = 'failed'
+            report.setdefault('failure', checks._adapter_error(error))
         finally:
             if bound is not None:
                 try: report['binding_after'] = _persistent_recheck(root, bound)
