@@ -142,6 +142,33 @@ class ContractTests(unittest.TestCase):
                 snapshot._continuations[page['cursor']]=(0,*snapshot._continuations[page['cursor']][1:])
                 snapshot.query(operation='contract',cursor=page['cursor'],limits=Limits(max_edges=1))
 
+    def test_symbol_queries_remain_available_with_and_without_contracts(self):
+        for enrolled in (False,True):
+            with self.subTest(enrolled=enrolled):
+                index,_=self.index(output=self.scratch/('symbols-'+str(enrolled)),context=enrolled)
+                seed=next(index.read_facts('definitions'))['id']
+                with Queries(index.output) as queries:
+                    all_rows=queries.run(dict(operation='symbol'))['rows']
+                    self.assertTrue(all_rows)
+                    selected=queries.run(dict(operation='symbol',seed=seed))['rows']
+                    self.assertEqual([row['id'] for row in selected],[seed])
+
+    def test_target_generated_and_stale_artifact_candidates_withhold_contract_targets(self):
+        profile=json.loads(self.original['bindings.json'])
+        controls=(('worker.rpc.server','gateway.workerRpc'),('worker.queue.consumer','orders.publish_created'))
+        candidates=(('gateway.generatedRpc','unqualified_generated_claim'),('gateway.staleRpc','stale_artifact'))
+        for target,origin in controls:
+            for donor,reason in candidates:
+                with self.subTest(target=target,candidate=donor):
+                    changed=copy.deepcopy(self.original); altered=copy.deepcopy(profile)
+                    metadata=next(row['artifact_candidate'] for row in profile['bindings'] if row['id']==donor)
+                    next(row for row in altered['bindings'] if row['id']==target)['artifact_candidate']=metadata
+                    changed['bindings.json']=(json.dumps(altered,indent=2)+'\n').encode()
+                    self.write(changed); index,_=self.index(changed,output=self.scratch/(target+'-'+donor))
+                    row=next(row for row in index.read_facts('sites') if row.get('binding_id')==origin)
+                    self.assertEqual((row['role'],row['targets'],row['certainty'],row['targets_exhaustive'],row['reason']),
+                        ('contract_boundary',[],'unresolved',False,reason))
+
     def test_enrollment_ownership_profile_guards_and_failed_refresh_roll_back(self):
         index,_=self.index(); original=(index.output/'search.db').read_bytes()
         context=contract_context(self.source,self.original,self.identity['independent_review_sha256'],self.manifest['synthetic_inventory_sha256'])

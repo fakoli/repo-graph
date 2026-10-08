@@ -1080,7 +1080,7 @@ class SQLSnapshot(Snapshot):
                     if operation == 'contract' and occurrence['role'] not in ('contract','contract_boundary'):
                         frontier[0][2] = position
                         continue
-                    if operation not in ('framework','contract') and occurrence['role'] in ('contract','contract_boundary'):
+                    if not symbols and operation not in ('framework','contract') and occurrence['role'] in ('contract','contract_boundary'):
                         frontier[0][2] = position
                         continue
                     if symbols:

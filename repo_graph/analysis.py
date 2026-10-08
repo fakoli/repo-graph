@@ -265,6 +265,15 @@ def _contract_publish(db, files, capsule, context, check, resources):
                 row['source_sha256'] != artifact['sha256'] for row in contract['source_witnesses']):
             return 'artifact_source_affinity_unqualified'
         return ''
+    def artifact_reason(binding, contract):
+        candidate = binding.get('artifact_candidate', {})
+        if type(candidate) is not dict:
+            return 'unqualified_artifact_candidate'
+        if candidate.get('provenance') == 'claimed_generated':
+            return 'unqualified_generated_claim'
+        if candidate.get('expected_sha256') not in (None, artifacts[contract['artifact_id']]['sha256']):
+            return 'stale_artifact'
+        return ''
     evidence_rows = list(captured.values()) + list(capsule['profile_rows'].values())
     for ordinal, row in enumerate(evidence_rows):
         check(); work.fact()
@@ -299,8 +308,7 @@ def _contract_publish(db, files, capsule, context, check, resources):
         elif identity['protocol'] == 'queue' and identity['topic'] is None: reason = 'computed_topic'
         elif contract is None: reason = 'missing_contract'
         elif contract['artifact_id'] not in artifacts: reason = 'missing_artifact_source'
-        elif binding.get('artifact_candidate', {}).get('provenance') == 'claimed_generated': reason = 'unqualified_generated_claim'
-        elif binding.get('artifact_candidate', {}).get('expected_sha256') not in (None, artifacts[contract['artifact_id']]['sha256']): reason = 'stale_artifact'
+        elif (artifact_boundary := artifact_reason(binding, contract)): reason = artifact_boundary
         elif identity != contract['identity']:
             if identity['protocol'] == 'rpc' and identity['operation'] != contract['identity']['operation']:
                 reason = ('rpc_service_and_operation_not_matched' if any(c['identity'].get('operation') == identity['operation'] for c in profile['contracts']) else 'missing_operation')
@@ -318,7 +326,9 @@ def _contract_publish(db, files, capsule, context, check, resources):
                     reason = 'duplicate_endpoint_bindings' if candidates else 'missing_consumer_binding' if role == 'consumer' else 'missing_server_binding'
                 else:
                     target_binding = candidates[0]
-                    target, reason = endpoints[target_binding['id']]
+                    reason = artifact_reason(target_binding, contract)
+                    if not reason:
+                        target, reason = endpoints[target_binding['id']]
         role = 'contract_boundary' if reason else 'contract'
         origin = capsule['profile_rows'][binding['id']] if origin_reason else evidence(binding['binding_source'])
         span = origin['range']; identifier = f"{origin['path']}:{span['start_byte']}:{span['end_byte']}:{role}"
