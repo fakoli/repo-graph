@@ -599,9 +599,11 @@ class CollectedFile:
         syntax = self.syntax_metadata
         return (len(self.definitions) + len(self.imports)
                 + len(syntax['import_contexts'])
-                + sum(1 + len(row['arguments']) for row in syntax['calls'])
+                + sum(1 + len(row['arguments']) + sum(len(argument['container_references'])
+                          for argument in row['arguments']) for row in syntax['calls'])
                 + sum(1 + len(row['bases']) for row in syntax['python_declarations'])
-                + sum(2 + len(row['elements']) for row in syntax['python_assignments']))
+                + sum(2 + len(row['elements']) + len(row['container_references'])
+                      for row in syntax['python_assignments']))
 
     def payload(self):
         if self.collector_sha256 != collector_identity():
@@ -772,6 +774,16 @@ def _decode_collected(payload, expected_record, work):
                 item['type'] in _EXPRESSION_SPELLINGS and len(item['spelling'].encode('utf-8')) != item['end_byte'] - item['start_byte']):
             raise ValueError('Invalid compact callee descriptor')
         return Expression(**item)
+    def container_references(items, start, end):
+        sequence(items, budget.max_nodes)
+        previous = start
+        for item in items:
+            value = expression(item)
+            if value.type != 'identifier' or not previous <= value.start_byte < value.end_byte <= end:
+                raise ValueError('Compact container reference outside its operand or source order')
+            previous = value.end_byte
+        if record['language'] != 'python' and items:
+            raise ValueError('Foreign compact container references')
     sequence(payload['definitions'], budget.max_facts)
     definitions, by_id = payload['definitions'], {}
     for item in definitions:
@@ -928,11 +940,12 @@ def _decode_collected(payload, expected_record, work):
         sequence(row['arguments'], budget.max_nodes)
         previous = fact['range']['start_byte']
         for argument in row['arguments']:
-            shape(argument, 'name expression')
+            shape(argument, 'name expression container_references')
             string(argument['name'])
             value = expression(argument['expression'])
             if not previous <= value.start_byte <= value.end_byte <= fact['range']['end_byte']:
                 raise ValueError('Compact argument outside its call or source order')
+            container_references(argument['container_references'], value.start_byte, value.end_byte)
             previous = value.end_byte
     if seen != {id for id, (fact, _) in sites.items() if fact['role'] == 'call'}:
         raise ValueError('Compact call argument inventory differs')
@@ -960,7 +973,7 @@ def _decode_collected(payload, expected_record, work):
         raise ValueError('Compact declaration syntax inventory differs')
     seen = set()
     for row in syntax['python_assignments']:
-        shape(row, 'range scope name conditional kind right elements text')
+        shape(row, 'range scope name conditional kind right elements text container_references')
         location(row['range']); integer(row['scope'], 0, len(scopes) - 1)
         string(row['name']); boolean(row['conditional'])
         string(row['text'])
@@ -978,6 +991,7 @@ def _decode_collected(payload, expected_record, work):
         right = expression(row['right'])
         if not key[0] <= right.start_byte <= right.end_byte <= key[1]:
             raise ValueError('Compact assignment value outside source range')
+        container_references(row['container_references'], right.start_byte, right.end_byte)
         sequence(row['elements'], budget.max_nodes)
         if row['elements'] and right.type not in ('list', 'tuple'):
             raise ValueError('Compact assignment elements require a literal container')
@@ -1015,6 +1029,22 @@ class FileFacts:
         self.work.fact()
         self.work.text(node.end_byte - node.start_byte)
         return Expression.lower(self.raw, node).payload()
+
+    def container_references(self, node):
+        """Retain literal-container escapes without flattening route elements."""
+        references, pending = [], [(node, False)]
+        while pending:
+            value, contained = pending.pop()
+            self.work.node()
+            parent = value.parent
+            member = parent is not None and (
+                parent.type == 'attribute' and parent.child_by_field_name('attribute') == value or
+                parent.type == 'keyword_argument' and parent.child_by_field_name('name') == value)
+            if contained and value.type == 'identifier' and not member:
+                references.append(self.operand(value))
+            contained = contained or value.type in ('list', 'tuple', 'dictionary', 'expression_list')
+            pending.extend((child, contained) for child in reversed(value.named_children))
+        return references
 
     def declaration_syntax(self, node, scope, definition):
         if self.language != 'python':
@@ -1201,6 +1231,7 @@ class FileFacts:
                 'text': text(self.raw, node),
                 'name': text(self.raw, left) if left is not None and left.type == 'identifier' else '',
                 'conditional': self.conditional(node), 'kind': typ, 'right': self.operand(right),
+                'container_references': self.container_references(right),
                 'elements': [self.operand(value) for value in right.named_children if value.type != 'comment']
                             if right.type in ('list', 'tuple') else []})
         for target in names:
@@ -1345,7 +1376,8 @@ class FileFacts:
                     value = (argument.child_by_field_name('value') or argument) if argument.type == 'keyword_argument' else argument
                     values.append({'name': text(self.raw, argument.child_by_field_name('name'))
                                    if argument.type == 'keyword_argument' else '',
-                                   'expression': self.operand(value)})
+                                   'expression': self.operand(value),
+                                   'container_references': self.container_references(value) if self.language == 'python' else []})
                 self.syntax_metadata['calls'].append({'site': fact['id'], 'arguments': values})
         counts = {'nodes': self.work.nodes - self.initial_counts[0],
                   'definitions': len(self.definitions)}
@@ -1940,6 +1972,16 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                                   for _, expression, _ in candidates.values()) or any(
             argument['expression']['type'] == 'identifier' and argument['expression']['spelling'] == 'urlpatterns'
             for arguments in calls.values() for argument in arguments)
+        def container_escape(values):
+            for value in values:
+                work.node()
+                if value['spelling'] == 'urlpatterns':
+                    return True
+            return False
+        mutation = mutation or container_escape(value
+            for assignment in file.syntax_metadata['python_assignments'] for value in assignment['container_references'])
+        mutation = mutation or container_escape(value
+            for arguments in calls.values() for argument in arguments for value in argument['container_references'])
         for assignment in patterns:
             elements = assignment['elements'] if assignment['right']['type'] in ('list', 'tuple') else [assignment['right']]
             for element in elements:

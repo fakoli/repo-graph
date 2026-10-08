@@ -34,7 +34,15 @@ class FrameworkSyntaxTests(unittest.TestCase):
             'subscript_delete': {'urls.py': route + b'del urlpatterns[0]\n'},
             'binding_delete': {'urls.py': route + b'del urlpatterns\n'},
             'alias_mutation': {'urls.py': route + b'other = urlpatterns\nother.clear()\n'},
+            'dictionary_escape': {'urls.py': route + b'aliases = {"routes": urlpatterns}\naliases["routes"].clear()\n'},
+            'nested_list_escape': {'urls.py': route + b'aliases = [[urlpatterns]]\naliases[0][0].clear()\n'},
+            'nested_tuple_escape': {'urls.py': route + b'aliases = ((urlpatterns,),)\naliases[0][0].clear()\n'},
+            'implicit_tuple_escape': {'urls.py': route + b'aliases = 0, urlpatterns\naliases[1].clear()\n'},
+            'mixed_container_escape': {'urls.py': route + b'aliases = {"routes": ([{"inner": ((urlpatterns))}],)}\naliases["routes"][0][0]["inner"].clear()\n'},
+            'conditional_container_escape': {'urls.py': route + b'aliases = {"routes": urlpatterns if enabled else []}\naliases["routes"].clear()\n'},
             'argument_escape': {'urls.py': route + b'mutate(urlpatterns)\n'},
+            'nested_argument_escape': {'urls.py': route + b'mutate({"routes": ([urlpatterns],)})\n'},
+            'nested_keyword_escape': {'urls.py': route + b'mutate(routes={"inner": [[urlpatterns]]})\n'},
             'package_attribute': {'urls.py': b'from django.urls import path\nfrom . import views\nurlpatterns = [path("x/", views.homepage)]\n'},
         }
         for label, changed in mutations.items():
@@ -47,12 +55,65 @@ class FrameworkSyntaxTests(unittest.TestCase):
                 self.assertEqual(len(rows), 1, rows)
                 self.assertEqual((rows[0]['family'], rows[0]['targets'], rows[0]['certainty']),
                                  ('framework_boundary', [], 'unresolved'))
+                self.assertFalse(rows[0]['targets_exhaustive'])
                 self.assertEqual([row for row in facts['sites'] if not row['role'].startswith('framework')], ordinary['sites'])
         # The reviewed finite export exception permits earlier wildcard imports,
         # followed by the final explicit Manager import; it does not resolve '*'.
         files = [native.collect_file(dict(path=path, language='python', content=raw)) for path, raw in original.items()]
         facts = native.resolve_collected(files, framework_context=manifest['source_admission']['frozen_contexts']['synthetic'])['facts']
         self.assertTrue(any(row['role'] == 'framework' and row['relation_kind'] == 'django_orm_get_queryset' for row in facts['sites']))
+
+    def test_nested_container_metadata_preserves_direct_route_elements(self):
+        root = Path(__file__).resolve().parents[1]
+        manifest = json.loads((root / 'evaluations/code-understanding/django-framework-inputs.json').read_text())
+        original = {record['path']: (root / manifest['fixture_root'] / record['path']).read_bytes()
+                    for record in manifest['synthetic_inventory'] if record['path'].endswith('.py')}
+        prefix = b'from django.urls import path\n'
+        controls = {
+            'local_callback': prefix + b'def home(): pass\ncallback = home\nurlpatterns = [path("x/", callback)]\n'
+                b'aliases = {"urlpatterns": (["urlpatterns", []],)}\n',
+            'unrelated_member': prefix + b'from .views import homepage\nurlpatterns = [path("x/", homepage)]\n'
+                b'aliases = {"routes": config.urlpatterns, "settings": configure(urlpatterns=False)}\n',
+            'direct_route_with_nested_call': prefix + b'from .views import homepage\n'
+                b'urlpatterns = [path("x/", homepage), [path("nested/", homepage)]]\n',
+            'nested_only_route': prefix + b'from .views import homepage\nurlpatterns = [[path("nested/", homepage)]]\n',
+        }
+        for label, raw in controls.items():
+            with self.subTest(control=label):
+                files = [native.collect_file(dict(path=path, language='python', content=blob))
+                         for path, blob in (original | {'urls.py': raw}).items()]
+                ordinary = native.resolve_collected(files)['facts']
+                result = native.resolve_collected(files, framework_context=manifest['source_admission']['frozen_contexts']['synthetic'])
+                self.assertEqual(result['status'], 'complete')
+                rows = [row for row in result['facts']['sites'] if row['path'] == 'urls.py' and row['role'].startswith('framework')]
+                self.assertEqual(len(rows), 0 if label == 'nested_only_route' else 1, rows)
+                for row in rows:
+                    self.assertEqual((row['family'], row['certainty'], len(row['targets']), row['targets_exhaustive']),
+                                     ('framework', 'resolved', 1, True))
+                    self.assertNotIn('nested/', row['text'])
+                self.assertEqual([row for row in result['facts']['sites'] if not row['role'].startswith('framework')], ordinary['sites'])
+        raw = prefix + b'aliases = {"routes": ([urlpatterns],)}\nmutate(routes={"inner": [[urlpatterns]]})\n'
+        file = native.collect_file(dict(path='urls.py', language='python', content=raw))
+        assignment = file.syntax_metadata['python_assignments'][0]
+        argument = file.syntax_metadata['calls'][0]['arguments'][0]
+        for owner in (assignment, argument):
+            self.assertEqual([value['spelling'] for value in owner['container_references']], ['urlpatterns'])
+        encoded = file.to_json()
+        decoded = native.CollectedFile.from_json(encoded, file.record, hashlib.sha256(encoded).hexdigest())
+        self.assertEqual(decoded.to_json(), encoded)
+        self.assertEqual(decoded.collected_fact_count, file.collected_fact_count)
+        for owner_kind in ('assignment', 'argument'):
+            for mutation in ('missing', 'foreign_range', 'not_identifier'):
+                with self.subTest(owner=owner_kind, mutation=mutation):
+                    payload = copy.deepcopy(file.payload())
+                    owner = (payload['syntax_metadata']['python_assignments'][0] if owner_kind == 'assignment'
+                             else payload['syntax_metadata']['calls'][0]['arguments'][0])
+                    if mutation == 'missing': del owner['container_references']
+                    elif mutation == 'foreign_range': owner['container_references'][0]['start_byte'] = 0
+                    else: owner['container_references'][0]['type'] = 'string'
+                    encoded = json.dumps(payload, separators=(',', ':')).encode()
+                    with self.assertRaises(ValueError):
+                        native.CollectedFile.from_json(encoded, file.record, hashlib.sha256(encoded).hexdigest())
 
     def test_framework_availability_is_captured_per_generation(self):
         from repo_graph.analysis import StructuralIndex
