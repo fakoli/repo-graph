@@ -3136,7 +3136,9 @@ def odoo_case_grade(facts, expected):
             runtime_dispatch=row.get('runtime_dispatch') == 'unresolved', runtime_targets=row.get('runtime_callable_targets') == [],
             runtime_unqualified=row.get('runtime_qualified') is False)
         if label['unknown_boundary_required']: result['explicit_reason'] = type(row['reason']) is str and bool(row['reason'])
-        witness_keys = {(w['path'], *(w['range'][k] for k in fields), w['source_sha256']) for w in row['evidence']}
+        # Package/API inventory evidence has no interval. Every frozen physical witness still requires its complete range.
+        witness_keys = {(w['path'], *(w['range'][k] for k in fields), w['source_sha256']) for w in row['evidence']
+                        if type(w.get('range')) is dict and all(type(w['range'].get(k)) is int for k in fields)}
         result['witnesses'] = all((w['path'], *(w['range'][k] for k in fields), w['source_sha256']) in witness_keys
                                   for w in expected['witnesses'])
     return dict(status='passed' if all(result.values()) else 'failed', checks=result,

@@ -575,6 +575,20 @@ class FrameworkEvaluatorTests(unittest.TestCase):
         facts = dict(definitions=[declaration], sites=[site]); frozen = json.dumps(expected, sort_keys=True)
         result = analysis.odoo_case_grade(facts, expected)
         self.assertEqual(result['status'], 'passed'); self.assertEqual(result['target_precision'], 1)
+        site['evidence'].extend([dict(path='odoo/__init__.py', source_sha256='a' * 64, source_role='framework_package', partial=False),
+            dict(path='odoo/http.py', source_sha256='b' * 64, source_role='framework_api_source', partial=False)])
+        self.assertEqual(analysis.odoo_case_grade(facts, expected)['status'], 'passed')
+        for number, witness in enumerate(expected['witnesses']):
+            changed = json.loads(json.dumps(facts))
+            # Matching path/digest inventory cannot replace an absent physical interval.
+            changed['sites'][0]['evidence'][number].pop('range')
+            missing = analysis.odoo_case_grade(changed, expected)
+            with self.subTest(missing_physical_witness=number):
+                self.assertEqual(missing['status'], 'failed'); self.assertFalse(missing['checks']['witnesses'])
+            changed = json.loads(json.dumps(facts))
+            changed['sites'][0]['evidence'][number]['range']['start_byte'] = witness['range']['start_byte'] + 1
+            with self.subTest(forged_physical_witness=number):
+                self.assertEqual(analysis.odoo_case_grade(changed, expected)['status'], 'failed')
         self.assertEqual(analysis.odoo_case_grade(dict(definitions=[], sites=[]), expected)['status'], 'failed')
         for mutation in ('owner', 'type', 'digest', 'witness', 'runtime'):
             changed = json.loads(json.dumps(facts))
