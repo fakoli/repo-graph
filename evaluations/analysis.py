@@ -3353,7 +3353,7 @@ def _framework(root=ROOT, budget=None, *, source_map=None, work_root=None, frame
                  for key in ('definitions', 'sites', 'scopes', 'imports', 'relationships', 'evidence')}
         with closing(connect(index.output, readonly=True, owner=index.output_owner)) as db:
             facts['dependencies'] = [dict(row) for row in db.execute('SELECT * FROM structural_dependencies ORDER BY path,kind,key')]
-            facts['import_relationships'] = [dict(row) for row in db.execute('SELECT * FROM structural_import_relationships ORDER BY path,ordinal,target_path')]
+            facts['import_relationships'] = [dict(row, data=json.loads(row['data'])) for row in db.execute('SELECT * FROM structural_import_relationships ORDER BY path,ordinal,target_path')]
         return facts
     def inspect(index, receipt, facts, blobs):
         engine = Search(index.output)
