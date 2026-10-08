@@ -1100,7 +1100,9 @@ class SQLSnapshot(Snapshot):
                 'cursor': continuation, 'truncated': bool(frontier), 'stop_reason': stop,
                 **({'coverage': {'status': 'unavailable' if unavailable else 'enabled',
                     'reason': 'framework_not_enrolled' if unavailable else None,
-                    'scope': 'finite Django registration subset', 'runtime_qualified': False}}
+                    'scope': None if unavailable else {'django': 'finite Django registration subset',
+                        'odoo': 'finite Odoo source hook subset'}[self.framework_enrollment['framework_id']],
+                    'runtime_qualified': False}}
                    if operation == 'framework' else {})}
 
         if len(encoded(response('0' * 64, 'continuation_state_budget_exceeded', reserved=True))) > limits.max_response_bytes:

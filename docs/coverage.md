@@ -44,7 +44,7 @@ binding, call and framework coverage separately for every selected construct.
 | Django routes | Literal module `urlpatterns`, registration arguments and import witnesses retained in the same collection | Opt-in finite source identity for `path`/`re_path`; one ordinary relative/local callback | Computed routes, receiver callbacks, decorators, include expansion, mutation and ambiguous/partial dependencies remain explicit unknown boundaries |
 | Django management hooks | Class/base, decorator and local-method ownership retained | Direct imported `BaseCommand` and one ordinary local `Command.handle` | Installed-app precedence, inherited hooks, multiple bases and decorated/ambiguous hooks unqualified |
 | Django Manager hooks | Same collected class/base/local-method facts | Direct imported `Manager` and one ordinary local `get_queryset` | Factories and transitive inheritance remain unknown; model attachment and database execution unqualified |
-| Odoo hooks | Source can be inventoried | Not yet implemented in this slice | Separate mandatory framework task remains open |
+| Odoo hooks | Route annotations, method ownership, direct Model bases and cron configuration retained in the shared index | Experimental opt-in finite source identity for literal route annotations, local methods on a canonical imported Model base, and literal cron code configuration values | Registry dispatch, inherited/computed routes, unsupported decorators, model/XMLID joins and runtime callable targets remain unresolved |
 | Explicit service contracts | Enrolled original artifacts and physical binding witnesses | Reviewed service-scoped HTTP/RPC/queue links with exact captured declaration affinity | Transport, runtime ordering, deployment and complete service discovery unqualified |
 
 Go provenance marks local bindings `inventoried_package_only`, with active
@@ -68,6 +68,30 @@ target-free collections. Enrollment is captured in the generation receipt; a
 repository file or a module name cannot enroll itself. The four admitted facade
 edges and API assignment witnesses identify registrations only and never change
 ordinary absolute-import or lexical-call resolution.
+
+Odoo requires captured dependency/source-root enrollment and explicit source
+consumer, service and configuration namespace ownership. These identifiers
+describe source analysis ownership; they do not establish deployed services or
+installed registries.
+
+A sole canonical imported route annotation with a literal string or finite literal string list
+identifies its local method. A direct canonical imported Model base and local
+literal `_name` or `_inherit` label identify method declarations; only ordinary
+methods or a sole canonical bare `@api.model` decorator are admitted. These are
+physical source declarations. Controller inheritance, registry selection and
+receiver dispatch remain unknown.
+
+Explicitly enrolled XML configurations require literal addon-manifest `data`
+membership. A supported `ir.cron` record targets its raw code as a
+`configuration_value`, never a callable. Duplicate record IDs within the same
+consumer, service and configuration namespace withhold cron targets, including
+explicitly enrolled duplicates with a different record model or outside manifest
+membership. Missing or ambiguous source identity, malformed XML, DTD/entities,
+computed/eval code and
+child content remain unknown boundaries. Model references and XMLIDs do not join
+to Python methods. Every Odoo row keeps runtime dispatch unresolved and runtime
+callable targets empty; finite source exhaustiveness does not qualify installed
+addons, active jobs, workflow order or full business completeness.
 
 Interrupted or failed attempts retain the prior published coverage generation,
 the failing path and owned collector failures. An unconsumed input iterator is

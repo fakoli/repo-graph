@@ -318,18 +318,27 @@ class FrameworkSyntaxTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         manifest = json.loads((root / 'evaluations/code-understanding/django-framework-inputs.json').read_text())
         context = manifest['source_admission']['frozen_contexts']['synthetic']
+        _, _, odoo_context = self.odoo_inputs()
         with tempfile.TemporaryDirectory() as scratch:
             source, output = Path(scratch) / 'source', Path(scratch) / 'out'; source.mkdir()
             (source / 'plain.py').write_text('def plain(): pass\n')
-            for enrollment in (None, context):
+            for enrollment, expected_scope in ((None, None), (context, 'finite Django registration subset'),
+                    (odoo_context, 'finite Odoo source hook subset')):
                 index = StructuralIndex(source, output, framework_context=enrollment)
                 self.assertEqual(index.refresh(['plain.py'])['status'], 'ready')
                 with SQLSnapshot(output) as snapshot:
                     page = snapshot.query(operation='framework')
                 self.assertEqual(page['rows'], [])
                 self.assertEqual(page['coverage']['status'], 'unavailable' if enrollment is None else 'enabled')
+                self.assertEqual(page['coverage']['scope'], expected_scope)
+                self.assertFalse(page['coverage']['runtime_qualified'])
                 self.assertEqual(page['total_count'], {'value': None, 'kind': 'unavailable'} if enrollment is None else {'value': 0, 'kind': 'exact'})
                 self.assertEqual(page['stop_reason'], 'framework_not_enrolled' if enrollment is None else None)
+            with SQLSnapshot(output) as held:
+                self.assertEqual(StructuralIndex(source, output).refresh(['plain.py'])['status'], 'ready')
+                self.assertEqual(held.query(operation='framework')['coverage']['scope'], 'finite Odoo source hook subset')
+                with SQLSnapshot(output) as fresh:
+                    self.assertEqual(fresh.query(operation='framework')['coverage']['scope'], None)
 
     def test_inheritance_discovery_charges_work_and_observes_deadline_and_cancel(self):
         import time
