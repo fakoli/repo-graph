@@ -135,7 +135,8 @@ class FreezeInputs(unittest.TestCase):
             if mutation == 'skipped': observed.stderr = stderr.replace(b'... ok', b'... skipped', 1)
             if mutation == 'failed_current': fresh['status'] = 'blocked'
             before = copy.deepcopy(report)
-            with self.subTest(mutation=mutation), patch.object(gate, '_ranking_inputs', return_value=admitted), \
+            with self.subTest(mutation=mutation), contextlib.redirect_stderr(io.StringIO()), \
+                    patch.object(gate, '_ranking_inputs', return_value=admitted), \
                     patch.object(gate, 'read_json', return_value=(report, '0' * 64)), \
                     patch.object(gate, 'committed', return_value=True), \
                     patch.object(gate.subprocess, 'run', return_value=observed) as runner, \

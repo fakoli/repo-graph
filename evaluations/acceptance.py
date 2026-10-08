@@ -2505,6 +2505,9 @@ def ranking_gate(root=None):
         started = time.perf_counter()
         observed = subprocess.run(command, cwd=root, capture_output=True, timeout=30)
         output = observed.stderr.decode('utf-8', errors='replace')
+        # The invoking command retains raw synthetic test observations privately;
+        # portable evidence carries only their hashes and measurements.
+        sys.stderr.write(output[:65536])
         result['current_ranking_checks'] = {'command': command[2:], 'exit_code': observed.returncode,
             'elapsed_seconds': time.perf_counter() - started,
             'stdout_sha256': digest(observed.stdout), 'stderr_sha256': digest(observed.stderr),
