@@ -229,29 +229,68 @@ const RepoViews = (() => {
     return value;
   }
   function queryPage(value,operation,seed=null,captured=null) {
-    for(const key of ['generation','repository_identity','source_identity','analyzer_identity']) {
+    const pathQuery=['framework','contract'].includes(operation);
+    for(const key of ['generation','repository_identity','source_identity','analyzer_identity',...(pathQuery ? ['config_identity'] : [])]) {
       if (!/^[0-9a-f]{64}$/.test(value?.[key] || '')) throw new Error('Query capture unavailable');
       if (captured && value[key]!==captured[key]) throw new Error('Index changed; select a symbol again');
     }
     if (!Array.isArray(value.rows) || value.rows.length>8 || typeof value.truncated!=='boolean' ||
         value.cursor!==null && !/^[0-9a-f]{64}$/.test(value.cursor || '') ||
-        !['exact','lower_bound','unknown'].includes(value.total_count?.kind) ||
-        !(Number.isSafeInteger(value.total_count.value) && value.total_count.value>=0 || value.total_count.kind==='unknown' && value.total_count.value===null) ||
+        !['exact','lower_bound','unknown',...(operation==='framework' ? ['unavailable'] : [])].includes(value.total_count?.kind) ||
+        !(Number.isSafeInteger(value.total_count.value) && value.total_count.value>=0 || ['unknown','unavailable'].includes(value.total_count.kind) && value.total_count.value===null) ||
         value.stop_reason!=null && (typeof value.stop_reason!=='string' || !/^[a-z_]{1,128}$/.test(value.stop_reason))) throw new Error('Invalid bounded query page');
+    if(operation==='framework' && (!['enabled','unavailable'].includes(value.coverage?.status) || value.coverage.runtime_qualified!==false ||
+        value.coverage.status==='enabled' && !['finite Django registration subset','finite Odoo source hook subset'].includes(value.coverage.scope) ||
+        value.coverage.status==='unavailable' && (value.coverage.scope!==null || value.coverage.reason!=='framework_not_enrolled' || value.rows.length || value.cursor!==null || value.total_count.kind!=='unavailable')))
+      throw new Error('Invalid captured framework coverage');
     for(const row of value.rows) {
       if(operation==='symbol') {
         sourceHandle(row);
         if(typeof row.name!=='string' || row.name.length>256) throw new Error('Invalid declaration');
       } else {
         sourceHandle(row.site);
-        if(row.site.role!=='call' || !['resolved','candidate','unresolved'].includes(row.certainty) ||
+        if(!['resolved','candidate','unresolved'].includes(row.certainty) ||
             typeof row.targets_exhaustive!=='boolean' || typeof row.reason!=='string' || row.reason.length>256)
-          throw new Error('Invalid call occurrence');
+          throw new Error('Invalid captured occurrence');
         for(const handle of [row.caller,row.target]) if(handle) sourceHandle(handle);
+        if(operation==='framework') { frameworkRow(row);continue; }
+        if(operation==='contract') { contractRow(row);continue; }
+        if(row.site.role!=='call')throw new Error('Invalid call occurrence');
         if((operation==='callers' ? row.target?.id : row.caller?.id)!==seed) throw new Error('Call seed mismatch');
       }
     }
     return value;
+  }
+  function frameworkRow(row) {
+    const kinds=['django_route','django_management_handle','django_orm_get_queryset','odoo_route_annotation','odoo_model_method_declaration','odoo_registry_dispatch','odoo_cron_code_declaration','odoo_cron_registry_dispatch'];
+    if(!['framework','framework_boundary'].includes(row.family) || row.site.role!==row.family || row.runtime_qualified!==false ||
+        !kinds.includes(row.candidate_relation_kind) || row.relation_kind!==(row.family==='framework_boundary' ? 'unknown_framework_candidate' : row.candidate_relation_kind) ||
+        typeof row.framework_identity_asserted!=='boolean' || typeof row.partial!=='boolean' ||
+        row.partial_source_role!==null && (typeof row.partial_source_role!=='string' || row.partial_source_role.length>128) ||
+        !Array.isArray(row.evidence) || row.evidence.length>64 ||
+        row.family==='framework_boundary' && (row.target!==null || row.targets_exhaustive!==false || row.certainty!=='unresolved') ||
+        row.family==='framework' && (!row.target || !row.framework_identity_asserted || row.partial || row.certainty!=='resolved' || row.targets_exhaustive!==true))throw new Error('Invalid captured framework evidence');
+    if(row.candidate_relation_kind.startsWith('odoo_') && (row.runtime_dispatch!=='unresolved' || !Array.isArray(row.runtime_callable_targets) || row.runtime_callable_targets.length ||
+        ['consumer_id','service_id'].some(key=>typeof row[key]!=='string' || !row[key] || new TextEncoder().encode(row[key]).length>256) ||
+        row.configuration_namespace!==null && (typeof row.configuration_namespace!=='string' || new TextEncoder().encode(row.configuration_namespace).length>256)))throw new Error('Invalid Odoo source ownership or runtime boundary');
+    const witnesses=new Map();
+    for(const witness of row.evidence) {
+      if(typeof witness.source_role!=='string' || !witness.source_role || witness.source_role.length>128)throw new Error('Invalid framework source witness');
+      if(witness.id)sourceHandle(witness);
+      else if(typeof witness.path!=='string' || !witness.path || witness.path.length>4096 || !/^[0-9a-f]{64}$/.test(witness.source_sha256 || '') ||
+          typeof witness.partial!=='boolean' || witness.range!==undefined || !['framework_package','framework_api_source'].includes(witness.source_role))throw new Error('Invalid framework file affinity');
+      const key=(witness.id || witness.path)+'|'+witness.source_role;
+      if(witnesses.has(key) && JSON.stringify(witnesses.get(key))!==JSON.stringify(witness))throw new Error('Changed framework source witness');
+      witnesses.set(key,witness);
+    }
+    return [...witnesses.values()];
+  }
+  function pathDeclaration(row) {
+    // Only source declaration relations grant a shortcut; a cron value or
+    // contract artifact is never treated as a runtime callable.
+    if(row.family==='framework' && ['django_route','django_management_handle','django_orm_get_queryset','odoo_route_annotation','odoo_model_method_declaration'].includes(row.relation_kind))return row.target;
+    if(row.candidate_relation_kind==='odoo_registry_dispatch')return row.caller;
+    return null;
   }
   function callScene(prior,page,seed) {
     const handles=new Map((prior?.handles || [seed]).map(handle=>[handle.id,handle]));
@@ -488,6 +527,6 @@ const RepoViews = (() => {
     if(!fragment.startsWith('#view='))throw new Error('invalid_bookmark');
     return savedView(JSON.parse(decodeURIComponent(fragment.slice(6))));
   }
-  return {metrics,ordered,layout,csv,systemOverview,indexStatus,sourceHandle,functionSearch,queryPage,callScene,sourceEvidence,impactSelector,impactFilters,capturedImpact,impactPage,impactScene,capturedSnapshot,sameSnapshot,savedView,bookmarkFragment,bookmarkView};
+  return {metrics,ordered,layout,csv,systemOverview,indexStatus,sourceHandle,functionSearch,queryPage,frameworkRow,pathDeclaration,callScene,sourceEvidence,impactSelector,impactFilters,capturedImpact,impactPage,impactScene,capturedSnapshot,sameSnapshot,savedView,bookmarkFragment,bookmarkView};
 })();
 if (typeof module !== 'undefined') module.exports = RepoViews;

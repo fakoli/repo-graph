@@ -80,6 +80,8 @@
   .call-element button { margin:4px 4px 0 0; color:#354bab; }
   .impact-cards { position:relative; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 16px; }
   .impact-element[aria-current="true"] { border:2px solid #354bab; }
+  .path-element { height:auto; }
+  .path-witnesses { margin-top:8px; }
   .saved-view { margin:12px 0; font-size:11px; color:var(--muted); }
   .saved-view p { margin:0 0 6px; overflow-wrap:anywhere; }
   .saved-view button { min-height:44px; padding:7px; border:1px solid var(--line); background:#fff; border-radius:7px; color:var(--ink); cursor:pointer; }
@@ -212,9 +214,9 @@
       <h2 class="side-title">Explore the repository.</h2>
       <p class="side-copy">A grounded map of files and relationships. Select a component to follow its connections.</p>
       <section class="index-status" aria-labelledby="index-heading"><h3 id="index-heading">Index coverage</h3><div id="index-summary" role="status" aria-live="polite"></div><p id="index-errors" class="index-errors"></p><details><summary>Coverage and snapshot details</summary><ul id="index-details"></ul></details></section>
-      <div class="view-tabs" role="tablist" aria-label="Repository views"><button type="button" role="tab" id="tab-system" aria-selected="false">System</button><button type="button" role="tab" id="tab-explore" aria-selected="true">Explore</button><button type="button" role="tab" id="tab-data" aria-selected="false">Data</button><button type="button" role="tab" id="tab-search" aria-selected="false">Search</button><button type="button" role="tab" id="tab-calls" aria-selected="false">Calls</button><button type="button" role="tab" id="tab-impact" aria-selected="false">Impact</button></div>
+      <div class="view-tabs" role="tablist" aria-label="Repository views"><button type="button" role="tab" id="tab-system" aria-selected="false">System</button><button type="button" role="tab" id="tab-explore" aria-selected="true">Explore</button><button type="button" role="tab" id="tab-data" aria-selected="false">Data</button><button type="button" role="tab" id="tab-search" aria-selected="false">Search</button><button type="button" role="tab" id="tab-calls" aria-selected="false">Calls</button><button type="button" role="tab" id="tab-impact" aria-selected="false">Impact</button><button type="button" role="tab" id="tab-paths" aria-selected="false">Paths</button></div>
       <div class="view-options">
-        <label>View<select id="view-mode"><option value="system">System overview</option><option value="atlas" selected>Card diagram</option><option value="tree">Top-down tree</option><option value="radial">Radial map</option><option value="treemap">File-count treemap</option><option value="table">Data table</option><option value="matrix">Dependency matrix</option><option value="search">Repository search</option><option value="calls">Calls</option><option value="impact">Impact</option></select></label>
+        <label>View<select id="view-mode"><option value="system">System overview</option><option value="atlas" selected>Card diagram</option><option value="tree">Top-down tree</option><option value="radial">Radial map</option><option value="treemap">File-count treemap</option><option value="table">Data table</option><option value="matrix">Dependency matrix</option><option value="search">Repository search</option><option value="calls">Calls</option><option value="impact">Impact</option><option value="paths">Entrypoints and possible paths</option></select></label>
         <label>Sort<select id="sort-mode"><option value="name">Name</option><option value="files">Most files</option><option value="imports">Most imports</option></select></label>
         <label>Show<select id="kind-filter"><option value="all">Directories and files</option><option value="directory">Directories</option><option value="file">Files</option></select></label>
       </div>
@@ -292,8 +294,9 @@ __VIEW_HELPERS__
 
   function renderScope() {
     scheduleSavedView();
-    document.getElementById('workspace').classList.toggle('search-view',['search','calls','impact'].includes(viewMode));
-    for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-calls',viewMode === 'calls'],['tab-impact',viewMode === 'impact'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) {
+    document.getElementById('workspace').classList.toggle('search-view',['search','calls','impact','paths'].includes(viewMode));
+    document.getElementById('copy-view-bookmark').disabled=viewMode==='paths';
+    for (const [id,active] of [['tab-system',viewMode === 'system'],['tab-data',['table','matrix'].includes(viewMode)],['tab-search',viewMode === 'search'],['tab-calls',viewMode === 'calls'],['tab-impact',viewMode === 'impact'],['tab-paths',viewMode === 'paths'],['tab-explore',['atlas','tree','radial','treemap'].includes(viewMode)]]) {
       const tab = document.getElementById(id); tab.setAttribute('aria-selected',String(active)); tab.setAttribute('tabindex',active ? '0' : '-1'); tab.setAttribute('aria-controls','view-panel');
       if (active) document.getElementById('view-panel').setAttribute('aria-labelledby',id);
     }
@@ -301,13 +304,14 @@ __VIEW_HELPERS__
     document.getElementById('selection-location').hidden = true;
     document.getElementById('inspector').classList.remove('open');
     document.getElementById('inspector-toggle').setAttribute('aria-expanded','false');
-    document.getElementById('sort-mode').disabled = ['system','search','calls','impact'].includes(viewMode);
-    document.getElementById('kind-filter').disabled = ['system','search','calls','impact'].includes(viewMode);
-    document.getElementById('search').hidden = ['search','calls','impact'].includes(viewMode);
+    document.getElementById('sort-mode').disabled = ['system','search','calls','impact','paths'].includes(viewMode);
+    document.getElementById('kind-filter').disabled = ['system','search','calls','impact','paths'].includes(viewMode);
+    document.getElementById('search').hidden = ['search','calls','impact','paths'].includes(viewMode);
     document.getElementById('data-panel').className='data-panel';
     if (viewMode === 'search') { renderSearch(); return; }
     if (viewMode === 'calls') { renderCalls(); return; }
     if (viewMode === 'impact') { renderImpact(); return; }
+    if (viewMode === 'paths') { renderPaths(); return; }
     if (viewMode === 'system') { renderSystem(); return; }
     document.getElementById('export-csv').disabled = false;
     const branch = data.tree[scopePath];
@@ -509,14 +513,15 @@ __VIEW_HELPERS__
   let callsUI=null,callsController=null,callsEpoch=0;
   let impactState={selector:null,relations:['call','import'],services:null,protocols:null,namespaces:null,certainties:['candidate','resolved','unresolved'],depth:2,size:8,captured:null,page:null,scene:null,selected:null,intents:[],saveBlocked:false};
   let impactUI=null;
+  let pathsState={operation:'framework',scope:'',size:4,captured:null,page:null},pathsUI=null;
   let savedStorage=null,savedBooting=true,savedScheduled=false,savedControl=null,savedCleared=false;
   const savedKey='repo-graph:view:'+location.pathname;
   const callElement=(tag,text='',className='')=>{const el=document.createElement(tag);el.textContent=text;el.className=className;return el;};
   const callButton=(text,action)=>{const button=callElement('button',text);button.type='button';button.addEventListener('click',action);return button;};
   function stopCalls(announce=true) {
     callsEpoch++; callsController?.abort(); callsController=null;
-    for(const ui of [callsUI,impactUI])if(ui)ui.cancel.disabled=true;
-    const ui=viewMode==='impact' ? impactUI : callsUI;
+    for(const ui of [callsUI,impactUI,pathsUI])if(ui)ui.cancel.disabled=true;
+    const ui=viewMode==='paths' ? pathsUI : viewMode==='impact' ? impactUI : callsUI;
     if(ui && announce)ui.status.textContent='Stopped waiting. Bounded server work may finish; late responses will not be shown.';
     if(announce && savedControl)cancelSavedRestore('Restore partial: cancelled. Bounded server work may finish; late responses are ignored.');
   }
@@ -534,7 +539,7 @@ __VIEW_HELPERS__
     return value;
   }
   async function callsRequest(endpoint,payload,publish,replay=false,mode='calls') {
-    const ui=mode==='impact' ? impactUI : callsUI;
+    const ui=mode==='paths' ? pathsUI : mode==='impact' ? impactUI : callsUI;
     if(savedControl && !replay)cancelSavedRestore('Restore partial: another action stopped replay.');
     stopCalls(false);const epoch=callsEpoch,controller=new AbortController();callsController=controller;
     ui.cancel.disabled=false;ui.status.textContent='Reading bounded captured evidence…';
@@ -560,10 +565,11 @@ __VIEW_HELPERS__
     return {max_entities:Math.min(8,Math.max(1,remaining-edges+1)),max_edges:edges,max_response_bytes:32768,max_excerpt_bytes:0};
   }
   function showCallSource(handle,button,mode='calls') {
-    const captured=mode==='impact' ? impactState.captured : callsState.captured,ui=mode==='impact' ? impactUI : callsUI;
+    const captured=mode==='paths' ? pathsState.captured : mode==='impact' ? impactState.captured : callsState.captured,ui=mode==='paths' ? pathsUI : mode==='impact' ? impactUI : callsUI;
     ui.evidence.hidden=true;ui.evidence.replaceChildren();
     callsRequest('/api/source',{generation:captured.generation,handle:RepoViews.sourceHandle(handle),max_excerpt_bytes:4096},async(result,current)=>{
       RepoViews.sourceEvidence(result,handle,captured);
+      if(mode==='paths' && result.identities.config_identity!==captured.config_identity)throw new Error('Source evidence configuration mismatch');
       if(new TextEncoder().encode(result.text).length>4096)throw new Error('Source excerpt exceeds requested budget');
       if(!result.redacted) {
         const raw=new TextEncoder().encode(result.text);
@@ -591,6 +597,7 @@ __VIEW_HELPERS__
       const incoming=callButton('Expand incoming',()=>loadCalls(handle,'callers',null,false));
       const start=callButton('New view here',()=>chooseCallSymbol(handle,callsState.captured));
       card.append(inspect,expand,incoming,start);callsUI.symbols.appendChild(card);
+      if(RepoViews.capturedImpact(observedStatus)?.contracts_available)card.appendChild(callButton('Explore source contracts',()=>openSourcePaths(handle.path,callsState.captured,'contract')));
     }
     for(const row of scene.sites) {
       let card=[...callsUI.sites.children].find(card=>card.dataset.id===row.site.id);
@@ -677,6 +684,111 @@ __VIEW_HELPERS__
     direction.addEventListener('change',()=>{if(callsState.selected)chooseCallSymbol(callsState.selected,callsState.captured);});
     size.addEventListener('change',()=>{callsState.size=Number(size.value);if(callsState.selected)chooseCallSymbol(callsState.selected,callsState.captured);});
     if(callsState.scene)showCallScene(true);
+  }
+
+  function openPathDeclaration(handle,captured) {
+    if(!RepoViews.sameSnapshot(captured,RepoViews.capturedSnapshot(observedStatus))) {
+      pathsUI.status.textContent='Captured declaration snapshot differs from the index status. Reload before opening Calls.';return;
+    }
+    callsState.scene=null;callsState.selected=null;
+    changeView('calls');chooseCallSymbol(handle,captured);
+    callsUI.symbols.querySelector('button')?.focus();
+  }
+  function openSourcePaths(path,captured,operation='framework') {
+    if(!RepoViews.sameSnapshot(captured,RepoViews.capturedSnapshot(observedStatus))) {
+      const ui=viewMode==='paths' ? pathsUI : callsUI;ui.status.textContent='Captured source snapshot differs from the index. Reload before exploring its registrations.';return;
+    }
+    pathsState={...pathsState,operation,scope:path,captured:null,page:null};changeView('paths');loadPaths();
+  }
+  function openContractImpact(row,captured) {
+    const projection=RepoViews.capturedImpact(observedStatus);
+    if(!projection?.contracts_available || !RepoViews.sameSnapshot(captured,projection)) {
+      pathsUI.status.textContent='Captured contract membership differs from Impact. Reload before exploring its source relations.';return;
+    }
+    impactState={...impactState,selector:{kind:'source_area',paths:[row.site.path]},relations:['contract'],services:[row.service_id],protocols:[row.protocol],namespaces:row.namespace ? [row.namespace] : null,
+      captured:null,page:null,scene:null,selected:null,intents:[],saveBlocked:false};changeView('impact');startImpact();
+  }
+  function openFileDeclarations(path) {
+    if(!RepoViews.sameSnapshot(RepoViews.capturedSnapshot(data.index_status),RepoViews.capturedSnapshot(observedStatus))) {
+      document.getElementById('inspector-content').appendChild(callElement('p','Captured file map differs from the index. Reload before finding its declarations.'));return;
+    }
+    callsState={...callsState,prefix:'',scope:path,scene:null,selected:null,captured:null,page:null,lookup:null,intents:[],saveBlocked:false};
+    changeView('calls');findCallSymbols();callsUI.panel.querySelector('input')?.focus();
+  }
+  function showPathsPage() {
+    const page=pathsState.page;if(!page)return;
+    pathsUI.cards.replaceChildren();pathsUI.evidence.hidden=true;
+    const scope=pathsState.operation==='framework' ? page.coverage.scope || 'Framework enrollment unavailable' : 'Explicit imported contract membership';
+    pathsUI.capture.textContent=`${scope} · snapshot ${page.generation} · source ${page.source_identity} · analyzer ${page.analyzer_identity} · config ${page.config_identity}`;
+    pathsUI.status.textContent=page.coverage?.status==='unavailable' ? 'Framework entrypoints unavailable: this captured index has no framework enrollment. No runtime targets are qualified.' : callStatus(page);
+    pathsUI.more.disabled=!page.cursor;
+    for(const row of page.rows) {
+      const card=callElement('article','','call-element path-element');card.dataset.id=row.site.id;card.dataset.family=row.family;card.dataset.relation=row.relation_kind;
+      const declaration=RepoViews.pathDeclaration(row),boundary=row.family.endsWith('_boundary');
+      card.append(callElement('h3',`${boundary ? 'Unresolved stop point' : 'Source declaration'} · ${row.candidate_relation_kind || row.relation_kind}`),
+        callElement('p',`${row.site.path}:${row.site.range.start_line}–${row.site.range.end_line}${row.target ? ' · '+row.target.name : ' · target unknown'}`),
+        callElement('p',`${row.certainty} · source targets ${row.targets_exhaustive ? 'exhaustive within the declared scope' : 'not exhaustive'}. ${row.reason}${row.reason_truncated ? ' (reason truncated)' : ''}`),
+        callElement('p','Runtime dispatch unknown · no runtime callable targets qualified.'));
+      if(row.consumer_id)card.append(callElement('p',`Consumer ${row.consumer_id} · service ${row.service_id} · configuration namespace ${row.configuration_namespace ?? 'unassigned'}`));
+      if(row.family.startsWith('contract'))card.append(callElement('p',`Origin service ${row.service_id} · ${row.protocol} · namespace ${row.namespace ?? 'unassigned'}. Imported membership has no runtime transport or ordering proof.`),callButton('Explore contract impact',()=>openContractImpact(row,pathsState.captured)));
+      const inspect=callButton('Inspect registration source',()=>showCallSource(row.site,inspect,'paths'));card.appendChild(inspect);
+      if(row.target) {
+        const target=callButton(declaration ? 'Inspect entrypoint declaration' : 'Inspect declared source value',()=>showCallSource(row.target,target,'paths'));card.appendChild(target);
+      }
+      if(declaration)card.appendChild(callButton('Explore possible calls',()=>openPathDeclaration(declaration,pathsState.captured)));
+      const witnesses=[...new Map(row.evidence.map(item=>[(item.id || item.path)+'|'+item.source_role,item])).values()],host=callElement('div','','path-witnesses');
+      const showWitnesses=offset=>{
+        host.replaceChildren(callElement('p',`Supporting witnesses ${witnesses.length ? offset+1 : 0}–${Math.min(offset+4,witnesses.length)} / ${witnesses.length}`));
+        for(const witness of witnesses.slice(offset,offset+4)) {
+          if(!witness.id){host.appendChild(callElement('p',`File affinity only · ${witness.source_role} · ${witness.path} · SHA256 ${witness.source_sha256}${witness.partial ? ' · partial source' : ''}`));continue;}
+          const button=callButton(`Inspect witness ${witness.source_role} · ${witness.path}:${witness.range.start_line}`,()=>showCallSource(witness,button,'paths'));host.appendChild(button);
+        }
+        for(const [label,next] of [['Previous witnesses',offset-4],['More witnesses',offset+4]])if(next>=0 && next<witnesses.length)host.appendChild(callButton(label,()=>{showWitnesses(next);host.querySelector('button')?.focus();}));
+      };
+      showWitnesses(0);card.appendChild(host);pathsUI.cards.appendChild(card);
+    }
+    if(!page.rows.length && page.coverage?.status!=='unavailable')pathsUI.cards.appendChild(callElement('p',page.cursor ? 'No matching rows in this bounded page. Continue explicitly to examine the next page.' : 'No matching source declarations in this query. This does not establish business completeness.'));
+  }
+  async function loadPaths(cursor=null) {
+    const status=cursor ? null : await statusRequest,snapshot=cursor ? pathsState.captured : RepoViews.capturedSnapshot(status),projection=cursor ? null : RepoViews.capturedImpact(status);
+    const captured=projection && RepoViews.sameSnapshot(snapshot,projection) ? {...snapshot,impact_identity:projection.impact_identity} : snapshot;
+    if(viewMode!=='paths')return;
+    if(!captured){pathsUI.status.textContent='Captured structural snapshot unavailable. Analyze and reload before exploring paths.';return;}
+    if(!cursor){pathsState.captured=captured;pathsState.page=null;pathsUI.cards.replaceChildren();pathsUI.more.disabled=true;}
+    pathsUI.evidence.hidden=true;
+    const operation=pathsState.operation,payload={operation,seed:null,depth:1,scope:pathsState.scope,prefix:'',role:'all',limits:{max_entities:8,max_edges:pathsState.size,max_response_bytes:32768,max_excerpt_bytes:0}};
+    if(cursor)payload.cursor=cursor;
+    return callsRequest('/api/query',payload,page=>{
+      RepoViews.queryPage(page,operation,null,captured);
+      if(page.rows.some(row=>!row.site.path.startsWith(pathsState.scope)))throw new Error('Captured path scope mismatch');
+      pathsState.page=page;showPathsPage();
+    },false,'paths');
+  }
+  function renderPaths() {
+    selected=null;parts=[];links=[];scopeEntries=[];renderInspector();renderBreadcrumb(true);
+    document.getElementById('map-title').textContent='Entrypoints and possible paths';
+    document.getElementById('map-subtitle').textContent='Follow captured source declarations into possible Calls branches. Unresolved boundaries stop qualification; runtime sequence, deployment and business completeness are unknown. Semantic rankings are not structural facts.';
+    svg.style.display='none';for(const selector of ['.controls','.legend','.stage-hint'])document.querySelector(selector).style.display='none';
+    for(const id of ['up','previous','next','export-svg','export-csv'])document.getElementById(id).disabled=true;
+    document.getElementById('component-list').replaceChildren();
+    const panel=document.getElementById('data-panel');panel.replaceChildren();panel.hidden=false;panel.className='data-panel calls-panel paths-panel';
+    if(!online){panel.appendChild(callElement('p','Paths require the local captured structural index through repo-graph serve. Offline exports retain captured coverage and System source areas.','calls-status'));return;}
+    const available=RepoViews.capturedImpact(observedStatus || data.index_status)?.contracts_available===true;
+    if(pathsState.operation==='contract' && !available){pathsState.operation='framework';pathsState.page=null;}
+    const form=callElement('form'),operation=callElement('select'),scope=callElement('input'),size=callElement('select');
+    operation.setAttribute('aria-label','Path evidence family');scope.setAttribute('aria-label','Entrypoint source path scope');size.setAttribute('aria-label','Entrypoint rows per page');scope.maxLength=4096;scope.value=pathsState.scope;
+    for(const [value,label] of [['framework','Framework source hooks'],['contract',available ? 'Imported contracts' : 'Imported contracts unavailable']]){const option=callElement('option',label);option.value=value;option.disabled=value==='contract' && !available;operation.appendChild(option);}operation.value=pathsState.operation;
+    for(const count of [1,4,8]){const option=callElement('option',String(count));option.value=String(count);size.appendChild(option);}size.value=String(pathsState.size);
+    for(const [label,control] of [['Captured evidence',operation],['Source path prefix',scope],['Rows per page',size]]){const field=callElement('label',label);field.appendChild(control);form.appendChild(field);}
+    const submit=callElement('button','Find entrypoints');submit.type='submit';const cancel=callButton('Cancel request',()=>stopCalls());cancel.disabled=true;form.append(submit,cancel);
+    const status=callElement('p','Choose captured source hooks or imported contracts, then find entrypoints. Each page and Calls expansion is an explicit bounded action.','calls-status');status.setAttribute('role','status');status.setAttribute('aria-live','polite');
+    const more=callButton('Next entrypoint page',()=>{if(pathsState.page?.cursor)loadPaths(pathsState.page.cursor);});more.disabled=true;
+    const capture=callElement('p','','calls-status'),cards=callElement('div','','path-cards'),evidence=callElement('section','','call-evidence');evidence.hidden=true;
+    panel.append(form,status,more,capture,evidence,cards);pathsUI={panel,status,cancel,more,capture,cards,evidence};
+    const invalidate=()=>{stopCalls(false);pathsState.page=null;pathsState.captured=null;cards.replaceChildren();evidence.hidden=true;more.disabled=true;status.textContent='Selection changed. Find entrypoints starts a fresh captured query; prior continuation is unavailable.';};
+    for(const control of [operation,scope,size])control.addEventListener('change',invalidate);
+    form.addEventListener('submit',event=>{event.preventDefault();pathsState.operation=operation.value;pathsState.scope=scope.value.trim();pathsState.size=Number(size.value);loadPaths();});
+    if(pathsState.page)showPathsPage();
   }
 
   const impactCount=scene=>scene ? scene.files.length+scene.symbols.length+scene.sites.length+scene.unavailable.length : 0;
@@ -827,6 +939,7 @@ __VIEW_HELPERS__
   }
   function saveView(deliberate=false) {
     if(savedBooting || savedControl || !savedStorage)return;
+    if(viewMode==='paths'){savedNotice('Paths pages are temporary. Open a declaration in Calls to save its bounded expansion.');return;}
     if(deliberate){savedCleared=false;detachBookmark();}
     if(savedCleared)return;
     try {
@@ -1206,6 +1319,7 @@ __VIEW_HELPERS__
       const open = document.createElement('button'); open.type = 'button'; open.className = 'top-button primary';
       open.textContent = 'Explore directory →'; open.addEventListener('click',() => enter(node.id)); host.appendChild(open);
     }
+    if(node.kind==='file' && online)host.appendChild(callButton('Find declarations in Calls',()=>openFileDeclarations(node.name)));
     const addSection = (heading,items,asLinks = false) => {
       const section = document.createElement('section'); section.className = 'detail-section'; const h = document.createElement('h3'); h.textContent = heading; section.appendChild(h);
       if (!items.length) { const empty = document.createElement('p'); empty.textContent = 'No items in the bounded overview.'; section.appendChild(empty); }
@@ -1231,7 +1345,7 @@ __VIEW_HELPERS__
   document.getElementById('fit').addEventListener('click',fit);
   function changeView(mode) {
     if(savedControl)cancelSavedRestore('Restore partial: changing view stopped replay.');
-    if(['calls','impact'].includes(viewMode) && mode!==viewMode) stopCalls(false);
+    if(['calls','impact','paths'].includes(viewMode) && mode!==viewMode) stopCalls(false);
     if (viewMode === 'search' && mode !== 'search') searchRequest++;
     if (mode === 'system' || viewMode === 'system') { query = ''; page = 0; document.getElementById('search').value = ''; }
     viewMode = mode; document.getElementById('view-mode').value = mode; renderScope();
@@ -1239,7 +1353,7 @@ __VIEW_HELPERS__
   document.getElementById('view-mode').addEventListener('change',event => changeView(event.target.value));
   document.getElementById('sort-mode').addEventListener('change',event => { sortMode = event.target.value; page = 0; renderScope(); });
   document.getElementById('kind-filter').addEventListener('change',event => { kindFilter = event.target.value; page = 0; renderScope(); });
-  for (const [id,mode] of [['tab-system','system'],['tab-explore','atlas'],['tab-data','table'],['tab-search','search'],['tab-calls','calls'],['tab-impact','impact']]) document.getElementById(id).addEventListener('click',() => changeView(mode));
+  for (const [id,mode] of [['tab-system','system'],['tab-explore','atlas'],['tab-data','table'],['tab-search','search'],['tab-calls','calls'],['tab-impact','impact'],['tab-paths','paths']]) document.getElementById(id).addEventListener('click',() => changeView(mode));
   document.querySelector('.view-tabs').addEventListener('keydown',event => {
     if (!['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
     event.preventDefault(); const tabs = [...document.querySelectorAll('.view-tabs button')], index = tabs.indexOf(document.activeElement);

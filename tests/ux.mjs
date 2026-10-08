@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chromium } from 'playwright';
+const { chromium } = await import(process.env.REPO_GRAPH_PLAYWRIGHT || 'playwright');
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,6 +11,9 @@ import { createHash } from 'node:crypto';
 const scratch = mkdtempSync(resolve(tmpdir(),'repo-graph-ux-'));
 const repo = resolve(scratch,'source'), output = process.env.REPO_GRAPH_UX_OUTPUT || resolve(scratch,'output');
 const python = process.env.REPO_GRAPH_PYTHON || 'python3';
+const ownedSources=['repo_graph/assets/diagram.html','repo_graph/assets/views.js','tests/ux.mjs'];
+const implementation=()=>({commit:spawnSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).stdout.trim(),sha256:Object.fromEntries(ownedSources.map(path=>[path,createHash('sha256').update(readFileSync(path)).digest('hex')]))});
+const implementationBefore=implementation();
 let gitBase=null;
 if (!process.env.REPO_GRAPH_UX_OUTPUT) {
   for (let i=0;i<75;i++) { const dir=resolve(repo,'src','component'+String(i).padStart(2,'0')); mkdirSync(dir,{recursive:true}); writeFileSync(resolve(dir,'main.py'),'def process():\n    """Apply access control permissions to a request."""\n'); }
@@ -38,7 +41,158 @@ const browser=await chromium.launch({executablePath:process.env.REPO_GRAPH_CHROM
 const context=await browser.newContext({viewport:{width:1440,height:1000}});
 const page=await context.newPage(), errors=[];
 page.on('pageerror',error=>errors.push(error.message));
-const checks=[],callsResponses=[],responseReads=[],callsChecks=[],savedChecks=[],savedObservations=[],impactChecks=[],impactObservations=[],searchChecks=[],searchResponses=[];
+const checks=[],callsResponses=[],responseReads=[],callsChecks=[],savedChecks=[],savedObservations=[],impactChecks=[],impactObservations=[],searchChecks=[],searchResponses=[],pathsChecks=[],pathsObservations=[],pathsCases=[],pathsWriterControls=[];
+const pathCheck=(id,name,observed)=>{assert.equal(pathsCases.some(row=>row.id===id),false);pathsCases.push({id,status:'passed',observed});pathsChecks.push(name);};
+const pathRow=row=>({site:row.site,target:row.target,caller:row.caller,family:row.family,relation_kind:row.relation_kind,
+  certainty:row.certainty,targets_exhaustive:row.targets_exhaustive,runtime_qualified:row.runtime_qualified,
+  runtime_dispatch:row.runtime_dispatch ?? 'unqualified',runtime_callable_targets:row.runtime_callable_targets ?? [],
+  evidence:row.evidence.map(({id,path,range,source_sha256,source_role})=>({id,path,range,source_sha256,source_role}))});
+const businessWriter=`import json,sys
+from pathlib import Path
+from evaluations.analysis import BUSINESS_OUTPUT,BUSINESS_RESULT_BYTES,read_json,write_result
+from repo_graph.source import SourceRoot
+root=Path(sys.argv[1]);maximum=min(BUSINESS_RESULT_BYTES,int(sys.argv[2]))
+raw=sys.stdin.buffer.read(maximum+1)
+if len(raw)>maximum:raise ValueError('Viewer result exceeds finite business byte ceiling')
+result=json.loads(raw)
+with SourceRoot(root) as source:report,_=read_json(source,BUSINESS_OUTPUT,maximum)
+if type(report) is not dict or type(report.get('tasks')) is not dict:raise ValueError('Existing business evidence required')
+previous=report['tasks'].get('T050',{})
+for key in ('prior_failed_attempt','prior_failed_attempts','prior_passed_attempt'):
+ if key in previous:result.setdefault(key,previous[key])
+if previous.get('status') not in (None,'passed'):
+ failure={key:value for key,value in previous.items() if not key.startswith('prior_')}
+ result['prior_failed_attempts']=[*result.get('prior_failed_attempts',[]),failure]
+elif previous.get('status')=='passed' and result.get('status')!='passed':
+ result.setdefault('prior_passed_attempt',{key:value for key,value in previous.items() if not key.startswith('prior_')})
+report['tasks']['T050']=result
+write_result(root,BUSINESS_OUTPUT,report,maximum)`;
+function writeBusinessPaths(status,failure=null) {
+  const stable=JSON.stringify(implementationBefore)===JSON.stringify(implementation());
+  const snapshots=pathsCases.map(row=>row.observed.snapshot).filter(Boolean),unique=new Map(snapshots.map(row=>[JSON.stringify(row),row]));
+  const result={schema_version:1,suite:'viewer-business-paths',status:status==='passed' && stable && pathsCases.length ? 'passed' : 'failed',
+    source_identity:{implementation:implementationBefore,captured_snapshots:[...unique.values()]},
+    case_results:[...pathsCases,...(!stable ? [{id:'implementation_stable',status:'failed',reason:'Owned implementation changed during browser execution'}] : []),...(failure ? [{id:'browser_run',status:'failed',reason:failure.name}] : [])],
+    writer_controls:pathsWriterControls,
+    failures:failure ? [{id:'browser_run',error_kind:failure.name}] : [],runtime_qualified:false,human_evaluation:false,study_execution_status:'not_run',qualification_complete:false,task_accepted:false,
+    scope:'Synthetic browser controls over captured source facts; runtime sequence, deployment, business completeness and human study remain unqualified.'};
+  const recorded=spawnSync(python,['-c',businessWriter,process.cwd(),String(8*1024*1024)],{input:JSON.stringify(result),encoding:'utf8'});
+  assert.equal(recorded.status,0,'T050 report could not be written within its finite boundary: '+recorded.stderr);
+  assert.equal(result.status,status,'T050 browser result or implementation stability failed');
+  return result;
+}
+function businessWriterControl() {
+  const root=resolve(scratch,'writer-control'),path=resolve(root,'evaluations/results/code-understanding/business.json');mkdirSync(resolve(path,'..'),{recursive:true});
+  const existing={schema_version:1,tasks:{T047:{status:'passed',retained:true},T050:{status:'failed',case_results:[{id:'old_failure',status:'failed'}]}}};writeFileSync(path,JSON.stringify(existing));
+  const result={schema_version:1,status:'passed',case_results:[{id:'new_pass',status:'passed'}]};
+  const written=spawnSync(python,['-c',businessWriter,root,'8192'],{input:JSON.stringify(result),encoding:'utf8'});assert.equal(written.status,0,written.stderr);
+  const captured=JSON.parse(readFileSync(path));assert.deepEqual(captured.tasks.T047,existing.tasks.T047);assert.equal(captured.tasks.T050.prior_failed_attempts[0].case_results[0].id,'old_failure');
+  const before=readFileSync(path),stopped=spawnSync(python,['-c',businessWriter,root,'1024'],{input:JSON.stringify({...result,scope:'x'.repeat(2048)}),encoding:'utf8'});assert.notEqual(stopped.status,0);assert.deepEqual(readFileSync(path),before);
+  pathsWriterControls.push({id:'bounded_result_writer',status:'passed',history_preserved:true,unrelated_tasks_preserved:true,explicit_lower_cap:1024,oversize_status:stopped.status,prior_artifact_unchanged:true});
+  pathsChecks.push('guarded result writer preserves unrelated tasks and prior failure history; byte refusal leaves the prior artifact intact');
+}
+async function businessPathLane() {
+  businessWriterControl();
+  for(const framework of ['django','odoo']) {
+    const root=resolve(scratch,framework+'-paths-source'),out=resolve(scratch,framework+'-paths-output'),config=resolve(scratch,framework+'-paths-context.json');
+    const manifest=JSON.parse(readFileSync(`evaluations/code-understanding/${framework}-framework-inputs.json`,'utf8'));
+    for(const item of manifest.synthetic_inventory) {
+      let bytes=readFileSync(resolve(manifest.fixture_root,item.path));assert.equal(createHash('sha256').update(bytes).digest('hex'),item.sha256);
+      // An isolated UI fixture gives the admitted route a direct branch and an
+      // unresolved branch. Frozen inputs and source keys remain untouched.
+      if(framework==='django' && item.path==='views.py')bytes=Buffer.from(bytes.toString().replace('    return "home"','    helper()\n    unknown_handler()\n    return "home"')+'\n\ndef helper():\n    return "leaf"\n');
+      const target=resolve(root,item.path);mkdirSync(resolve(target,'..'),{recursive:true});writeFileSync(target,bytes);
+    }
+    const run=args=>{const result=spawnSync(python,args,{encoding:'utf8'});assert.equal(result.status,0,result.stdout+result.stderr);};
+    run(['-c',`import hashlib,json,sys
+from pathlib import Path
+from evaluations.analysis import odoo_framework_context
+framework,source,target=sys.argv[1:];source=Path(source)
+manifest=json.loads(Path('evaluations/code-understanding/'+framework+'-framework-inputs.json').read_text())
+blobs={row['path']:(source/row['path']).read_bytes() for row in manifest['synthetic_inventory']}
+if framework=='odoo':context=odoo_framework_context(manifest,'synthetic',blobs)
+else:
+ context=manifest['source_admission']['frozen_contexts']['synthetic']
+ revision=hashlib.sha256(json.dumps([[path,hashlib.sha256(raw).hexdigest(),len(raw)] for path,raw in sorted(blobs.items())],separators=(',',':')).encode()).hexdigest()
+ for key in ('consumer','dependency'):context[key]['revision']=revision
+Path(target).write_text(json.dumps(context))`,framework,root,config]);
+    run(['scripts/repo_graph.py','analyze',root,'--output',out,'--mode','serial','--framework-context',config]);run(['scripts/repo_graph.py','map',root,'--output',out]);
+    const child=spawn(python,['scripts/repo_graph.py','serve',out,'--offline'],{stdio:['ignore','pipe','pipe']});let diagnostic='',tab;
+    child.stderr.on('data',chunk=>{diagnostic+=chunk;});const ended=once(child,'close'),exchanges=[],reads=[];
+    try {
+      const address=await new Promise((accept,reject)=>{const timer=setTimeout(()=>reject(new Error('Paths server timeout: '+diagnostic)),30000);
+        child.stdout.on('data',chunk=>{const match=String(chunk).match(/http:\/\/127\.0\.0\.1:\d+\/architecture.html/);if(match){clearTimeout(timer);accept(match[0]);}});child.once('exit',()=>{clearTimeout(timer);reject(new Error(diagnostic));});});
+      tab=await context.newPage();tab.on('pageerror',error=>errors.push(error.message));
+      tab.on('response',response=>{if(/\/api\/(query|source)$/.test(response.url()) && response.status()===200)reads.push((async()=>{try{exchanges.push({endpoint:new URL(response.url()).pathname,request:response.request().postDataJSON(),response:await response.json()});}catch{}})());});
+      await tab.goto(address);await tab.waitForFunction(()=>document.querySelector('#index-heading').textContent.includes('local index'));await tab.click('#tab-paths');
+      const find=async()=>{await tab.getByRole('button',{name:'Find entrypoints',exact:true}).click();await tab.waitForFunction(()=>document.querySelector('.paths-panel .calls-status[role="status"]').textContent.includes('rows in this page'));await Promise.all(reads);};
+      assert.equal(exchanges.length,0);assert.match(await tab.locator('#map-subtitle').innerText(),/possible Calls branches.*runtime sequence, deployment and business completeness are unknown.*Semantic rankings are not structural facts/);
+      const status=await (await tab.request.get(new URL('/api/status',address).toString())).json(),captured=status.structural.identities;
+      await tab.getByLabel('Entrypoint rows per page').selectOption('1');await find();
+      const seen=new Set(),rows=[];let pages=0;
+      while(true) {
+        await Promise.all(reads);const exchange=exchanges.filter(row=>row.request.operation==='framework').at(-1);
+        assert.ok(exchange);assert.ok(exchange.response.rows.length<=1);assert.ok(await tab.locator('.path-element').count()<=1);
+        for(const key of ['generation','repository_identity','source_identity','analyzer_identity','config_identity'])assert.equal(exchange.response[key],captured[key]);
+        for(const row of exchange.response.rows){const id=row.site.id+'|'+(row.target?.id || '');assert.equal(seen.has(id),false);seen.add(id);rows.push(row);assert.equal(row.runtime_qualified,false);
+          if(framework==='odoo'){assert.deepEqual(row.runtime_callable_targets,[]);assert.equal(row.runtime_dispatch,'unresolved');}}
+        if(await tab.getByRole('button',{name:'Next entrypoint page',exact:true}).isDisabled())break;
+        assert.ok(++pages<40);await tab.getByRole('button',{name:'Next entrypoint page',exact:true}).click();await tab.waitForFunction(()=>!document.querySelector('.paths-panel button[type="submit"]').disabled && document.querySelector('.paths-panel .calls-status[role="status"]').textContent.includes('rows in this page'));
+      }
+      assert.ok(rows.some(row=>row.family==='framework'));assert.ok(rows.some(row=>row.family==='framework_boundary' && row.target===null && !row.targets_exhaustive));
+      pathCheck(framework+'_finite_pages',`${framework}: actual captured source declarations and unresolved stop points; fixed-snapshot one-row pages preserve unique facts and all five identities`,{snapshot:captured,page_count:pages+1,rows:rows.map(pathRow)});
+      await tab.getByLabel('Entrypoint source path scope').fill(framework==='django' ? 'urls.py' : 'controllers.py');await tab.getByLabel('Entrypoint rows per page').selectOption('8');await find();
+      const entry=tab.locator('.path-element').filter({has:tab.getByRole('button',{name:'Explore possible calls',exact:true})}).first();await entry.waitFor();
+      const registration=entry.getByRole('button',{name:'Inspect registration source',exact:true}),sourceResponse=tab.waitForResponse(response=>new URL(response.url()).pathname==='/api/source' && response.status()===200);
+      await registration.focus();await tab.keyboard.press('Enter');await tab.locator('.paths-panel .call-evidence pre').waitFor();
+      const inspected=await (await sourceResponse).json(),raw=readFileSync(resolve(root,inspected.handle.path));
+      assert.equal(inspected.text,raw.subarray(inspected.range.start_byte,inspected.range.end_byte).toString());await tab.keyboard.press('Escape');assert.equal(await registration.evaluate(button=>button===document.activeElement),true);
+      const witness=entry.getByRole('button',{name:/^Inspect witness /}).first();await witness.click();await tab.locator('.paths-panel .call-evidence pre').waitFor();await tab.keyboard.press('Escape');
+      await Promise.all(reads);pathCheck(framework+'_source_inspection',`${framework}: physical registration and supporting witness source inspection verifies captured bytes; Enter/Escape returns focus`,{snapshot:captured,inspections:exchanges.filter(row=>row.endpoint==='/api/source').map(row=>({handle:row.response.handle,range:row.response.range,raw_digest:row.response.raw_digest,redacted:row.response.redacted,truncated:row.response.truncated,identities:row.response.identities})),focus_returned:true});
+      await entry.getByRole('button',{name:'Explore possible calls',exact:true}).click();await tab.waitForFunction(()=>document.querySelector('.calls-panel .calls-status[role="status"]').textContent.includes('rows in this page'));
+      assert.equal(await tab.locator('#tab-calls').getAttribute('aria-selected'),'true');assert.match(await tab.locator('.call-symbol').first().innerText(),framework==='django' ? /homepage/ : /orders/);
+      if(framework==='django'){assert.match((await tab.locator('.call-site').allInnerTexts()).join(' '),/helper/);assert.match((await tab.locator('.call-site').allInnerTexts()).join(' '),/Unresolved target/);}
+      await Promise.all(reads);pathCheck(framework+'_possible_calls',`${framework}: declared entrypoint opens existing Calls; possible direct branches and unresolved targets retain source certainty without runtime ordering`,{snapshot:captured,rows:exchanges.filter(row=>row.request.operation==='callees').at(-1).response.rows,declared_runtime_sequence:false});
+      await tab.click('#tab-paths');await tab.getByLabel('Entrypoint source path scope').fill(framework==='django' ? 'urls.py' : 'data/jobs.xml');await find();
+      if(framework==='odoo'){
+        assert.equal(await tab.locator('.paths-panel').getByRole('button',{name:'Explore possible calls',exact:true}).count(),0);
+        assert.match(await tab.locator('.path-element').first().innerText(),/configuration namespace/);assert.match(await tab.locator('.paths-panel').innerText(),/Unresolved stop point/);
+        pathCheck('odoo_configuration_stop','odoo: cron configuration values have no Calls shortcut; namespace/source declaration and unresolved registry boundary remain distinct',{snapshot:captured,rows:exchanges.filter(row=>row.request.operation==='framework').at(-1).response.rows.map(pathRow),calls_shortcuts:0});
+        await tab.route('**/api/query',async route=>{const response=await route.fetch();const body=await response.json();body.rows[0].runtime_callable_targets=['fabricated_runtime_target'];await route.fulfill({response,body:JSON.stringify(body)});});
+        await tab.getByRole('button',{name:'Find entrypoints',exact:true}).click();await tab.waitForFunction(()=>document.querySelector('.paths-panel .calls-status[role="status"]').textContent.includes('Invalid Odoo'));
+        assert.equal(await tab.locator('.path-element').count(),0);await tab.unroute('**/api/query');
+        pathCheck('odoo_runtime_target_refusal','odoo: a transported runtime callable claim refuses publication',{snapshot:captured,published_rows:0,fabricated_callable_targets_refused:true});
+      }
+      for(const key of ['generation','repository_identity','source_identity','analyzer_identity','config_identity']) {
+        let requests=0;await tab.route('**/api/query',async route=>{requests++;const response=await route.fetch();const body=await response.json();body[key]='f'.repeat(64);await route.fulfill({response,body:JSON.stringify(body)});});
+        await tab.getByRole('button',{name:'Find entrypoints',exact:true}).click();await tab.waitForFunction(()=>document.querySelector('.paths-panel .calls-status[role="status"]').textContent.includes('Index changed'));
+        assert.equal(await tab.locator('.path-element').count(),0);assert.equal(requests,1);await tab.unroute('**/api/query');
+      }
+      pathCheck(framework+'_identity_refusal',`${framework}: mismatches in each captured identity reject page publication with no fallback or hidden retries`,{snapshot:captured,rejected_fields:['generation','repository_identity','source_identity','analyzer_identity','config_identity'],published_rows:0});
+      await find();await tab.setViewportSize({width:360,height:900});assert.ok(await tab.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      for(const control of await tab.locator('.paths-panel input,.paths-panel select,.paths-panel button').all())assert.ok(await control.evaluate(element=>element.getBoundingClientRect().height>=44));
+      const narrow=tab.locator('.path-element').first().getByRole('button',{name:'Inspect registration source',exact:true});await narrow.focus();await tab.keyboard.press('Enter');await tab.locator('.paths-panel .call-evidence pre').waitFor();await tab.keyboard.press('Escape');assert.equal(await narrow.evaluate(button=>button===document.activeElement),true);
+      pathCheck(framework+'_narrow_keyboard',`${framework}: 360px layout, labelled44px controls and keyboard source inspection retain focus`,{snapshot:captured,viewport_width:360,overflow:false,min_control_height:44,source_focus_returned:true});
+      if(process.env.REPO_GRAPH_UX_REPORT)await tab.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-'+framework+'-paths.png',fullPage:true});
+      await tab.setViewportSize({width:1440,height:1000});await tab.click('#tab-explore');
+      const file=tab.getByRole('button',{name:framework==='django' ? 'Select views.py' : 'Select controllers.py',exact:true});await file.click();await tab.getByRole('button',{name:'Find declarations in Calls',exact:true}).click();await tab.locator('.calls-matches button').first().waitFor();
+      assert.equal(await tab.getByLabel('Symbol path scope').inputValue(),framework==='django' ? 'views.py' : 'controllers.py');await tab.locator('.calls-matches button').filter({hasText:framework==='django' ? 'homepage' : 'orders'}).first().click();await tab.locator('.call-symbol').first().waitFor();
+      pathCheck(framework+'_file_declaration_calls',`${framework}: captured source file → scoped owner-index declaration lookup → usable Calls shortcut`,{snapshot:captured,path:framework==='django' ? 'views.py' : 'controllers.py',calls_declaration_visible:true});
+      await Promise.all(reads);pathsObservations.push({framework,source_identity:captured,exchanges});
+    } catch(error) {
+      await Promise.all(reads);pathsObservations.push({framework,exchanges,failure:error.message,status:tab ? await tab.locator('.paths-panel').innerText().catch(()=>null) : null});
+      if(tab && process.env.REPO_GRAPH_UX_REPORT)await tab.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-'+framework+'-failure.png',fullPage:true}).catch(()=>{});
+      throw error;
+    } finally {if(tab)await tab.close();child.kill('SIGTERM');await ended;}
+  }
+  await page.goto(url);await page.waitForFunction(()=>document.querySelector('#index-heading').textContent.includes('local index'));await page.click('#tab-paths');
+  await page.getByRole('button',{name:'Find entrypoints',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.paths-panel .calls-status[role="status"]').textContent.includes('no framework enrollment'));
+  assert.equal(await page.locator('.path-element').count(),0);assert.equal(await page.getByLabel('Path evidence family').locator('option[value="contract"]').evaluate(option=>option.disabled),true);
+  const offline=await context.newPage(),requests=[];offline.on('request',request=>{if(/^https?:/.test(request.url()))requests.push(request.url());});
+  try {await offline.goto(pathToFileURL(resolve(output,'architecture.html')).toString());await offline.click('#tab-paths');assert.match(await offline.locator('#data-panel').innerText(),/Paths require the local captured structural index/);assert.deepEqual(requests,[]);}finally{await offline.close();}
+  const unavailableStatus=await (await page.request.get(new URL('/api/status',url).toString())).json();
+  pathCheck('unavailable_offline_boundaries','unenrolled framework and offline snapshots show availability limits; imported contracts disabled without captured membership; no invented rows or network fallback',{snapshot:unavailableStatus.structural.identities,published_rows:0,contract_selection_disabled:true,offline_http_requests:requests.length,runtime_qualified:false});
+}
 // A separately enrolled lane keeps the original unenrolled P1 assertions intact.
 async function contractImpactLane() {
   const root=resolve(scratch,'contracts-source'),out=resolve(scratch,'contracts-output'),config=resolve(scratch,'contract-context.json');
@@ -77,7 +231,17 @@ Path(sys.argv[2]).write_text(json.dumps(context),encoding='utf-8')`,root,config,
       contractServer.once('exit',()=>{clearTimeout(timer);reject(new Error(diagnostic));});});
     ct=await context.newPage();ct.on('pageerror',error=>errors.push(error.message));const exchanges=[],reads=[];
     ct.on('response',response=>{if(/\/api\/(query|source)$/.test(response.url()) && response.status()===200)reads.push((async()=>{try{exchanges.push({endpoint:new URL(response.url()).pathname,request:response.request().postDataJSON(),response:await response.json()});}catch{}})());});
-    await ct.goto(address);await ct.waitForFunction(()=>document.querySelector('#index-heading').textContent.includes('local index'));await ct.click('#tab-impact');
+    await ct.goto(address);await ct.waitForFunction(()=>document.querySelector('#index-heading').textContent.includes('local index'));await ct.click('#tab-paths');
+    await ct.getByLabel('Path evidence family').selectOption('contract');await ct.getByRole('button',{name:'Find entrypoints',exact:true}).click();await ct.waitForFunction(()=>document.querySelector('.paths-panel .calls-status[role="status"]').textContent.includes('rows in this page'));
+    assert.ok(await ct.locator('.path-element').count()>0);assert.equal(await ct.locator('.paths-panel').getByRole('button',{name:'Explore possible calls',exact:true}).count(),0);assert.match(await ct.locator('.path-element').first().innerText(),/Imported membership has no runtime transport or ordering proof/);
+    const source=ct.locator('.path-element').first().getByRole('button',{name:'Inspect registration source',exact:true});await source.focus();await ct.keyboard.press('Enter');await ct.locator('.paths-panel .call-evidence pre').waitFor();await ct.keyboard.press('Escape');assert.equal(await source.evaluate(button=>button===document.activeElement),true);
+    await Promise.all(reads);const contractPage=exchanges.find(row=>row.request.operation==='contract').response;
+    pathCheck('contract_source_membership','actual imported contract source memberships and witnesses reuse bounded query/source inspection; no callable or deployment inference',{snapshot:Object.fromEntries(['generation','repository_identity','source_identity','analyzer_identity','config_identity'].map(key=>[key,contractPage[key]])),rows:contractPage.rows.map(pathRow),calls_shortcuts:0,source_focus_returned:true});pathsObservations.push({framework:'contract',exchanges:[...exchanges]});
+    const contractOrigin=contractPage.rows[0];await ct.locator('.path-element').first().getByRole('button',{name:'Explore contract impact',exact:true}).click();await ct.waitForFunction(()=>document.querySelector('.impact-panel .calls-status[role="status"]').textContent.includes('physical relations in this page'));await Promise.all(reads);
+    const imported=exchanges.filter(row=>row.request.operation==='impact').at(-1);assert.deepEqual(imported.request.relations,['contract']);assert.deepEqual(imported.request.selector,{kind:'source_area',paths:[contractOrigin.site.path]});assert.deepEqual(imported.request.services,[contractOrigin.service_id]);assert.ok(imported.response.rows.length>0);assert.ok(imported.response.rows.every(row=>row.runtime_qualified===false));
+    pathCheck('contract_possible_impact','source contract origin opens existing bounded Impact with explicit source, service/protocol/namespace scope and no runtime ordering',{snapshot:Object.fromEntries(['generation','repository_identity','source_identity','analyzer_identity','config_identity'].map(key=>[key,contractPage[key]])),request:imported.request,rows:imported.response.rows.map(pathRow),runtime_sequence_qualified:false});
+    if(process.env.REPO_GRAPH_UX_FOCUS==='paths')return;
+    await ct.click('#tab-impact');
     const status=await (await ct.request.get(new URL('/api/status',address).toString())).json();
     assert.equal(status.structural.impact.receipt.contracts_available,true);assert.equal(status.structural.impact.receipt.contract_membership_schema,'captured-contract-membership-v1');
     assert.equal(await ct.getByLabel('Impact relation',{exact:true}).inputValue(),'all');
@@ -174,6 +338,12 @@ Path(sys.argv[2]).write_text(json.dumps(context),encoding='utf-8')`,root,config,
 }
 page.on('response',response=>{if(new URL(response.url()).pathname==='/api/search' && response.status()===200)responseReads.push((async()=>{try{searchResponses.push({request:response.request().postDataJSON(),response:await response.json()});}catch{}})());});
 try {
+  if(process.env.REPO_GRAPH_UX_FOCUS==='paths') {
+    await businessPathLane();await contractImpactLane();assert.deepEqual(errors,[]);
+    const result={focus:'paths',pathsChecks,case_results:pathsCases,writer_controls:pathsWriterControls,pathsObservations,browserErrors:errors};
+    if(process.env.REPO_GRAPH_UX_REPORT)writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify(result,null,2)+'\n');
+    console.log(JSON.stringify({focus:'paths',pathsChecks,browserErrors:errors}));
+  } else {
   const start=Date.now(); await page.goto(url); await page.locator('.node').first().waitFor();
   const loadMs=Date.now()-start;
   const graph=JSON.parse(readFileSync(resolve(output,'graph.json'),'utf8'));
@@ -733,16 +903,19 @@ try {
     if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-impact-narrow.png',fullPage:true});
     await page.setViewportSize({width:1440,height:1000});if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-impact.png'});
   }
-  await contractImpactLane();
+  await businessPathLane();await contractImpactLane();
   await Promise.all(responseReads);
   assert.deepEqual(errors,[]); assert.ok(loadMs<5000); checks.push('no browser errors; load under 5 seconds');
+  const pathsResult=writeBusinessPaths('passed');
   if(process.env.REPO_GRAPH_UX_REPORT) {
-    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',reranker:method,loadMs,searchToGraphMs,systemMetrics,checks,searchChecks,searchResponses,callsChecks,savedChecks,savedObservations,impactChecks,impactObservations,callsResponses,browserErrors:errors},null,2)+'\n');
+    writeFileSync(process.env.REPO_GRAPH_UX_REPORT,JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',reranker:method,loadMs,searchToGraphMs,systemMetrics,checks,searchChecks,searchResponses,callsChecks,savedChecks,savedObservations,impactChecks,impactObservations,pathsChecks,pathsResult,pathsObservations,callsResponses,browserErrors:errors},null,2)+'\n');
   }
-  console.log(JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,searchToGraphMs,systemMetrics,checks,searchChecks,callsChecks,savedChecks,impactChecks,browserErrors:errors}));
+  console.log(JSON.stringify({files:graph.file_count,searchMode:process.env.REPO_GRAPH_UX_MODE || 'keyword',loadMs,searchToGraphMs,systemMetrics,checks,searchChecks,callsChecks,savedChecks,impactChecks,pathsChecks,browserErrors:errors}));
+  }
 } catch(error) {
+  if(process.env.REPO_GRAPH_UX_FOCUS!=='paths')writeBusinessPaths('failed',error);
   if(process.env.REPO_GRAPH_UX_REPORT) {
-    writeFileSync(process.env.REPO_GRAPH_UX_REPORT+'-failure.json',JSON.stringify({checks,searchChecks,searchResponses,callsChecks,savedChecks,savedObservations,impactChecks,impactObservations,callsResponses,browserErrors:errors,failure:{name:error.name,message:error.message,stack:error.stack}},null,2)+'\n');
+    writeFileSync(process.env.REPO_GRAPH_UX_REPORT+'-failure.json',JSON.stringify({checks,searchChecks,searchResponses,callsChecks,savedChecks,savedObservations,impactChecks,impactObservations,pathsChecks,case_results:pathsCases,pathsObservations,callsResponses,browserErrors:errors,failure:{name:error.name,message:error.message,stack:error.stack}},null,2)+'\n');
     await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-failure.png',fullPage:true}).catch(()=>{});
   }
   throw error;
