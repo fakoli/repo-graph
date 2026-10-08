@@ -68,6 +68,7 @@
   .calls-panel { padding:20px; }
   .calls-panel form,.calls-tools { display:flex; flex-wrap:wrap; gap:10px; align-items:end; }
   .calls-panel label { display:grid; gap:5px; color:var(--muted); font-size:12px; min-width:0; flex:1; }
+  .impact-panel label { flex:1 1 190px; }
   .calls-panel input,.calls-panel select,.calls-panel button { min-height:44px; min-width:0; max-width:100%; padding:8px; border:1px solid var(--line); border-radius:8px; background:#fff; }
   .calls-status { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
   .calls-matches { display:grid; gap:8px; margin:12px 0; }
@@ -524,10 +525,13 @@ __VIEW_HELPERS__
     try { while(true) {const next=await reader.read();if(next.done)break;size+=next.value.byteLength;
       if(size>32768)throw new Error('Response exceeds the bounded page');bytes.push(next.value);} }
     catch(error){await reader.cancel();throw error;}
-    if(!response.ok)throw new Error(response.status===409 ? 'Stale source or index; select a symbol again' : 'Captured query or source unavailable');
     const result=new Uint8Array(size);let offset=0;for(const chunk of bytes){result.set(chunk,offset);offset+=chunk.length;}
-    try {return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(result));}
-    catch {throw new Error('Invalid bounded response');}
+    let value;try {value=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(result));}
+    catch {if(response.ok)throw new Error('Invalid bounded response');}
+    if(!response.ok)throw new Error(response.status===409 ? 'Stale source or index; select a symbol again' :
+      response.status===400 && value?.error==='Unknown, expired, consumed or foreign session cursor' ?
+        'Snapshot/query pagination expired, consumed or unavailable. Start a fresh query.' : 'Captured query or source unavailable');
+    return value;
   }
   async function callsRequest(endpoint,payload,publish,replay=false,mode='calls') {
     const ui=mode==='impact' ? impactUI : callsUI;
@@ -802,7 +806,11 @@ __VIEW_HELPERS__
     const more=callButton('More impact',()=>{if(impactState.page?.cursor)loadImpact(impactState.page.cursor,24-impactCount(impactState.scene)<2 || !impactState.page.rows.length);});more.disabled=true;
     const capture=callElement('p','','calls-status'),basis=callElement('p','','calls-status'),unknown=callElement('details'),boundaries=callElement('ul');unknown.append(callElement('summary','Unknown and excluded boundaries'),boundaries);
     const cards=callElement('div','','impact-cards'),evidence=callElement('section','','call-evidence');evidence.hidden=true;
-    panel.append(form,filterNote,callElement('p',gitReady ? 'Git choice uses the explicitly captured base; worktree byte affinity is unobserved.' : 'Captured Git base unavailable; analyze with an explicit exact base to enable it.'),status,more,capture,basis,unknown,evidence,cards);
+    const gitAdvice=gitReady ? 'Git choice uses the explicitly captured base; worktree byte affinity is unobserved.' :
+      capturedGit?.reason==='git_source_root_not_repository_root' ?
+        'Captured Git base unavailable: this source root is inside a Git repository, not its repository root. Analyze from the repository root to capture a base; source-area Impact remains available.' :
+        'Captured Git base unavailable; analyze with an explicit exact base to enable it.';
+    panel.append(form,filterNote,callElement('p',gitAdvice),status,more,capture,basis,unknown,evidence,cards);
     impactUI={panel,inputKind,input,relation,service,protocol,namespace,certainty,depth,size,status,cancel,more,capture,basis,boundaries,cards,evidence};
     form.addEventListener('submit',event=>{event.preventDefault();startImpact();});
     for(const control of [inputKind,input,relation,service,protocol,namespace,certainty,depth,size])control.addEventListener('change',()=>{stopCalls(false);impactState.page=null;more.disabled=true;status.textContent='Selection or filter changed. Find impact starts a fresh captured query; old continuation is unavailable.';});

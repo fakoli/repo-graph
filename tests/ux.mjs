@@ -186,8 +186,22 @@ try {
     assert.equal(liveStatus.structural.artifact_ready,true);
     assert.match(await page.locator('#index-summary').innerText(),/captured artifact ready/);
     assert.match(await page.locator('#index-summary').innerText(),new RegExp(liveStatus.structural.receipt.coverage.files_total+' admitted files'));
+    const nestedRootStatus=structuredClone(liveStatus);
+    nestedRootStatus.structural.impact.receipt.git_change={status:'unavailable',reason:'git_source_root_not_repository_root'};
+    const nestedRootTab=await context.newPage(),nestedRequests=[];
+    nestedRootTab.on('pageerror',error=>errors.push(error.message));
+    nestedRootTab.on('request',request=>{if(new URL(request.url()).pathname==='/api/query')nestedRequests.push(request.postDataJSON());});
+    try {
+      await nestedRootTab.route('**/api/status',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(nestedRootStatus)}));
+      await nestedRootTab.goto(url);await nestedRootTab.waitForFunction(()=>document.querySelector('#index-heading').textContent.includes('local index'));
+      await nestedRootTab.click('#tab-impact');
+      assert.equal(await nestedRootTab.getByLabel('Impact input',{exact:true}).locator('option[value="git_change"]').evaluate(option=>option.disabled),true);
+      assert.match(await nestedRootTab.locator('.impact-panel').innerText(),/source root is inside a Git repository, not its repository root.*Analyze from the repository root.*source-area Impact remains available/s);
+      assert.doesNotMatch(await nestedRootTab.locator('.impact-panel').innerText(),/analyze with an explicit exact base to enable it/);
+      assert.deepEqual(nestedRequests,[]);
+    } finally {await nestedRootTab.close();}
   }
-  checks.push('captured API readiness and explicit live freshness knowledge');
+  checks.push('captured API readiness, explicit live freshness knowledge and nested source-root Git boundary guidance');
   for (const state of ['updating','interrupted','stale']) {
     const changed=structuredClone(liveStatus);
     changed.structural.state=state;
@@ -508,6 +522,16 @@ try {
     await page.waitForTimeout(31000);await page.waitForTimeout(31000);
     const expired=await page.request.post(new URL('/api/query',url).toString(),{data:{...fanoutPage.request,cursor:fanoutPage.response.cursor}});
     assert.equal(expired.status(),400);
+    assert.equal((await expired.json()).error,'Unknown, expired, consumed or foreign session cursor');
+    const beforeExpiredPage=await scene(),expiredRequests=[];
+    const recordExpiredRequest=request=>{if(new URL(request.url()).pathname==='/api/query')expiredRequests.push(request.postDataJSON());};
+    page.on('request',recordExpiredRequest);
+    try {
+      await page.getByRole('button',{name:/^(More callsites|Next page \(replace scene\))$/}).click();
+      await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('Snapshot/query pagination expired, consumed or unavailable. Start a fresh query.'));
+      assert.deepEqual(await scene(),beforeExpiredPage);
+      assert.equal(expiredRequests.length,1);assert.equal(expiredRequests[0].cursor,fanoutPage.response.cursor);
+    } finally {page.off('request',recordExpiredRequest);}
     await page.reload();await restored();assert.deepEqual(await scene(),replacedScene);
     while(true) {
       assert.ok(await page.locator('.call-element').count()<=24);
@@ -515,7 +539,7 @@ try {
       const more=page.getByRole('button',{name:/^(More callsites|Next page \(replace scene\))$/});if(await more.isDisabled())break;
       await more.click();await page.waitForFunction(()=>document.querySelector('.calls-status[role="status"]').textContent.includes('rows in this page'));
     }
-    assert.equal(fanoutSeen.size,30);savedChecks.push('actual expired cursor is not persisted; fresh bounded replay restores replaced fanout page and complete continuation');
+    assert.equal(fanoutSeen.size,30);savedChecks.push('actual expired cursor gives fresh-query guidance without retry or scene replacement; cursor is not persisted and fresh bounded replay restores complete continuation');
 
     const stableRecord=(await readSaved()).value;
     const staleRecord=structuredClone(stableRecord);staleRecord.snapshot.generation='0'.repeat(64);
@@ -695,12 +719,17 @@ try {
     assert.equal(await page.locator('.impact-element').count(),0);assert.match(await impactStatus.innerText(),/Stopped waiting/);await page.unroute('**/api/query');
     impactChecks.push('stale initial capture refused before scene publication; cancellation discards late actual backend reply');
 
-    await findImpact('src/component00/main.py','import');await collectImpact();await page.setViewportSize({width:360,height:900});
+    await findImpact('src/component00/main.py','import');await collectImpact();await page.setViewportSize({width:1094,height:900});
+    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+    assert.ok(await page.locator('.impact-panel form label').evaluateAll(labels=>labels.every(label=>label.getBoundingClientRect().width>=190 && label.scrollWidth<=label.clientWidth)));
+    assert.ok(await page.getByLabel('Impact source area or captured base').evaluate(input=>input.getBoundingClientRect().width>=190));
+    if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-impact-1094.png',fullPage:true});
+    await page.setViewportSize({width:360,height:900});
     assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     assert.ok(await page.locator('.impact-panel form').evaluate(form=>[...form.querySelectorAll('input,select,button')].every(control=>{const rect=control.getBoundingClientRect();return rect.width<=innerWidth && rect.height>=44;})));
     const importButton=page.locator('.impact-element[data-relation="import"]').first().getByRole('button',{name:'Inspect import',exact:true});await importButton.focus();await page.keyboard.press('Enter');await page.locator('.impact-panel .call-evidence pre').waitFor();await page.keyboard.press('Escape');
     assert.equal(await importButton.evaluate(button=>button===document.activeElement),true);
-    impactChecks.push('360px Impact forms/cards stay bounded; labelled44px controls and Enter/Escape import inspection preserve focus');
+    impactChecks.push('1094px Impact controls wrap with readable labels; 360px forms/cards, labelled44px controls and Enter/Escape import inspection preserve focus');
     if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-impact-narrow.png',fullPage:true});
     await page.setViewportSize({width:1440,height:1000});if(process.env.REPO_GRAPH_UX_REPORT)await page.screenshot({path:process.env.REPO_GRAPH_UX_REPORT+'-impact.png'});
   }
