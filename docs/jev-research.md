@@ -155,6 +155,19 @@ independent Astra AI source reviewer. Run the supported command:
 uv run python evaluations/acceptance.py --gate task-preflight --task T047 --checks ranking-boundary
 ```
 
+The aggregate integration check retains the original T046/T047 observations and
+repeats their small affected checks against current committed code:
+
+```sh
+uv run python evaluations/acceptance.py --gate ranking-boundary
+```
+
+It runs seven synthetic ranking checks with mocked Jev and a stubbed local
+encoder, then the frozen native comparison. Individual test observations stay
+in command logs; the portable T022 report retains hashes, actual timings,
+relevance numerators, denominators and misses. It preserves optional alternatives
+as decisions and does not measure real model tokens or grant Anvil acceptance.
+
 The [frozen inputs](../evaluations/code-understanding/function-relevance-inputs.json)
 and [source review](../evaluations/code-understanding/function-relevance-review.json)
 are checked against their committed bytes before extraction. Both arms use the
