@@ -1,0 +1,74 @@
+{
+  "admission_is_task_acceptance": false,
+  "adversarial": {
+    "assessment": "Admission rests on physical slices, exact declaration affinity and unchanged prior source judgments, not profile labels. Distinct HTTP service/document scopes, RPC service/message identities and queue owner/namespace/topic/schema identities remain intact. Four declarative positives, twelve zero-target unknown boundaries and one unbound zero-row control are preserved. Stale mutation witnesses were not treated as current evidence.",
+    "status": "pass_for_bounded_source_key_correction"
+  },
+  "correctness": {
+    "assessment": "Exact before/after JSON comparison confines changes to export-prefix declaration keys, columns, slice digests, the range convention and dependent identities. Nested profile rows match complete binding objects. All eight original fixture files and the runtime collector retain their prior reviewed hashes.",
+    "checks": {
+      "baseline_case_witnesses_verified": 136,
+      "baseline_profile_witnesses_verified": 70,
+      "gateway_case_declarations_corrected": 13,
+      "gateway_profile_declarations_corrected": 12,
+      "mutation_changed_profile_identities_verified": 3,
+      "mutation_inventories_and_restoration_identities_verified": 10,
+      "mutation_new_target_witnesses_verified": 3,
+      "mutation_profile_witnesses_current": 640,
+      "mutation_profile_witnesses_intentionally_stale_verified_against_baseline": 67,
+      "nested_baseline_profile_rows_verified": 20
+    },
+    "inventory_sha256": "8858e96b333518bc96a647e8a8b54c9e0fbbf4050c958567918f5c5af992f4fc",
+    "previous_review_sha256": "1380118c6a36c05f44a087353ca5d184029f4934c479fa845bd3410774de7ae1",
+    "private_helper_sha256": "0e2575f1c9cb473f956cb97290a0ee557dec3d9c3a68fe7a107f671ffd7b6aff",
+    "profile_sha256": "fba930a19c11af38326f823166bedeaf0397f7b938e9969d010eed8375c53754",
+    "status": "pass"
+  },
+  "human_ux_approval": false,
+  "implementation_approval": false,
+  "input_manifest": {
+    "bytes": 162834,
+    "path": "evaluations/code-understanding/contract-inputs.json",
+    "sha256": "404969d67cd2ba621e3355e3de4346c84d6179c653307ce4d211d10f3f967e96"
+  },
+  "limitations": [
+    "Byte/JSON/Git inspection only. The helper was inspected, not executed. No product parsers, producers, tests, evaluators, builds, provider calls, source mutations or Anvil updates were performed.",
+    "Collector compatibility follows inspected collector logic and exact source bytes; no parser execution or implementation behavior was measured. Unchanged semantic judgments reuse the hash-bound prior independent review.",
+    "HEAD advanced during review from cb553f86d28496c2ead1d67041b881552c071448 to 2b95c221ae61d7a497c6c736c633e094e8388b38 through out-of-scope evaluation/test changes. Final packet and reused source hashes still matched; this decision binds the specified bytes, not integration acceptance.",
+    "Source-key admission is not implementation, task, human, scale or runtime acceptance."
+  ],
+  "per_blocker_disposition": [
+    {
+      "corrected_positive_ranges": {
+        "CT-HTTP-ORDERS": [
+          78,
+          251
+        ],
+        "CT-HTTP-WORKER-DUPLICATE-ROUTE": [
+          252,
+          425
+        ],
+        "CT-RPC-ECHO": [
+          426,
+          599
+        ]
+      },
+      "disposition": "resolved",
+      "evidence": "All 12 profile and 13 case gateway declaration witnesses include the seven-byte export prefix selected by analysis_native.py:917-934. Names and end offsets remain unchanged; coordinates, source keys and slice digests match exact bytes. All dependent profile-row, inventory and mutation identities verify.",
+      "id": "T020-SOURCE-KEY-001"
+    }
+  ],
+  "review": {
+    "authorization": "D010_explicit_user_override",
+    "configured_reasoning_effort": "xhigh",
+    "human": false,
+    "independent": true,
+    "kind": "independent_ai_source_review",
+    "model": "gpt-6-astra",
+    "receipt_sha256": "7d1a62cd35a564f8e89346cc8a92e6f528fe031923306747b8928093109d9f5f",
+    "served_model_telemetry": null
+  },
+  "schema_version": 1,
+  "status": "admitted_frozen_source_key",
+  "task": "T020"
+}

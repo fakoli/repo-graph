@@ -1,0 +1,1648 @@
+{
+  "schema_version": 1,
+  "policy_id": "reviewed-explicit-contracts-v1",
+  "provenance": {
+    "kind": "original_manual_source_bindings",
+    "author_source_review": true,
+    "independent_source_review": "pending",
+    "compiler_validation": false,
+    "build_execution": false
+  },
+  "services": [
+    {
+      "service_id": "orders",
+      "source_prefix": "orders/",
+      "language": "python"
+    },
+    {
+      "service_id": "gateway",
+      "source_prefix": "gateway/",
+      "language": "typescript"
+    },
+    {
+      "service_id": "worker",
+      "source_prefix": "worker/",
+      "language": "go"
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "orders-http",
+      "kind": "openapi-3.1-json",
+      "path": "orders/openapi.json",
+      "sha256": "d2b6e2b4be56a0fe83ae99fccd3e563a9b4468ab8823eaf23abff2d76c7b3ecd",
+      "bytes": 715,
+      "provenance": "original_synthetic_source",
+      "compiler_validation": false
+    },
+    {
+      "id": "worker-http",
+      "kind": "openapi-3.1-json",
+      "path": "worker/openapi.json",
+      "sha256": "66e97783ebb3313065e89848c2b3ed0779342cda7fb00d774d7299598d33e528",
+      "bytes": 715,
+      "provenance": "original_synthetic_source",
+      "compiler_validation": false
+    },
+    {
+      "id": "worker-rpc",
+      "kind": "proto3-source",
+      "path": "worker/service.proto",
+      "sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+      "bytes": 313,
+      "provenance": "original_synthetic_source",
+      "compiler_validation": false
+    },
+    {
+      "id": "orders-events",
+      "kind": "explicit-queue-json",
+      "path": "orders/events.json",
+      "sha256": "23a587d382d279653dc18f76f028f59acba775f672a2fe0c7e5cb7e5f2fb81bf",
+      "bytes": 366,
+      "provenance": "original_synthetic_source",
+      "compiler_validation": false
+    }
+  ],
+  "contracts": [
+    {
+      "id": "orders.http.echo",
+      "artifact_id": "orders-http",
+      "identity": {
+        "contract_service_id": "orders",
+        "namespace": "orders-api",
+        "protocol": "http",
+        "method": "POST",
+        "path": "/echo",
+        "operation": "echo",
+        "operation_ref": "#/paths/~1echo/post",
+        "request_schema": "#/components/schemas/EchoRequest",
+        "response_schema": "#/components/schemas/EchoReply"
+      },
+      "source_witnesses": [
+        {
+          "source_key": "contracts-synthetic:orders/openapi.json:128:441",
+          "path": "orders/openapi.json",
+          "source_sha256": "d2b6e2b4be56a0fe83ae99fccd3e563a9b4468ab8823eaf23abff2d76c7b3ecd",
+          "slice_sha256": "cb6d84ad566a1dd1b82718de11922bf2f2f39a8c49ada2cd68b6da28c6ffb0bc",
+          "range": {
+            "start_byte": 128,
+            "end_byte": 441,
+            "start_line": 6,
+            "end_line": 10,
+            "start_utf8_byte_column": 6,
+            "end_exclusive_line": 10,
+            "end_utf8_byte_column": 7
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:orders/openapi.json:494:595",
+          "path": "orders/openapi.json",
+          "source_sha256": "d2b6e2b4be56a0fe83ae99fccd3e563a9b4468ab8823eaf23abff2d76c7b3ecd",
+          "slice_sha256": "2bbac8813167274db7eb9829c108d84dfb06d7fb3ba1f99c3ff19924276c25fa",
+          "range": {
+            "start_byte": 494,
+            "end_byte": 595,
+            "start_line": 15,
+            "end_line": 15,
+            "start_utf8_byte_column": 6,
+            "end_exclusive_line": 15,
+            "end_utf8_byte_column": 107
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:orders/openapi.json:603:702",
+          "path": "orders/openapi.json",
+          "source_sha256": "d2b6e2b4be56a0fe83ae99fccd3e563a9b4468ab8823eaf23abff2d76c7b3ecd",
+          "slice_sha256": "1fd87366a82bd5791b3fc8b31f3b1faf444938324cd198bb00240de321c1bd3b",
+          "range": {
+            "start_byte": 603,
+            "end_byte": 702,
+            "start_line": 16,
+            "end_line": 16,
+            "start_utf8_byte_column": 6,
+            "end_exclusive_line": 16,
+            "end_utf8_byte_column": 105
+          }
+        }
+      ]
+    },
+    {
+      "id": "worker.http.echo",
+      "artifact_id": "worker-http",
+      "identity": {
+        "contract_service_id": "worker",
+        "namespace": "worker-api",
+        "protocol": "http",
+        "method": "POST",
+        "path": "/echo",
+        "operation": "echo",
+        "operation_ref": "#/paths/~1echo/post",
+        "request_schema": "#/components/schemas/EchoRequest",
+        "response_schema": "#/components/schemas/EchoReply"
+      },
+      "source_witnesses": [
+        {
+          "source_key": "contracts-synthetic:worker/openapi.json:128:441",
+          "path": "worker/openapi.json",
+          "source_sha256": "66e97783ebb3313065e89848c2b3ed0779342cda7fb00d774d7299598d33e528",
+          "slice_sha256": "cb6d84ad566a1dd1b82718de11922bf2f2f39a8c49ada2cd68b6da28c6ffb0bc",
+          "range": {
+            "start_byte": 128,
+            "end_byte": 441,
+            "start_line": 6,
+            "end_line": 10,
+            "start_utf8_byte_column": 6,
+            "end_exclusive_line": 10,
+            "end_utf8_byte_column": 7
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/openapi.json:494:595",
+          "path": "worker/openapi.json",
+          "source_sha256": "66e97783ebb3313065e89848c2b3ed0779342cda7fb00d774d7299598d33e528",
+          "slice_sha256": "2bbac8813167274db7eb9829c108d84dfb06d7fb3ba1f99c3ff19924276c25fa",
+          "range": {
+            "start_byte": 494,
+            "end_byte": 595,
+            "start_line": 15,
+            "end_line": 15,
+            "start_utf8_byte_column": 6,
+            "end_exclusive_line": 15,
+            "end_utf8_byte_column": 107
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/openapi.json:603:702",
+          "path": "worker/openapi.json",
+          "source_sha256": "66e97783ebb3313065e89848c2b3ed0779342cda7fb00d774d7299598d33e528",
+          "slice_sha256": "1fd87366a82bd5791b3fc8b31f3b1faf444938324cd198bb00240de321c1bd3b",
+          "range": {
+            "start_byte": 603,
+            "end_byte": 702,
+            "start_line": 16,
+            "end_line": 16,
+            "start_utf8_byte_column": 6,
+            "end_exclusive_line": 16,
+            "end_utf8_byte_column": 105
+          }
+        }
+      ]
+    },
+    {
+      "id": "worker.rpc.echo",
+      "artifact_id": "worker-rpc",
+      "identity": {
+        "contract_service_id": "worker",
+        "namespace": "fixture.worker",
+        "protocol": "rpc",
+        "rpc_service": "EchoService",
+        "operation": "Echo",
+        "request_schema": "fixture.worker.EchoRequest",
+        "response_schema": "fixture.worker.EchoReply"
+      },
+      "source_witnesses": [
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:67:85",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "bf7901a1fd23ec4cee4e5e86db1e2586f5c6c623526319eb2ff68b74d15edad3",
+          "range": {
+            "start_byte": 67,
+            "end_byte": 85,
+            "start_line": 2,
+            "end_line": 2,
+            "start_utf8_byte_column": 0,
+            "end_exclusive_line": 2,
+            "end_utf8_byte_column": 18
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:86:109",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "eb16672f203f696eab21aaf5b5db6891115358da4c92a7ec8b14319e44dfee50",
+          "range": {
+            "start_byte": 86,
+            "end_byte": 109,
+            "start_line": 3,
+            "end_line": 3,
+            "start_utf8_byte_column": 0,
+            "end_exclusive_line": 3,
+            "end_utf8_byte_column": 23
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:194:215",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "7c763a5408ac320a5dbdd3bcf12aab5f0615b612175e25f35b443114bf0ad41f",
+          "range": {
+            "start_byte": 194,
+            "end_byte": 215,
+            "start_line": 8,
+            "end_line": 8,
+            "start_utf8_byte_column": 0,
+            "end_exclusive_line": 8,
+            "end_utf8_byte_column": 21
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:218:260",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "fb08eaa2931b8a3d0601fa69b1cbe4c9b17e51864e713fad9b19e1c7cd72cfd3",
+          "range": {
+            "start_byte": 218,
+            "end_byte": 260,
+            "start_line": 9,
+            "end_line": 9,
+            "start_utf8_byte_column": 2,
+            "end_exclusive_line": 9,
+            "end_utf8_byte_column": 44
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:111:152",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "f59e25014e43e1214b918c7bd0cba00174c6074d1fc03c41cfbadddc77195682",
+          "range": {
+            "start_byte": 111,
+            "end_byte": 152,
+            "start_line": 5,
+            "end_line": 5,
+            "start_utf8_byte_column": 0,
+            "end_exclusive_line": 5,
+            "end_utf8_byte_column": 41
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:153:192",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "a84109b5736c921fdc44dbe7804713c646e63d76ba2e6fe5d131e28ac5e096f5",
+          "range": {
+            "start_byte": 153,
+            "end_byte": 192,
+            "start_line": 6,
+            "end_line": 6,
+            "start_utf8_byte_column": 0,
+            "end_exclusive_line": 6,
+            "end_utf8_byte_column": 39
+          }
+        }
+      ]
+    },
+    {
+      "id": "worker.rpc.duplicate",
+      "artifact_id": "worker-rpc",
+      "identity": {
+        "contract_service_id": "worker",
+        "namespace": "fixture.worker",
+        "protocol": "rpc",
+        "rpc_service": "EchoService",
+        "operation": "Duplicate",
+        "request_schema": "fixture.worker.EchoRequest",
+        "response_schema": "fixture.worker.EchoReply"
+      },
+      "source_witnesses": [
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:67:85",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "bf7901a1fd23ec4cee4e5e86db1e2586f5c6c623526319eb2ff68b74d15edad3",
+          "range": {
+            "start_byte": 67,
+            "end_byte": 85,
+            "start_line": 2,
+            "end_line": 2,
+            "start_utf8_byte_column": 0,
+            "end_exclusive_line": 2,
+            "end_utf8_byte_column": 18
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:86:109",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "eb16672f203f696eab21aaf5b5db6891115358da4c92a7ec8b14319e44dfee50",
+          "range": {
+            "start_byte": 86,
+            "end_byte": 109,
+            "start_line": 3,
+            "end_line": 3,
+            "start_utf8_byte_column": 0,
+            "end_exclusive_line": 3,
+            "end_utf8_byte_column": 23
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:194:215",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "7c763a5408ac320a5dbdd3bcf12aab5f0615b612175e25f35b443114bf0ad41f",
+          "range": {
+            "start_byte": 194,
+            "end_byte": 215,
+            "start_line": 8,
+            "end_line": 8,
+            "start_utf8_byte_column": 0,
+            "end_exclusive_line": 8,
+            "end_utf8_byte_column": 21
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:263:310",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "949185252c33b9d27d4e0e670546f2a9ded7baaf9f15a64762798c2609e33361",
+          "range": {
+            "start_byte": 263,
+            "end_byte": 310,
+            "start_line": 10,
+            "end_line": 10,
+            "start_utf8_byte_column": 2,
+            "end_exclusive_line": 10,
+            "end_utf8_byte_column": 49
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:111:152",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "f59e25014e43e1214b918c7bd0cba00174c6074d1fc03c41cfbadddc77195682",
+          "range": {
+            "start_byte": 111,
+            "end_byte": 152,
+            "start_line": 5,
+            "end_line": 5,
+            "start_utf8_byte_column": 0,
+            "end_exclusive_line": 5,
+            "end_utf8_byte_column": 41
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:worker/service.proto:153:192",
+          "path": "worker/service.proto",
+          "source_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+          "slice_sha256": "a84109b5736c921fdc44dbe7804713c646e63d76ba2e6fe5d131e28ac5e096f5",
+          "range": {
+            "start_byte": 153,
+            "end_byte": 192,
+            "start_line": 6,
+            "end_line": 6,
+            "start_utf8_byte_column": 0,
+            "end_exclusive_line": 6,
+            "end_utf8_byte_column": 39
+          }
+        }
+      ]
+    },
+    {
+      "id": "orders.queue.created",
+      "artifact_id": "orders-events",
+      "identity": {
+        "contract_service_id": "orders",
+        "namespace": "orders.events",
+        "protocol": "queue",
+        "topic": "created",
+        "schema": "OrderCreated"
+      },
+      "source_witnesses": [
+        {
+          "source_key": "contracts-synthetic:orders/events.json:73:101",
+          "path": "orders/events.json",
+          "source_sha256": "23a587d382d279653dc18f76f028f59acba775f672a2fe0c7e5cb7e5f2fb81bf",
+          "slice_sha256": "4e6ca10027619ac7bf543e4496b4dda5cb56d07318c0cc1cbc418a992b86fc3c",
+          "range": {
+            "start_byte": 73,
+            "end_byte": 101,
+            "start_line": 4,
+            "end_line": 4,
+            "start_utf8_byte_column": 2,
+            "end_exclusive_line": 4,
+            "end_utf8_byte_column": 30
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:orders/events.json:105:133",
+          "path": "orders/events.json",
+          "source_sha256": "23a587d382d279653dc18f76f028f59acba775f672a2fe0c7e5cb7e5f2fb81bf",
+          "slice_sha256": "40f9adc6abbf3913e70699d55c614fcf08fdf3373c09695c6901beac382ffe1b",
+          "range": {
+            "start_byte": 105,
+            "end_byte": 133,
+            "start_line": 5,
+            "end_line": 5,
+            "start_utf8_byte_column": 2,
+            "end_exclusive_line": 5,
+            "end_utf8_byte_column": 30
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:orders/events.json:153:190",
+          "path": "orders/events.json",
+          "source_sha256": "23a587d382d279653dc18f76f028f59acba775f672a2fe0c7e5cb7e5f2fb81bf",
+          "slice_sha256": "41b6d589a1240814dc4b5828cc9be12ca60d5f76e813cad0352915f63137ae06",
+          "range": {
+            "start_byte": 153,
+            "end_byte": 190,
+            "start_line": 7,
+            "end_line": 7,
+            "start_utf8_byte_column": 4,
+            "end_exclusive_line": 7,
+            "end_utf8_byte_column": 41
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:orders/events.json:257:359",
+          "path": "orders/events.json",
+          "source_sha256": "23a587d382d279653dc18f76f028f59acba775f672a2fe0c7e5cb7e5f2fb81bf",
+          "slice_sha256": "822db20345931715c219d680de292b0e4db1fffe57b2146fb3e601bb35e396b4",
+          "range": {
+            "start_byte": 257,
+            "end_byte": 359,
+            "start_line": 11,
+            "end_line": 11,
+            "start_utf8_byte_column": 4,
+            "end_exclusive_line": 11,
+            "end_utf8_byte_column": 106
+          }
+        }
+      ]
+    },
+    {
+      "id": "orders.queue.absent",
+      "artifact_id": "orders-events",
+      "identity": {
+        "contract_service_id": "orders",
+        "namespace": "orders.events",
+        "protocol": "queue",
+        "topic": "absent",
+        "schema": "OrderCreated"
+      },
+      "source_witnesses": [
+        {
+          "source_key": "contracts-synthetic:orders/events.json:73:101",
+          "path": "orders/events.json",
+          "source_sha256": "23a587d382d279653dc18f76f028f59acba775f672a2fe0c7e5cb7e5f2fb81bf",
+          "slice_sha256": "4e6ca10027619ac7bf543e4496b4dda5cb56d07318c0cc1cbc418a992b86fc3c",
+          "range": {
+            "start_byte": 73,
+            "end_byte": 101,
+            "start_line": 4,
+            "end_line": 4,
+            "start_utf8_byte_column": 2,
+            "end_exclusive_line": 4,
+            "end_utf8_byte_column": 30
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:orders/events.json:105:133",
+          "path": "orders/events.json",
+          "source_sha256": "23a587d382d279653dc18f76f028f59acba775f672a2fe0c7e5cb7e5f2fb81bf",
+          "slice_sha256": "40f9adc6abbf3913e70699d55c614fcf08fdf3373c09695c6901beac382ffe1b",
+          "range": {
+            "start_byte": 105,
+            "end_byte": 133,
+            "start_line": 5,
+            "end_line": 5,
+            "start_utf8_byte_column": 2,
+            "end_exclusive_line": 5,
+            "end_utf8_byte_column": 30
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:orders/events.json:196:232",
+          "path": "orders/events.json",
+          "source_sha256": "23a587d382d279653dc18f76f028f59acba775f672a2fe0c7e5cb7e5f2fb81bf",
+          "slice_sha256": "f126a415de59e83c8d5ccd24d72dcf62ee7404bfa91a63cac9cd451e301bca7a",
+          "range": {
+            "start_byte": 196,
+            "end_byte": 232,
+            "start_line": 8,
+            "end_line": 8,
+            "start_utf8_byte_column": 4,
+            "end_exclusive_line": 8,
+            "end_utf8_byte_column": 40
+          }
+        },
+        {
+          "source_key": "contracts-synthetic:orders/events.json:257:359",
+          "path": "orders/events.json",
+          "source_sha256": "23a587d382d279653dc18f76f028f59acba775f672a2fe0c7e5cb7e5f2fb81bf",
+          "slice_sha256": "822db20345931715c219d680de292b0e4db1fffe57b2146fb3e601bb35e396b4",
+          "range": {
+            "start_byte": 257,
+            "end_byte": 359,
+            "start_line": 11,
+            "end_line": 11,
+            "start_utf8_byte_column": 4,
+            "end_exclusive_line": 11,
+            "end_utf8_byte_column": 106
+          }
+        }
+      ]
+    }
+  ],
+  "bindings": [
+    {
+      "id": "orders.http.server",
+      "service_id": "orders",
+      "role": "server",
+      "contract_id": "orders.http.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "orders",
+        "namespace": "orders-api",
+        "protocol": "http",
+        "method": "POST",
+        "path": "/echo",
+        "operation": "echo",
+        "operation_ref": "#/paths/~1echo/post",
+        "request_schema": "#/components/schemas/EchoRequest",
+        "response_schema": "#/components/schemas/EchoReply"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:orders/app.py:83:116",
+        "path": "orders/app.py",
+        "source_sha256": "94af6516f5f478e98148892c2abbf1efa6c630b880edf5875fabf69f203e581c",
+        "slice_sha256": "0ee199e08a5130f1c8dbdb2eaa4a4059ae70706070a469ac316a7efbbb6bc403",
+        "range": {
+          "start_byte": 83,
+          "end_byte": 116,
+          "start_line": 4,
+          "end_line": 5,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 5,
+          "end_utf8_byte_column": 16
+        },
+        "name": "echo",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:orders/app.py:119:306",
+        "path": "orders/app.py",
+        "source_sha256": "94af6516f5f478e98148892c2abbf1efa6c630b880edf5875fabf69f203e581c",
+        "slice_sha256": "eda096ec0873b706d5a5a7dcb42f12d0c3463de9b1446e0010bea31bdece8f33",
+        "range": {
+          "start_byte": 119,
+          "end_byte": 306,
+          "start_line": 8,
+          "end_line": 8,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 8,
+          "end_utf8_byte_column": 187
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "worker.http.server",
+      "service_id": "worker",
+      "role": "server",
+      "contract_id": "worker.http.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "worker",
+        "namespace": "worker-api",
+        "protocol": "http",
+        "method": "POST",
+        "path": "/echo",
+        "operation": "echo",
+        "operation_ref": "#/paths/~1echo/post",
+        "request_schema": "#/components/schemas/EchoRequest",
+        "response_schema": "#/components/schemas/EchoReply"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:worker/service.go:94:145",
+        "path": "worker/service.go",
+        "source_sha256": "a38eadc2307f37f223520d8b6f468c4639f7171b736641c3a2b8ff001b3dd47a",
+        "slice_sha256": "bdc69f7ab5d87e7ed05156d43d5af828566f4d99210348169ed24cf06b9274f2",
+        "range": {
+          "start_byte": 94,
+          "end_byte": 145,
+          "start_line": 4,
+          "end_line": 4,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 4,
+          "end_utf8_byte_column": 51
+        },
+        "name": "HTTPEcho",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:worker/service.go:418:631",
+        "path": "worker/service.go",
+        "source_sha256": "a38eadc2307f37f223520d8b6f468c4639f7171b736641c3a2b8ff001b3dd47a",
+        "slice_sha256": "9482aaea4f15cef5666968d7eeba1bf477877107419dcc1342119057dba1a164",
+        "range": {
+          "start_byte": 418,
+          "end_byte": 631,
+          "start_line": 11,
+          "end_line": 11,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 11,
+          "end_utf8_byte_column": 213
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "worker.rpc.server",
+      "service_id": "worker",
+      "role": "server",
+      "contract_id": "worker.rpc.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "worker",
+        "namespace": "fixture.worker",
+        "protocol": "rpc",
+        "rpc_service": "EchoService",
+        "operation": "Echo",
+        "request_schema": "fixture.worker.EchoRequest",
+        "response_schema": "fixture.worker.EchoReply"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:worker/service.go:146:196",
+        "path": "worker/service.go",
+        "source_sha256": "a38eadc2307f37f223520d8b6f468c4639f7171b736641c3a2b8ff001b3dd47a",
+        "slice_sha256": "989f7e9797f7d8c936276d5275878c863ee16e53c61f3c8164bcd31f6690b89f",
+        "range": {
+          "start_byte": 146,
+          "end_byte": 196,
+          "start_line": 5,
+          "end_line": 5,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 5,
+          "end_utf8_byte_column": 50
+        },
+        "name": "RPCEcho",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:worker/service.go:632:842",
+        "path": "worker/service.go",
+        "source_sha256": "a38eadc2307f37f223520d8b6f468c4639f7171b736641c3a2b8ff001b3dd47a",
+        "slice_sha256": "3ea08f936f2381ff76e5d9f509b0b88c3959a63439a40001dff02ee962ecf964",
+        "range": {
+          "start_byte": 632,
+          "end_byte": 842,
+          "start_line": 12,
+          "end_line": 12,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 12,
+          "end_utf8_byte_column": 210
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "worker.queue.consumer",
+      "service_id": "worker",
+      "role": "consumer",
+      "contract_id": "orders.queue.created",
+      "declared_contract_identity": {
+        "contract_service_id": "orders",
+        "namespace": "orders.events",
+        "protocol": "queue",
+        "topic": "created",
+        "schema": "OrderCreated"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:worker/service.go:197:254",
+        "path": "worker/service.go",
+        "source_sha256": "a38eadc2307f37f223520d8b6f468c4639f7171b736641c3a2b8ff001b3dd47a",
+        "slice_sha256": "b518c52da7e4f1ddd5ca91407c729e6a5ab0c48f158ca93d23ea21a1bd8d1e0c",
+        "range": {
+          "start_byte": 197,
+          "end_byte": 254,
+          "start_line": 6,
+          "end_line": 6,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 6,
+          "end_utf8_byte_column": 57
+        },
+        "name": "ConsumeCreated",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:worker/service.go:843:1035",
+        "path": "worker/service.go",
+        "source_sha256": "a38eadc2307f37f223520d8b6f468c4639f7171b736641c3a2b8ff001b3dd47a",
+        "slice_sha256": "b48118e406583ec38a12f64f07c43c9776fcebe133f984606b4865e384bb32d0",
+        "range": {
+          "start_byte": 843,
+          "end_byte": 1035,
+          "start_line": 13,
+          "end_line": 13,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 13,
+          "end_utf8_byte_column": 192
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "worker.rpc.duplicate.a",
+      "service_id": "worker",
+      "role": "server",
+      "contract_id": "worker.rpc.duplicate",
+      "declared_contract_identity": {
+        "contract_service_id": "worker",
+        "namespace": "fixture.worker",
+        "protocol": "rpc",
+        "rpc_service": "EchoService",
+        "operation": "Duplicate",
+        "request_schema": "fixture.worker.EchoRequest",
+        "response_schema": "fixture.worker.EchoReply"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:worker/service.go:255:308",
+        "path": "worker/service.go",
+        "source_sha256": "a38eadc2307f37f223520d8b6f468c4639f7171b736641c3a2b8ff001b3dd47a",
+        "slice_sha256": "0d526c0e5665cca203d8fcb039bbe22cfedbc381b43dc02cfc27f3b681a05a47",
+        "range": {
+          "start_byte": 255,
+          "end_byte": 308,
+          "start_line": 7,
+          "end_line": 7,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 7,
+          "end_utf8_byte_column": 53
+        },
+        "name": "DuplicateA",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:worker/service.go:1036:1261",
+        "path": "worker/service.go",
+        "source_sha256": "a38eadc2307f37f223520d8b6f468c4639f7171b736641c3a2b8ff001b3dd47a",
+        "slice_sha256": "eb6438ddaf6a724f2f229cc29e44a44a7b89704c7fc6b8329fcb0258d3998030",
+        "range": {
+          "start_byte": 1036,
+          "end_byte": 1261,
+          "start_line": 14,
+          "end_line": 14,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 14,
+          "end_utf8_byte_column": 225
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "worker.rpc.duplicate.b",
+      "service_id": "worker",
+      "role": "server",
+      "contract_id": "worker.rpc.duplicate",
+      "declared_contract_identity": {
+        "contract_service_id": "worker",
+        "namespace": "fixture.worker",
+        "protocol": "rpc",
+        "rpc_service": "EchoService",
+        "operation": "Duplicate",
+        "request_schema": "fixture.worker.EchoRequest",
+        "response_schema": "fixture.worker.EchoReply"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:worker/service.go:309:362",
+        "path": "worker/service.go",
+        "source_sha256": "a38eadc2307f37f223520d8b6f468c4639f7171b736641c3a2b8ff001b3dd47a",
+        "slice_sha256": "f756d832fa7b2677c31eac96fc4751fac5132e0ad7f71902355a48503f895bc1",
+        "range": {
+          "start_byte": 309,
+          "end_byte": 362,
+          "start_line": 8,
+          "end_line": 8,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 8,
+          "end_utf8_byte_column": 53
+        },
+        "name": "DuplicateB",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:worker/service.go:1262:1487",
+        "path": "worker/service.go",
+        "source_sha256": "a38eadc2307f37f223520d8b6f468c4639f7171b736641c3a2b8ff001b3dd47a",
+        "slice_sha256": "36222cb10bb672dd6e05c05ce6a49b52473ea649f292518cb1244c536221416d",
+        "range": {
+          "start_byte": 1262,
+          "end_byte": 1487,
+          "start_line": 15,
+          "end_line": 15,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 15,
+          "end_utf8_byte_column": 225
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "gateway.ordersHttp",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "orders.http.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "orders",
+        "namespace": "orders-api",
+        "protocol": "http",
+        "method": "POST",
+        "path": "/echo",
+        "operation": "echo",
+        "operation_ref": "#/paths/~1echo/post",
+        "request_schema": "#/components/schemas/EchoRequest",
+        "response_schema": "#/components/schemas/EchoReply"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:78:251",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "ddc2a95aa21a6e311174f33eabb079b60f747ad751df5d6f37dc5d2cd9f51f38",
+        "range": {
+          "start_byte": 78,
+          "end_byte": 251,
+          "start_line": 2,
+          "end_line": 2,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 2,
+          "end_utf8_byte_column": 173
+        },
+        "name": "ordersHttp",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:150:248",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "318c328078738c7aae786f80cdec24ecad2275f327f56a8989a2c3fa4938bb0a",
+        "range": {
+          "start_byte": 150,
+          "end_byte": 248,
+          "start_line": 2,
+          "end_line": 2,
+          "start_utf8_byte_column": 72,
+          "end_exclusive_line": 2,
+          "end_utf8_byte_column": 170
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "gateway.workerHttp",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "worker.http.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "worker",
+        "namespace": "worker-api",
+        "protocol": "http",
+        "method": "POST",
+        "path": "/echo",
+        "operation": "echo",
+        "operation_ref": "#/paths/~1echo/post",
+        "request_schema": "#/components/schemas/EchoRequest",
+        "response_schema": "#/components/schemas/EchoReply"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:252:425",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "da0b1936600ffe8ca1dd61054f176e726fd9f75a476896fe9f559639c3b007d4",
+        "range": {
+          "start_byte": 252,
+          "end_byte": 425,
+          "start_line": 3,
+          "end_line": 3,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 3,
+          "end_utf8_byte_column": 173
+        },
+        "name": "workerHttp",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:324:422",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "bd5d14fb4a90881126deadab900c9b2e855bbcd3c9b885b9e90bb8b58f490795",
+        "range": {
+          "start_byte": 324,
+          "end_byte": 422,
+          "start_line": 3,
+          "end_line": 3,
+          "start_utf8_byte_column": 72,
+          "end_exclusive_line": 3,
+          "end_utf8_byte_column": 170
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "gateway.workerRpc",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "worker.rpc.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "worker",
+        "namespace": "fixture.worker",
+        "protocol": "rpc",
+        "rpc_service": "EchoService",
+        "operation": "Echo",
+        "request_schema": "fixture.worker.EchoRequest",
+        "response_schema": "fixture.worker.EchoReply"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:426:599",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "e179e07bdcb92d95ecf4b6294ccac673737eeff5940aef92f125488af2b339b9",
+        "range": {
+          "start_byte": 426,
+          "end_byte": 599,
+          "start_line": 4,
+          "end_line": 4,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 4,
+          "end_utf8_byte_column": 173
+        },
+        "name": "workerRpc",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:497:596",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "6daeea558790a5fb785424b1a5fa5c3b71e981b6fe891dcef0d35a4f96666edb",
+        "range": {
+          "start_byte": 497,
+          "end_byte": 596,
+          "start_line": 4,
+          "end_line": 4,
+          "start_utf8_byte_column": 71,
+          "end_exclusive_line": 4,
+          "end_utf8_byte_column": 170
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "gateway.missingService",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "orders.http.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "",
+        "namespace": "orders-api",
+        "protocol": "http",
+        "method": "POST",
+        "path": "/echo",
+        "operation": "echo",
+        "operation_ref": "#/paths/~1echo/post",
+        "request_schema": "#/components/schemas/EchoRequest",
+        "response_schema": "#/components/schemas/EchoReply"
+      },
+      "source_state": "missing_service",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:600:771",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "f1578e1813883e154fd37a637fbce9f5644508290195aa1945fd6452e0b4cfce",
+        "range": {
+          "start_byte": 600,
+          "end_byte": 771,
+          "start_line": 5,
+          "end_line": 5,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 5,
+          "end_utf8_byte_column": 171
+        },
+        "name": "missingService",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:676:768",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "a173509cf22a43d91178fd5475b6f2517c2c5b954c50c53a7609f099bd339f26",
+        "range": {
+          "start_byte": 676,
+          "end_byte": 768,
+          "start_line": 5,
+          "end_line": 5,
+          "start_utf8_byte_column": 76,
+          "end_exclusive_line": 5,
+          "end_utf8_byte_column": 168
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "gateway.computedService",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "orders.http.echo",
+      "declared_contract_identity": {
+        "contract_service_id": null,
+        "namespace": "orders-api",
+        "protocol": "http",
+        "method": "POST",
+        "path": "/echo",
+        "operation": "echo",
+        "operation_ref": "#/paths/~1echo/post",
+        "request_schema": "#/components/schemas/EchoRequest",
+        "response_schema": "#/components/schemas/EchoReply"
+      },
+      "source_state": "computed_service",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:772:966",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "090a03d753114d7001182d5001def71c7c9f7235796b467687408e03a153d667",
+        "range": {
+          "start_byte": 772,
+          "end_byte": 966,
+          "start_line": 6,
+          "end_line": 6,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 6,
+          "end_utf8_byte_column": 194
+        },
+        "name": "computedService",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:866:963",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "26fe9d28c9fd79426a893a6460ad436145ce727fe7bb9f90823e6fa6e64442c6",
+        "range": {
+          "start_byte": 866,
+          "end_byte": 963,
+          "start_line": 6,
+          "end_line": 6,
+          "start_utf8_byte_column": 94,
+          "end_exclusive_line": 6,
+          "end_utf8_byte_column": 191
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "gateway.computedPath",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "orders.http.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "orders",
+        "namespace": "orders-api",
+        "protocol": "http",
+        "method": "POST",
+        "path": null,
+        "operation": "echo",
+        "operation_ref": "#/paths/~1echo/post",
+        "request_schema": "#/components/schemas/EchoRequest",
+        "response_schema": "#/components/schemas/EchoReply"
+      },
+      "source_state": "computed_route",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:967:1153",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "a6901fa88afe2b5b48baf12eae5f8145d49131451de9194618c02600b73b0274",
+        "range": {
+          "start_byte": 967,
+          "end_byte": 1153,
+          "start_line": 7,
+          "end_line": 7,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 7,
+          "end_utf8_byte_column": 186
+        },
+        "name": "computedPath",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:1055:1150",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "2b140c9488f5187ff8cfd8d86011df3d5c5dbd370d37a04a6cbeb74e97bcc852",
+        "range": {
+          "start_byte": 1055,
+          "end_byte": 1150,
+          "start_line": 7,
+          "end_line": 7,
+          "start_utf8_byte_column": 88,
+          "end_exclusive_line": 7,
+          "end_utf8_byte_column": 183
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "gateway.missingPath",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "orders.http.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "orders",
+        "namespace": "orders-api",
+        "protocol": "http",
+        "method": "POST",
+        "path": "",
+        "operation": "echo",
+        "operation_ref": "#/paths/~1echo/post",
+        "request_schema": "#/components/schemas/EchoRequest",
+        "response_schema": "#/components/schemas/EchoReply"
+      },
+      "source_state": "missing_route",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:1154:1323",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "252467d440533a402f051a59c87280772eb572a7ae7da22256608dfead732960",
+        "range": {
+          "start_byte": 1154,
+          "end_byte": 1323,
+          "start_line": 8,
+          "end_line": 8,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 8,
+          "end_utf8_byte_column": 169
+        },
+        "name": "missingPath",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:1227:1320",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "6c409281b68e13654271cf59e9d72170aa2bfbe72aeb81b24c0d7f9407fa735c",
+        "range": {
+          "start_byte": 1227,
+          "end_byte": 1320,
+          "start_line": 8,
+          "end_line": 8,
+          "start_utf8_byte_column": 73,
+          "end_exclusive_line": 8,
+          "end_utf8_byte_column": 166
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "gateway.missingOperation",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "worker.rpc.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "worker",
+        "namespace": "fixture.worker",
+        "protocol": "rpc",
+        "rpc_service": "EchoService",
+        "operation": "Missing",
+        "request_schema": "fixture.worker.EchoRequest",
+        "response_schema": "fixture.worker.EchoReply"
+      },
+      "source_state": "missing_operation",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:1324:1507",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "a5cb9cd3c209facf4f79381ea1567d14550264f70c6e5b2eb67c16879ac1c32a",
+        "range": {
+          "start_byte": 1324,
+          "end_byte": 1507,
+          "start_line": 9,
+          "end_line": 9,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 9,
+          "end_utf8_byte_column": 183
+        },
+        "name": "missingOperation",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:1402:1504",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "8edf61720c218b87b4539c652bd58d427041114e26a92c97243571117eb6f4c5",
+        "range": {
+          "start_byte": 1402,
+          "end_byte": 1504,
+          "start_line": 9,
+          "end_line": 9,
+          "start_utf8_byte_column": 78,
+          "end_exclusive_line": 9,
+          "end_utf8_byte_column": 180
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "gateway.wrongSchema",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "worker.rpc.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "worker",
+        "namespace": "fixture.worker",
+        "protocol": "rpc",
+        "rpc_service": "EchoService",
+        "operation": "Echo",
+        "request_schema": "fixture.worker.MissingRequest",
+        "response_schema": "fixture.worker.EchoReply"
+      },
+      "source_state": "schema_mismatch",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:1508:1686",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "ca2a1d2e715b0293b921ef50ac4d3aae1bacde6505f3d6ba943c5da9e0e756f5",
+        "range": {
+          "start_byte": 1508,
+          "end_byte": 1686,
+          "start_line": 10,
+          "end_line": 10,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 10,
+          "end_utf8_byte_column": 178
+        },
+        "name": "wrongSchema",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:1581:1683",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "f33e5ed22681715bf95bbfec1e1972366c3030f1cccc8fc76cc3ca6e5801872f",
+        "range": {
+          "start_byte": 1581,
+          "end_byte": 1683,
+          "start_line": 10,
+          "end_line": 10,
+          "start_utf8_byte_column": 73,
+          "end_exclusive_line": 10,
+          "end_utf8_byte_column": 175
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "gateway.duplicateRpc",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "worker.rpc.duplicate",
+      "declared_contract_identity": {
+        "contract_service_id": "worker",
+        "namespace": "fixture.worker",
+        "protocol": "rpc",
+        "rpc_service": "EchoService",
+        "operation": "Duplicate",
+        "request_schema": "fixture.worker.EchoRequest",
+        "response_schema": "fixture.worker.EchoReply"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:1687:1868",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "c8489d2f294dfbb1ba2fcd167cb2f838223701e50199b7539104dd34687bb125",
+        "range": {
+          "start_byte": 1687,
+          "end_byte": 1868,
+          "start_line": 11,
+          "end_line": 11,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 11,
+          "end_utf8_byte_column": 181
+        },
+        "name": "duplicateRpc",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:1761:1865",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "3e6dbdd7aab99ff3465f7b94fcf2aeb02127ea15b5995254e468f3603b12cd6f",
+        "range": {
+          "start_byte": 1761,
+          "end_byte": 1865,
+          "start_line": 11,
+          "end_line": 11,
+          "start_utf8_byte_column": 74,
+          "end_exclusive_line": 11,
+          "end_utf8_byte_column": 178
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "gateway.staleRpc",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "worker.rpc.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "worker",
+        "namespace": "fixture.worker",
+        "protocol": "rpc",
+        "rpc_service": "EchoService",
+        "operation": "Echo",
+        "request_schema": "fixture.worker.EchoRequest",
+        "response_schema": "fixture.worker.EchoReply"
+      },
+      "source_state": "stale_artifact",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:1869:2041",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "617ae576f27898f7ab5d22498ead51cdc6e6c33c844a71312e684dc796dca7e5",
+        "range": {
+          "start_byte": 1869,
+          "end_byte": 2041,
+          "start_line": 12,
+          "end_line": 12,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 12,
+          "end_utf8_byte_column": 172
+        },
+        "name": "staleRpc",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:1939:2038",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "6daeea558790a5fb785424b1a5fa5c3b71e981b6fe891dcef0d35a4f96666edb",
+        "range": {
+          "start_byte": 1939,
+          "end_byte": 2038,
+          "start_line": 12,
+          "end_line": 12,
+          "start_utf8_byte_column": 70,
+          "end_exclusive_line": 12,
+          "end_utf8_byte_column": 169
+        },
+        "role": "explicit_source_binding"
+      },
+      "artifact_candidate": {
+        "path": "worker/service.proto",
+        "expected_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+        "actual_source_artifact_id": "worker-rpc",
+        "provenance": "stale_review_profile"
+      }
+    },
+    {
+      "id": "gateway.generatedRpc",
+      "service_id": "gateway",
+      "role": "client",
+      "contract_id": "worker.rpc.echo",
+      "declared_contract_identity": {
+        "contract_service_id": "worker",
+        "namespace": "fixture.worker",
+        "protocol": "rpc",
+        "rpc_service": "EchoService",
+        "operation": "Echo",
+        "request_schema": "fixture.worker.EchoRequest",
+        "response_schema": "fixture.worker.EchoReply"
+      },
+      "source_state": "unqualified_generated_claim",
+      "declaration": {
+        "source_key": "contracts-synthetic:gateway/client.ts:2042:2218",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "a46b75269e35aa96e157ea69fd83e7a0ecfe14a458e4e5611b5c1ca050ab3cc3",
+        "range": {
+          "start_byte": 2042,
+          "end_byte": 2218,
+          "start_line": 13,
+          "end_line": 13,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 13,
+          "end_utf8_byte_column": 176
+        },
+        "name": "generatedRpc",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:gateway/client.ts:2116:2215",
+        "path": "gateway/client.ts",
+        "source_sha256": "5ad0e968cef89655fbfc0c1717508bad94f9aac166b48c0a07043bfbc156fe41",
+        "slice_sha256": "6daeea558790a5fb785424b1a5fa5c3b71e981b6fe891dcef0d35a4f96666edb",
+        "range": {
+          "start_byte": 2116,
+          "end_byte": 2215,
+          "start_line": 13,
+          "end_line": 13,
+          "start_utf8_byte_column": 74,
+          "end_exclusive_line": 13,
+          "end_utf8_byte_column": 173
+        },
+        "role": "explicit_source_binding"
+      },
+      "artifact_candidate": {
+        "path": "worker/service.proto",
+        "expected_sha256": "496f8468dbab68defdea4625f99388d4d138d17f3b7cdb0bb33b531642f96a19",
+        "actual_source_artifact_id": "worker-rpc",
+        "provenance": "claimed_generated",
+        "compiler_validation_claimed": true,
+        "compiler_validation_verified": false
+      }
+    },
+    {
+      "id": "orders.publish_created",
+      "service_id": "orders",
+      "role": "producer",
+      "contract_id": "orders.queue.created",
+      "declared_contract_identity": {
+        "contract_service_id": "orders",
+        "namespace": "orders.events",
+        "protocol": "queue",
+        "topic": "created",
+        "schema": "OrderCreated"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:orders/app.py:309:437",
+        "path": "orders/app.py",
+        "source_sha256": "94af6516f5f478e98148892c2abbf1efa6c630b880edf5875fabf69f203e581c",
+        "slice_sha256": "58b92a52f891ccde87fbf355d0f9ba5281f43d74939d45379ce61f44c3a17a39",
+        "range": {
+          "start_byte": 309,
+          "end_byte": 437,
+          "start_line": 11,
+          "end_line": 12,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 12,
+          "end_utf8_byte_column": 89
+        },
+        "name": "publish_created",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:orders/app.py:359:437",
+        "path": "orders/app.py",
+        "source_sha256": "94af6516f5f478e98148892c2abbf1efa6c630b880edf5875fabf69f203e581c",
+        "slice_sha256": "2641056e0db234eed3487937347398c55fa6d1c6f2e6fde2c4bcb29290cb1f5f",
+        "range": {
+          "start_byte": 359,
+          "end_byte": 437,
+          "start_line": 12,
+          "end_line": 12,
+          "start_utf8_byte_column": 11,
+          "end_exclusive_line": 12,
+          "end_utf8_byte_column": 89
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "orders.publish_computed",
+      "service_id": "orders",
+      "role": "producer",
+      "contract_id": "orders.queue.created",
+      "declared_contract_identity": {
+        "contract_service_id": "orders",
+        "namespace": "orders.events",
+        "protocol": "queue",
+        "topic": null,
+        "schema": "OrderCreated"
+      },
+      "source_state": "computed_topic",
+      "declaration": {
+        "source_key": "contracts-synthetic:orders/app.py:440:572",
+        "path": "orders/app.py",
+        "source_sha256": "94af6516f5f478e98148892c2abbf1efa6c630b880edf5875fabf69f203e581c",
+        "slice_sha256": "1730661766996a2f52a0636f25a0ac359c162cb0695410e2ed34d397c0311c04",
+        "range": {
+          "start_byte": 440,
+          "end_byte": 572,
+          "start_line": 15,
+          "end_line": 16,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 16,
+          "end_utf8_byte_column": 85
+        },
+        "name": "publish_computed",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:orders/app.py:498:572",
+        "path": "orders/app.py",
+        "source_sha256": "94af6516f5f478e98148892c2abbf1efa6c630b880edf5875fabf69f203e581c",
+        "slice_sha256": "6ddec0af600120cfafdbd68af12446f0279d46942c66b3f2f107ba4dfe7f75ef",
+        "range": {
+          "start_byte": 498,
+          "end_byte": 572,
+          "start_line": 16,
+          "end_line": 16,
+          "start_utf8_byte_column": 11,
+          "end_exclusive_line": 16,
+          "end_utf8_byte_column": 85
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "orders.publish_absent",
+      "service_id": "orders",
+      "role": "producer",
+      "contract_id": "orders.queue.absent",
+      "declared_contract_identity": {
+        "contract_service_id": "orders",
+        "namespace": "orders.events",
+        "protocol": "queue",
+        "topic": "absent",
+        "schema": "OrderCreated"
+      },
+      "source_state": "explicit",
+      "declaration": {
+        "source_key": "contracts-synthetic:orders/app.py:575:701",
+        "path": "orders/app.py",
+        "source_sha256": "94af6516f5f478e98148892c2abbf1efa6c630b880edf5875fabf69f203e581c",
+        "slice_sha256": "93121ea7e8e7643f2401f8f8d48c258605a15be1a4c2c6da07c24bbcdf5dc76a",
+        "range": {
+          "start_byte": 575,
+          "end_byte": 701,
+          "start_line": 19,
+          "end_line": 20,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 20,
+          "end_utf8_byte_column": 88
+        },
+        "name": "publish_absent",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:orders/app.py:624:701",
+        "path": "orders/app.py",
+        "source_sha256": "94af6516f5f478e98148892c2abbf1efa6c630b880edf5875fabf69f203e581c",
+        "slice_sha256": "76e8a7f96cbba5ba697dd9566709a4e6a8ed93fe5568fa728430793d73fd8ec9",
+        "range": {
+          "start_byte": 624,
+          "end_byte": 701,
+          "start_line": 20,
+          "end_line": 20,
+          "start_utf8_byte_column": 11,
+          "end_exclusive_line": 20,
+          "end_utf8_byte_column": 88
+        },
+        "role": "explicit_source_binding"
+      }
+    },
+    {
+      "id": "orders.publish_wrong_namespace",
+      "service_id": "orders",
+      "role": "producer",
+      "contract_id": "orders.queue.created",
+      "declared_contract_identity": {
+        "contract_service_id": "orders",
+        "namespace": "worker.events",
+        "protocol": "queue",
+        "topic": "created",
+        "schema": "OrderCreated"
+      },
+      "source_state": "namespace_mismatch",
+      "declaration": {
+        "source_key": "contracts-synthetic:orders/app.py:704:840",
+        "path": "orders/app.py",
+        "source_sha256": "94af6516f5f478e98148892c2abbf1efa6c630b880edf5875fabf69f203e581c",
+        "slice_sha256": "401dd74d8a3e4f04575216112b1e320ab60f212bfac172ef69b2e25e90041d30",
+        "range": {
+          "start_byte": 704,
+          "end_byte": 840,
+          "start_line": 23,
+          "end_line": 24,
+          "start_utf8_byte_column": 0,
+          "end_exclusive_line": 24,
+          "end_utf8_byte_column": 89
+        },
+        "name": "publish_wrong_namespace",
+        "role": "structural_declaration"
+      },
+      "binding_source": {
+        "source_key": "contracts-synthetic:orders/app.py:762:840",
+        "path": "orders/app.py",
+        "source_sha256": "94af6516f5f478e98148892c2abbf1efa6c630b880edf5875fabf69f203e581c",
+        "slice_sha256": "f59a5bcce7f7ae95eb623d04c8ecb26418c3354bb1c60d1c8a9062ac49bb324f",
+        "range": {
+          "start_byte": 762,
+          "end_byte": 840,
+          "start_line": 24,
+          "end_line": 24,
+          "start_utf8_byte_column": 11,
+          "end_exclusive_line": 24,
+          "end_utf8_byte_column": 89
+        },
+        "role": "explicit_source_binding"
+      }
+    }
+  ]
+}

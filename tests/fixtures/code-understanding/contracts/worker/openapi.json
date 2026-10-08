@@ -1,0 +1,19 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Original synthetic worker API", "version": "1"},
+  "paths": {
+    "/echo": {
+      "post": {
+        "operationId": "echo",
+        "requestBody": {"content": {"application/json": {"schema": {"$ref": "#/components/schemas/EchoRequest"}}}},
+        "responses": {"200": {"description": "Echo reply", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EchoReply"}}}}}
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "EchoRequest": {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"]},
+      "EchoReply": {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"]}
+    }
+  }
+}

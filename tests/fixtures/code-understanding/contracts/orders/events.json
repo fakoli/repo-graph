@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "kind": "original_explicit_queue_contract",
+  "contract_service": "orders",
+  "namespace": "orders.events",
+  "topics": {
+    "created": {"schema": "OrderCreated"},
+    "absent": {"schema": "OrderCreated"}
+  },
+  "schemas": {
+    "OrderCreated": {"type": "object", "properties": {"value": {"type": "string"}}, "required": ["value"]}
+  }
+}
