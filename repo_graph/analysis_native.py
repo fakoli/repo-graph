@@ -23,6 +23,7 @@ PINS = {
     'tree-sitter-typescript': '0.23.2',
 }
 LANGUAGES = ('python', 'go', 'javascript', 'typescript')
+_EXPRESSION_SPELLINGS = ('identifier', 'string', 'interpreted_string_literal', 'raw_string_literal')
 RULE_VERSION = 'syntax-direct-v1'
 _LOADED_SOURCE_SHA256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
@@ -525,7 +526,7 @@ class Expression:
             member = node.child_by_field_name('attribute') or node.child_by_field_name('property') or node.child_by_field_name('field')
         direct = base is not None and base.type == 'identifier'
         return cls(node.type, node.start_byte, node.end_byte,
-                   text(raw, node) if node.type == 'identifier' else '', direct,
+                   text(raw, node) if node.type in _EXPRESSION_SPELLINGS else '', direct,
                    text(raw, base) if direct else '', text(raw, member) if direct else '')
 
     def payload(self):
@@ -591,6 +592,14 @@ class CollectedFile:
     @property
     def module(self):
         return self.scopes[0]
+
+    @property
+    def collected_fact_count(self):
+        syntax = self.syntax_metadata
+        return (len(self.definitions) + len(self.imports)
+                + sum(1 + len(row['arguments']) for row in syntax['calls'])
+                + sum(1 + len(row['bases']) for row in syntax['python_declarations'])
+                + sum(2 + len(row['elements']) for row in syntax['python_assignments']))
 
     def payload(self):
         if self.collector_sha256 != collector_identity():
@@ -755,8 +764,8 @@ def _decode_collected(payload, expected_record, work):
         is_member = item['type'] in ('attribute', 'member_expression', 'selector_expression')
         if (item['base_identifier'] and not is_member or
                 not item['base_identifier'] and (item['base'] or item['member']) or
-                item['type'] != 'identifier' and item['spelling'] or
-                item['type'] == 'identifier' and len(item['spelling'].encode('utf-8')) != item['end_byte'] - item['start_byte']):
+                item['type'] not in _EXPRESSION_SPELLINGS and item['spelling'] or
+                item['type'] in _EXPRESSION_SPELLINGS and len(item['spelling'].encode('utf-8')) != item['end_byte'] - item['start_byte']):
             raise ValueError('Invalid compact callee descriptor')
         return Expression(**item)
     sequence(payload['definitions'], budget.max_facts)
@@ -879,7 +888,7 @@ def _decode_collected(payload, expected_record, work):
     if max(len(scopes) - 1, len(candidates), binding_count, len(payload['errors'])) > payload['counts']['nodes']:
         raise ValueError('Compact counts understate collected items')
     syntax = payload['syntax_metadata']
-    shape(syntax, 'package_clauses go_control_directive go_bodyless_function go_cgo_import')
+    shape(syntax, 'package_clauses go_control_directive go_bodyless_function go_cgo_import calls python_declarations python_assignments')
     sequence(syntax['package_clauses'], budget.max_nodes)
     for item in syntax['package_clauses']:
         shape(item, 'name range')
@@ -887,12 +896,85 @@ def _decode_collected(payload, expected_record, work):
         location(item['range'])
     for key in ('go_control_directive', 'go_bodyless_function', 'go_cgo_import'):
         boolean(syntax[key])
-    if record['language'] != 'go' and (syntax['package_clauses'] or any(syntax[k] for k in syntax if k != 'package_clauses')):
+    if record['language'] != 'go' and (syntax['package_clauses'] or any(syntax[k] for k in
+            ('go_control_directive', 'go_bodyless_function', 'go_cgo_import'))):
         raise ValueError('Foreign compact language metadata')
+    for key in ('calls', 'python_declarations', 'python_assignments'):
+        sequence(syntax[key], budget.max_nodes)
+    sites = {fact['id']: (fact, scope) for fact, _, scope in candidates}
+    seen = set()
+    for row in syntax['calls']:
+        shape(row, 'site arguments')
+        if row['site'] not in sites or sites[row['site']][0]['role'] != 'call' or row['site'] in seen:
+            raise ValueError('Foreign or duplicate compact argument owner')
+        seen.add(row['site'])
+        fact, _ = sites[row['site']]
+        sequence(row['arguments'], budget.max_nodes)
+        previous = fact['range']['start_byte']
+        for argument in row['arguments']:
+            shape(argument, 'name expression')
+            string(argument['name'])
+            value = expression(argument['expression'])
+            if not previous <= value.start_byte <= value.end_byte <= fact['range']['end_byte']:
+                raise ValueError('Compact argument outside its call or source order')
+            previous = value.end_byte
+    if seen != {id for id, (fact, _) in sites.items() if fact['role'] == 'call'}:
+        raise ValueError('Compact call argument inventory differs')
+    if record['language'] != 'python' and (syntax['python_declarations'] or syntax['python_assignments']):
+        raise ValueError('Foreign compact Python syntax')
+    seen = set()
+    for row in syntax['python_declarations']:
+        shape(row, 'id scope decorated conditional bases')
+        if row['id'] not in by_id or row['id'] in seen:
+            raise ValueError('Foreign or duplicate compact declaration syntax')
+        seen.add(row['id'])
+        integer(row['scope'], 0, len(scopes) - 1)
+        boolean(row['decorated']); boolean(row['conditional'])
+        fact, scope = by_id[row['id']], scopes[row['scope']]
+        if not scope.range['start_byte'] <= fact['range']['start_byte'] < fact['range']['end_byte'] <= scope.range['end_byte']:
+            raise ValueError('Compact declaration outside its owning scope')
+        sequence(row['bases'], budget.max_nodes)
+        if row['bases'] and fact['kind'] != 'class':
+            raise ValueError('Compact bases belong only to classes')
+        for base in row['bases']:
+            value = expression(base)
+            if not fact['range']['start_byte'] <= value.start_byte < value.end_byte <= fact['range']['end_byte']:
+                raise ValueError('Compact base outside declaration')
+    if record['language'] == 'python' and seen != {id for id, fact in by_id.items() if fact['kind'] in ('class', 'function', 'method')}:
+        raise ValueError('Compact declaration syntax inventory differs')
+    seen = set()
+    for row in syntax['python_assignments']:
+        shape(row, 'range scope name conditional kind right elements')
+        location(row['range']); integer(row['scope'], 0, len(scopes) - 1)
+        string(row['name']); boolean(row['conditional'])
+        if row['kind'] not in ('assignment', 'augmented_assignment') or scopes[row['scope']].kind != 'module':
+            raise ValueError('Invalid compact module assignment')
+        key = row['range']['start_byte'], row['range']['end_byte']
+        if key in seen:
+            raise ValueError('Duplicate compact assignment')
+        seen.add(key)
+        scope = scopes[row['scope']]
+        if not scope.range['start_byte'] <= key[0] < key[1] <= scope.range['end_byte']:
+            raise ValueError('Compact assignment outside its scope')
+        right = expression(row['right'])
+        if not key[0] <= right.start_byte <= right.end_byte <= key[1]:
+            raise ValueError('Compact assignment value outside source range')
+        sequence(row['elements'], budget.max_nodes)
+        if row['elements'] and right.type not in ('list', 'tuple'):
+            raise ValueError('Compact assignment elements require a literal container')
+        previous = right.start_byte
+        for element in row['elements']:
+            value = expression(element)
+            if not previous <= value.start_byte <= value.end_byte <= right.end_byte:
+                raise ValueError('Compact container element outside value or source order')
+            previous = value.end_byte
     work.check()
-    return CollectedFile(dict(record), scopes, definitions, candidates, payload['imports'],
+    result = CollectedFile(dict(record), scopes, definitions, candidates, payload['imports'],
                          payload['errors'], payload['partial'], dict(payload['counts']), syntax,
                          collector_sha256=payload['collector_sha256'])
+    if result.collected_fact_count > budget.max_facts:
+        raise StopScan('fact_budget_exceeded')
+    return result
 
 
 class FileFacts:
@@ -907,7 +989,24 @@ class FileFacts:
         self.partial = tree.root_node.has_error
         self.initial_counts = work.nodes, work.facts
         self.syntax_metadata = {'package_clauses': [], 'go_control_directive': False,
-                                'go_bodyless_function': False, 'go_cgo_import': False}
+                                'go_bodyless_function': False, 'go_cgo_import': False,
+                                'calls': [], 'python_declarations': [], 'python_assignments': []}
+
+    def operand(self, node):
+        self.work.fact()
+        self.work.text(node.end_byte - node.start_byte)
+        return Expression.lower(self.raw, node).payload()
+
+    def declaration_syntax(self, node, scope, definition):
+        if self.language != 'python':
+            return
+        self.work.fact()
+        bases = node.child_by_field_name('superclasses')
+        self.syntax_metadata['python_declarations'].append({
+            'id': definition['id'], 'scope': scope.ordinal,
+            'decorated': bool(node.parent and node.parent.type == 'decorated_definition'),
+            'conditional': self.conditional(node),
+            'bases': [self.operand(base) for base in bases.named_children if base.type != 'comment'] if bases else []})
 
     def new_scope(self, parent, kind, name, owner=None, *, node):
         scope = Scope(parent, kind, name, owner, ordinal=len(self.scopes), range=self.location(node))
@@ -997,6 +1096,7 @@ class FileFacts:
                 definition = self.add_definition(node, name, kind, scope,
                                                  False if kind == 'method' else None,
                                                  self.language != 'python')
+                self.declaration_syntax(node, scope, definition)
                 lexical_parent = scope.parent if scope.kind == 'class' else scope
                 child_scope = self.new_scope(lexical_parent, 'function', definition['name'], definition['id'], node=node)
                 self.parameters(node, child_scope)
@@ -1004,6 +1104,7 @@ class FileFacts:
                 name = text(self.raw, node.child_by_field_name('name'))
                 kind = 'interface' if typ == 'interface_declaration' else 'class'
                 definition = self.add_definition(node, name, kind, scope)
+                self.declaration_syntax(node, scope, definition)
                 child_scope = self.new_scope(scope, 'class', definition['name'], definition['id'], node=node)
             elif typ == 'type_declaration' and self.language == 'go':
                 for spec in node.named_children:
@@ -1071,6 +1172,15 @@ class FileFacts:
         left = node.child_by_field_name('left') or node.child_by_field_name('name') or node.child_by_field_name('argument')
         right = unwrap(node.child_by_field_name('right') or node.child_by_field_name('value'))
         names = identifiers(left)
+        if (self.language == 'python' and scope.kind == 'module' and right is not None
+                and typ in ('assignment', 'augmented_assignment')):
+            self.work.fact()
+            self.syntax_metadata['python_assignments'].append({
+                'range': self.location(node), 'scope': scope.ordinal,
+                'name': text(self.raw, left) if left is not None and left.type == 'identifier' else '',
+                'conditional': self.conditional(node), 'kind': typ, 'right': self.operand(right),
+                'elements': [self.operand(value) for value in right.named_children if value.type != 'comment']
+                            if right.type in ('list', 'tuple') else []})
         for target in names:
             name = text(self.raw, target)
             owner_scope = scope
@@ -1197,6 +1307,18 @@ class FileFacts:
                                'caller': scope.owner, 'syntax_role': syntax_role,
                                'provenance': self.provenance(node.type)}
             candidates.append((fact, Expression.lower(self.raw, callee), scopes[scope.ordinal]))
+            if role == 'call':
+                self.work.fact()
+                arguments = node.child_by_field_name('arguments')
+                values = []
+                for argument in arguments.named_children if arguments else []:
+                    if argument.type == 'comment':
+                        continue
+                    value = (argument.child_by_field_name('value') or argument) if argument.type == 'keyword_argument' else argument
+                    values.append({'name': text(self.raw, argument.child_by_field_name('name'))
+                                   if argument.type == 'keyword_argument' else '',
+                                   'expression': self.operand(value)})
+                self.syntax_metadata['calls'].append({'site': fact['id'], 'arguments': values})
         counts = {'nodes': self.work.nodes - self.initial_counts[0],
                   'definitions': len(self.definitions)}
         result = CollectedFile(self.record, scopes, self.definitions, candidates,
@@ -1590,7 +1712,7 @@ def resolve_collected(collected, configurations=None, budget=None, cancel=None, 
         if total > work.budget.max_total_bytes:
             raise StopScan('source_byte_budget_exceeded')
         work.nodes += file.counts['nodes']
-        work.facts += file.counts['definitions'] + len(file.imports)
+        work.facts += file.collected_fact_count
         if work.nodes > work.budget.max_nodes:
             raise StopScan('node_budget_exceeded')
         if work.facts > work.budget.max_facts:

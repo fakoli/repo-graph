@@ -689,7 +689,7 @@ def collect_files(blobs, *, mode='serial', concurrency=1, budget=None,
                     else:
                         admitted_bytes += receipt['bytes']
                         nodes += file.counts['nodes']
-                        facts += file.counts['definitions'] + len(file.imports)
+                        facts += file.collected_fact_count
                         if (admitted_bytes > min(limits.max_admitted_bytes, budget.max_collected_bytes) or
                                 nodes > budget.max_nodes or facts > budget.max_facts):
                             result.failures.append({'index': pending['index'], 'record': pending['record'],

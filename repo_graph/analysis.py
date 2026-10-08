@@ -631,7 +631,7 @@ class StructuralIndex:
                     # Per-file resolver caches cannot conceal a dependency of the next consumer.
                     resolve = native.resolver(files, configurations, definitions=_Definitions(db))
                     work = native.Work(budget, check)
-                    work.facts = len(file.definitions) + len(file.imports)
+                    work.facts = file.collected_fact_count
                     unknown_import = False
                     for ordinal, item in enumerate(file.imports):
                         check()
