@@ -21,6 +21,20 @@ from repo_graph.source import SourceRoot
 
 
 class AdapterEvidence(unittest.TestCase):
+    def test_business_workflow_missing_children_cannot_pass_as_human_evidence(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root=Path(scratch)
+            directory=root/'evaluations/results/code-understanding';directory.mkdir(parents=True)
+            for name in ('business','views'):
+                (directory/(name+'.json')).write_text('{"tasks":{}}')
+            result=gate.business_workflow_gate(root)
+            self.assertEqual(result['status'],'blocked')
+            self.assertIsNone(result['source_identity'])
+            self.assertTrue(any(row['status']=='failed' for row in result['case_results']))
+            self.assertEqual(result['study_execution_status'],'not_run')
+            self.assertIs(result['human_evaluation'],False)
+            self.assertIs(result['qualification_complete'],False)
+
     @unittest.skipUnless(sys.platform == 'linux' and shutil.which('git'), 'Linux Git ownership check')
     def test_result_only_evidence_delivery(self):
         with tempfile.TemporaryDirectory() as scratch:
@@ -167,7 +181,7 @@ class FreezeInputs(unittest.TestCase):
             unrelated = {'task_accepted': True, 'retained_evidence': 'x' * (3 * 1024 * 1024)}
             report.write_text(json.dumps({'tasks': {'T047': first, 'T020': unrelated}}))
             for revision in ('corrected', 'repeated'):
-                gate._record_ranking_boundary(root, {'status': 'passed', 'source_identity': {'revision': revision},
+                gate._record_business_gate(root, {'status': 'passed', 'source_identity': {'revision': revision},
                                                      'case_results': [{'id': 'input-refusal', 'status': 'passed'}]})
                 current = json.loads(report.read_text())
                 self.assertEqual(current['tasks']['T020'], unrelated)

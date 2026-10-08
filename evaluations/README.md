@@ -395,3 +395,19 @@ The original ungraded comparison remains evidence of the earlier key limitation.
 These positions are consulted only by the grader after source-only extraction.
 They do not create target facts, change the supported denominator, select an
 engine, or satisfy the human evaluation gate.
+
+## Business views and human protocol preparation
+
+```sh
+REPO_GRAPH_PYTHON=.venv/bin/python npm run test:ux
+uv run python evaluations/human.py --validate-protocol
+uv run python evaluations/acceptance.py --gate business-workflow
+```
+
+The browser command tests captured Paths, Calls, source inspection and scoped
+contract impact. The protocol command preserves nine frozen questions and a
+counterbalanced five-person allocation preview. The aggregate requires all
+registered functional observations and matching viewer/protocol identities.
+These commands do not execute or qualify a human study. Scoring still requires
+five independent people, a separate human assessor, accepted pinned workflows,
+equal source access, genuine timing/errors and privately retained responses.

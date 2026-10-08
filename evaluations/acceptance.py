@@ -2542,15 +2542,73 @@ def ranking_gate(root=None):
     return result
 
 
-def _record_ranking_boundary(root, result, task='T047'):
+def business_workflow_gate(root=None):
+    """Bind functional view/protocol observations; the human study remains separate."""
+    from evaluations.analysis import BUSINESS_RESULT_BYTES
+    from evaluations.human import validate_protocol
+    root = Path(root or ROOT)
+    checks, identity = [], None
+    result = dict(schema_version=1, task='T028', status='blocked', source_identity=None,
+        case_results=checks, task_accepted=False, qualification_complete=False,
+        human_evaluation=False, study_execution_status='not_run',
+        scope='Functional business views and protocol preparation only; upstream acceptance is owned by Anvil. '
+              'Actual human, agent, scale and distribution qualification remain required.')
+    def check(name, ok, detail):
+        checks.append(dict(id=name, status='passed' if ok else 'failed', detail=detail))
+    try:
+        with SourceRoot(root) as source:
+            business, _ = read_json(source, 'evaluations/results/code-understanding/business.json', BUSINESS_RESULT_BYTES)
+            views, _ = read_json(source, 'evaluations/results/code-understanding/views.json', BUSINESS_RESULT_BYTES)
+            children = {**views['tasks'], **business['tasks']}
+            bindings = {}
+            for task, count in (('T017',10),('T018',211),('T019',807),('T020',63),
+                                ('T021',12),('T050',17),('T051',14),('T069',70)):
+                child = children[task]; rows = child['case_results']
+                bindings[task] = digest(canonical(child))
+                check(task + ':observations', child['status']=='passed' and child['source_identity'] is not None
+                    and len(rows)==count and len({row['id'] for row in rows})==count
+                    and all(row['status']=='passed' for row in rows), 'All registered functional observations retained')
+            viewer, human = children['T050'], children['T051']
+            paths = ('evaluations/acceptance.py', 'evaluations/human.py', 'repo_graph/assets/diagram.html',
+                     'repo_graph/assets/views.js', 'tests/ux.mjs')
+            current = {path: source.read(path, 1024*1024, hash_full=True)[1] for path in paths}
+            captured = viewer['source_identity']['implementation']['sha256']
+            check('current_viewer', all(current.get(path)==sha for path,sha in captured.items())
+                and set(captured)==set(paths[2:]) and committed(root,current),
+                'Observed browser implementation matches current committed viewer bytes')
+            snapshots = viewer['source_identity']['captured_snapshots']
+            fields = ('generation','repository_identity','source_identity','analyzer_identity','config_identity')
+            check('captured_snapshots', len(snapshots)>=3 and all(all(
+                type(snapshot.get(key)) is str and re.fullmatch('[0-9a-f]{64}',snapshot[key]) for key in fields)
+                for snapshot in snapshots), 'Framework/contract browser observations retain all five snapshot identities')
+        fresh = validate_protocol(root)
+        check('frozen_protocol', fresh['status']=='passed' and human['source_identity']==fresh['source_identity']
+            and human['config_identity']==fresh['config_identity'] and human['analyzer_identity']==fresh['analyzer_identity'],
+            'Current validator reproduces the retained unchanged frozen question/allocation protocol')
+        check('qualification_boundary', viewer['runtime_qualified'] is False and
+            all(child['human_evaluation'] is False and child['qualification_complete'] is False and
+                child['study_execution_status']=='not_run' for child in (viewer,human))
+            and human['participants_run']==human['participants_enrolled']==0 and
+            human['study_eligibility']['status']=='blocked',
+            'Synthetic browser controls and prepared protocol do not impersonate participants or runtime sequence proof')
+        identity = dict(implementation={'sha256':current}, child_sha256=bindings,
+                        protocol_source_identity=fresh['source_identity'])
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, RecursionError):
+        check('business_evidence_available', False, 'Missing, stale, failed or foreign functional evidence')
+    result['source_identity'] = identity
+    result['status'] = 'passed' if checks and all(row['status']=='passed' for row in checks) else 'blocked'
+    return result
+
+
+def _record_business_gate(root, result, task='T047'):
     from evaluations.analysis import BUSINESS_RESULT_BYTES, write_result
     path = 'evaluations/results/code-understanding/business.json'
     with SourceRoot(root) as source:
         existing, _ = read_json(source, path, BUSINESS_RESULT_BYTES)
     if type(existing) is not dict or type(existing.get('tasks')) is not dict:
         raise ValueError('Existing business evidence required')
-    if task not in ('T022', 'T047'):
-        raise ValueError('Unknown ranking task')
+    if task not in ('T022', 'T047', 'T028'):
+        raise ValueError('Unknown business gate task')
     previous = existing['tasks'].get(task, {})
     for key in ('prior_failed_attempt', 'prior_failed_attempts', 'prior_passed_attempt'):
         if key in previous:
@@ -2564,7 +2622,7 @@ def _record_ranking_boundary(root, result, task='T047'):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--gate', choices=['freeze', 'engine', 'acceleration', 'impact', 'ranking-boundary', 'task-preflight'], default='freeze')
+    parser.add_argument('--gate', choices=['freeze', 'engine', 'acceleration', 'impact', 'ranking-boundary', 'business-workflow', 'task-preflight'], default='freeze')
     parser.add_argument('--task', choices=['T047'])
     parser.add_argument('--checks', choices=['ranking-boundary'])
     parser.add_argument('--evidence-root', type=Path, help='Existing private archived-worker root; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
@@ -2581,7 +2639,7 @@ def main(argv=None):
             parser.error('Task preflight supports exactly --task T047 --checks ranking-boundary')
         report = ranking_boundary()
         if report.get('stopped_phase') != 'inputs':
-            _record_ranking_boundary(ROOT, report)
+            _record_business_gate(ROOT, report)
         print(json.dumps(report, ensure_ascii=False, separators=(',', ':')))
         return 0 if report['status'] == 'passed' else 1
     if args.task or args.checks:
@@ -2591,10 +2649,13 @@ def main(argv=None):
             parser.error('Source-freeze options apply only to --gate freeze')
         if args.gate != 'engine' and (args.evidence_root or args.source_map):
             parser.error('Private adapter evidence options apply only to --gate engine')
-        report = (ranking_gate() if args.gate == 'ranking-boundary' else impact_gate() if args.gate == 'impact' else
+        report = (business_workflow_gate() if args.gate == 'business-workflow' else
+                  ranking_gate() if args.gate == 'ranking-boundary' else impact_gate() if args.gate == 'impact' else
                   experiment_gate(args.gate, evidence_root=args.evidence_root, source_map=args.source_map))
         if args.gate == 'ranking-boundary':
-            _record_ranking_boundary(ROOT, report, 'T022')
+            _record_business_gate(ROOT, report, 'T022')
+        elif args.gate == 'business-workflow':
+            _record_business_gate(ROOT, report, 'T028')
         if args.report:
             args.report.parent.mkdir(parents=True, exist_ok=True)
             with SourceRoot(args.report.parent) as source:
