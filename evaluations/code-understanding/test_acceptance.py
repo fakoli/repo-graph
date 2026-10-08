@@ -502,7 +502,11 @@ def cost_telemetry(mode='serial', concurrency=1):
             events.append(event)
         values = [dict(pid=i['pid'], rss_bytes=64, read_started_ns=t + 4, read_ended_ns=t + 4) for i in (ctrl, supervisor, worker)]
         samples.append(dict(started_ns=t + 4, ended_ns=t + 4, read_skew_ns=0, phase=label, owners=values, gaps=[], complete=True, owned_rss_bytes=192))
-        resource = dict(elapsed_seconds=0.002, process_peak_rss_bytes=64, process_user_seconds=0.001, process_system_seconds=0, file_user_seconds=0.001, file_system_seconds=0, timings={k: 0 for k in queued_collector.NATIVE_TIMINGS})
+        resource = dict(elapsed_seconds=0.002, process_peak_rss_bytes=64, process_user_seconds=0.001, process_system_seconds=0, file_user_seconds=0.001, file_system_seconds=0, timings={k: 0 for k in queued_collector.NATIVE_TIMINGS},
+            source_accounting=dict(schema_version=1, transport='immutable_mailbox_blob_v1',
+                source_sha256=cost_sha(b''), source_bytes=0, original_source_stream_bytes=0,
+                accounting_complete=True, passes={name: queued_collector.empty_source_accounting()
+                    for name in queued_collector.SOURCE_ACCOUNTING_PASSES}))
         queued = dict(workers_started=1, elapsed_seconds=0.003, limits=dict(memory_bytes=512 * 1024 ** 2, cpu_seconds=30, total_wall_seconds=20, worker_wall_seconds=20, max_inflight_bytes=40 * 1024 ** 2, max_admitted_bytes=32 * 1024 ** 2), worker_resources=[[resource]], telemetry=dict(schema_version=1, controller_timings={k: 0 for k in queued_collector.CONTROLLER_TIMINGS}, controller_identity=ctrl, observer_events_delivered=5, observer_failed=False, observer_failure_reason=None, actual_workers_started=1, worker_process_identities=[worker]))
         phases[label] = dict(label=label, status='complete', wall_seconds=0.01, proof_retention_seconds=0.001, observed_attempt_seconds=0.011, stages={k: dict(calls=1, inclusive_seconds=0.001) for k in ('source_read', 'collection_controller', 'global_resolution', 'snapshot_construction')}, receipt=dict(resources=dict(queued=queued)))
     lines = [dict(kind='lifecycle', value={k: None if k == 'removed_ns' else v for k, v in row.items() if k != 'removal_scope'}) for row in lives]

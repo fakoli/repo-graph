@@ -1484,9 +1484,14 @@ class ObservedProfile(unittest.TestCase):
 
     def test_worker_records_actual_repeat_and_refuses_source_output(self):
         root = Path(__file__).resolve().parents[2]
-        source = root / 'tests/fixtures/code-understanding'
+        frozen = json.loads((root / 'evaluations/code-understanding/supplement-source.json').read_bytes())['files']
         script = root / 'evaluations/performance.py'
         with tempfile.TemporaryDirectory(prefix='repo-graph-profile-check-') as scratch:
+            source = Path(scratch) / 'source'
+            for item in frozen:
+                target = source / Path(item['path']).relative_to('tests/fixtures/code-understanding')
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((root / item['path']).read_bytes())
             run = subprocess.run([sys.executable, str(script), '--structural-worker',
                 'current-map', str(source), str(Path(scratch) / 'output')],
                 capture_output=True, text=True, timeout=20)
@@ -1495,7 +1500,6 @@ class ObservedProfile(unittest.TestCase):
             self.assertTrue(report['deterministic_repeat'])
             self.assertEqual(len(report['records']), 2)
             cold, warm = report['records']
-            frozen = json.loads((root / 'evaluations/code-understanding/supplement-source.json').read_bytes())['files']
             self.assertEqual(cold['counts']['inventoried_files'], len(frozen))
             self.assertEqual(warm['coverage']['scanned'], 0)
             self.assertEqual(warm['coverage']['reused'], sum(item['kind'] == 'source' for item in frozen))

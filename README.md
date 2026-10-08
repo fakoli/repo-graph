@@ -102,12 +102,16 @@ schema is feasible; each language and framework still needs resolution rules.
 Version 0.6.0 does **not** add function call graphs. Existing diagrams show
 source structure and heuristic imports.
 
-### Structural queries in the development branch
+### Experimental structural queries
 
 The optional native analysis extra captures Python, Go and JavaScript/TypeScript
 definitions, references, call sites and supported possible targets in the shared
 SQLite index. Unsupported bindings remain unresolved; this is static source
 evidence, with the limits in [the coverage matrix](docs/coverage.md).
+Merged source remains experimental. Representative scale measurements, actual
+agent comparisons, the independent human study and clean Pi/Codex/Claude analysis
+installation still need qualification before a feature release.
+
 These development commands are undergoing qualification and are not in 0.6.0:
 
 ```bash
