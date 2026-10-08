@@ -3108,6 +3108,48 @@ def odoo_source_key(reference, blobs):
 FRAMEWORK_AUDIT_LIMITS = {'max_response_bytes': 262144, 'max_excerpt_bytes': 0}
 
 
+def framework_fact_artifacts(retained, prefix, stream, rows):
+    """Keep finite arrays intact; retain oversized streams as ordered bounded arrays."""
+    from evaluations.engine_checks import ADAPTER_REPORT_BYTES, _adapter_dump
+    def record_bytes(row):
+        return len(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode())
+    total_bytes = 3 + max(0, len(rows) - 1) + sum(record_bytes(row) for row in rows)
+    artifacts, offset = [], 0
+    with SourceRoot(retained) as owner:
+        def save(values, filename):
+            nonlocal offset
+            _adapter_dump(retained, filename, values)
+            _, digest, info = owner.read(filename, 0, hash_full=True)
+            artifacts.append(dict(stream=stream, format='json_array', part=len(artifacts) + 1,
+                record_start=offset, record_count=len(values), path=filename, sha256=digest, bytes=info.st_size))
+            offset += len(values)
+        if total_bytes <= ADAPTER_REPORT_BYTES:
+            save(rows, f'{prefix}-{stream}.json')
+            return artifacts
+        manifest = f'{prefix}-{stream}-parts.json'
+        def progress(complete=False):
+            _adapter_dump(retained, manifest, dict(stream=stream, format='json_array_parts',
+                total_records=len(rows), retained_records=offset, complete=complete, parts=artifacts))
+        def seal(values):
+            if len(artifacts) == 128:
+                raise ValueError('Private framework stream part count bound exceeded')
+            save(values, f'{prefix}-{stream}-part-{len(artifacts) + 1:03}.json')
+            progress()
+        progress()
+        pending, size = [], 3
+        for row in rows:
+            cost = record_bytes(row)
+            if cost + 3 > ADAPTER_REPORT_BYTES:
+                if pending: seal(pending)
+                raise ValueError('Private framework stream record byte bound exceeded')
+            if size + cost + bool(pending) > ADAPTER_REPORT_BYTES:
+                seal(pending); pending, size = [], 3
+            size += cost + bool(pending); pending.append(row)
+        if pending: seal(pending)
+        progress(complete=True)
+    return artifacts
+
+
 def framework_query_rows(queries, request, page=None, *, retained=None, prefix='framework-query'):
     """Retain every bounded full page before checking finite audit exhaustion."""
     page = queries.run(request) if page is None else page
@@ -3425,16 +3467,11 @@ def _framework(root=ROOT, budget=None, *, source_map=None, work_root=None, frame
         facts['framework_query_rows'] = rows
         artifacts = []
         if framework == 'odoo':
-            from evaluations.engine_checks import _adapter_dump
             for key, values in facts.items():
                 if key == 'framework_query_rows':
                     artifacts.extend(page['artifact'] for page in pages)
                     continue
-                filename = f'phase-{len(receipts):03}-{key}.json'
-                _adapter_dump(retained, filename, values)
-                with SourceRoot(retained) as owner:
-                    _, digest, info = owner.read(filename, 0, hash_full=True)
-                artifacts.append(dict(stream=key, path=filename, sha256=digest, bytes=info.st_size))
+                artifacts.extend(framework_fact_artifacts(retained, f'phase-{len(receipts):03}', key, values))
             check(mode + ':phase-' + str(len(receipts)) + ':full-query-projection', lambda: odoo_query_grade(facts))
         query_traces.append({'mode': mode, 'generation': receipt['generation'], 'source_identity': receipt['source_identity'],
             'row_count': len(rows), 'rows_sha256': hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest(),

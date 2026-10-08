@@ -673,6 +673,36 @@ class FrameworkEvaluatorTests(unittest.TestCase):
                     '--work-root', str(directory), '--output', 'synthetic-framework-result.json']), 1)
             self.assertEqual(json.loads((evidence / 'report.json').read_text()), result)
 
+    def test_framework_stream_parts_reconstruct_exactly_and_retain_before_oversized_record(self):
+        from evaluations import engine_checks
+        rows = [{'ordinal': number, 'text': '\u03bb' * 440} for number in range(7)]
+        with tempfile.TemporaryDirectory() as scratch, patch.object(engine_checks, 'ADAPTER_REPORT_BYTES', 2048):
+            retained = Path(scratch)
+            artifacts = analysis.framework_fact_artifacts(retained, 'phase-051', 'sites', rows)
+            self.assertGreater(len(artifacts), 1)
+            restored, prior = [], {}
+            for number, artifact in enumerate(artifacts, 1):
+                raw = (retained / artifact['path']).read_bytes(); values = json.loads(raw)
+                self.assertEqual(artifact['part'], number); self.assertEqual(artifact['record_start'], len(restored))
+                self.assertEqual(artifact['record_count'], len(values)); self.assertEqual(artifact['format'], 'json_array')
+                self.assertEqual(artifact['stream'], 'sites'); self.assertEqual(artifact['bytes'], len(raw))
+                self.assertLessEqual(len(raw), 2048); self.assertEqual(artifact['sha256'], hashlib.sha256(raw).hexdigest())
+                restored.extend(values); prior[artifact['path']] = raw
+            self.assertEqual(restored, rows)
+            manifest = json.loads((retained / 'phase-051-sites-parts.json').read_text())
+            self.assertEqual(manifest['parts'], artifacts); self.assertTrue(manifest['complete'])
+            self.assertEqual((manifest['total_records'], manifest['retained_records']), (7, 7))
+            fitting = analysis.framework_fact_artifacts(retained, 'phase-051', 'imports', rows[:1])
+            self.assertEqual(fitting[0]['path'], 'phase-051-imports.json')
+            self.assertFalse((retained / 'phase-051-imports-parts.json').exists())
+            with self.assertRaisesRegex(ValueError, 'record byte bound exceeded'):
+                analysis.framework_fact_artifacts(retained, 'phase-052', 'sites', rows[:1] + [{'text': 'x' * 2048}])
+            partial = json.loads((retained / 'phase-052-sites-parts.json').read_text())
+            self.assertFalse(partial['complete']); self.assertEqual(partial['retained_records'], 1)
+            self.assertEqual(partial['total_records'], 2)
+            self.assertEqual(json.loads((retained / partial['parts'][0]['path']).read_text()), rows[:1])
+            self.assertTrue(all((retained / name).read_bytes() == raw for name, raw in prior.items()))
+
     def test_framework_cli_selects_odoo_and_retains_django_entrypoint(self):
         for suite, helper in (('odoo-framework', 'odoo_framework'), ('django-framework', 'django_framework')):
             with self.subTest(suite=suite), patch.object(analysis, helper,
