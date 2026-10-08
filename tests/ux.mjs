@@ -241,7 +241,7 @@ Path(sys.argv[2]).write_text(json.dumps(context),encoding='utf-8')`,root,config,
     const imported=exchanges.filter(row=>row.request.operation==='impact').at(-1);assert.deepEqual(imported.request.relations,['contract']);assert.deepEqual(imported.request.selector,{kind:'source_area',paths:[contractOrigin.site.path]});assert.deepEqual(imported.request.services,[contractOrigin.service_id]);assert.ok(imported.response.rows.length>0);assert.ok(imported.response.rows.every(row=>row.runtime_qualified===false));
     pathCheck('contract_possible_impact','source contract origin opens existing bounded Impact with explicit source, service/protocol/namespace scope and no runtime ordering',{snapshot:Object.fromEntries(['generation','repository_identity','source_identity','analyzer_identity','config_identity'].map(key=>[key,contractPage[key]])),request:imported.request,rows:imported.response.rows.map(pathRow),runtime_sequence_qualified:false});
     if(process.env.REPO_GRAPH_UX_FOCUS==='paths')return;
-    await ct.goto(address);await ct.reload();
+    await ct.click('#clear-saved-view');await ct.reload();
     await ct.waitForFunction(()=>document.querySelector('#index-heading').textContent.includes('local index'));
     await ct.click('#tab-impact');
     const status=await (await ct.request.get(new URL('/api/status',address).toString())).json();
