@@ -410,7 +410,7 @@ def _coverage_receipt(coverage):
             overflow['languages'] > 0 and (len(languages) != 32 or overflow['files_total'] < overflow['languages'])):
         raise ValueError('Language overflow does not reconcile')
     sites = coverage['sites_by_role_certainty']
-    if type(sites) is not dict or set(sites) - {'call', 'reference'}:
+    if type(sites) is not dict or set(sites) - {'call', 'reference', 'framework', 'framework_boundary'}:
         raise ValueError('Typed site roles required')
     for values in sites.values():
         _counts(values)
@@ -1556,15 +1556,21 @@ def captured_source(engine, request, *, cancel=None):
                 FROM structural_import_relationships p JOIN structural_imports i ON i.path=p.path AND i.ordinal=p.ordinal
                 JOIN structural_files f ON f.path=p.path WHERE p.id=? ORDER BY p.target_path LIMIT 1''', (handle['id'],))
         else:
-            # Two primary-key probes in one statement; never enumerate a graph or file.
-            rows = read('''SELECT 'declaration' AS member_kind,s.id,s.path,NULL AS role,
+            # Typed primary-key probes; never enumerate a graph or file.
+            sql = '''SELECT 'declaration' AS member_kind,s.id,s.path,NULL AS role,
             substr(CAST(s.data AS BLOB),1,8388609) AS data,
             substr(CAST(f.record AS BLOB),1,32769) AS file_record,f.status
             FROM structural_symbols s JOIN structural_files f ON f.path=s.path WHERE s.id=?
             UNION ALL SELECT 'callsite',s.id,s.path,s.role,
             substr(CAST(s.data AS BLOB),1,8388609),substr(CAST(f.record AS BLOB),1,32769),f.status
-            FROM structural_sites s JOIN structural_files f ON f.path=s.path WHERE s.id=? LIMIT 2''',
-                (handle['id'], handle['id']))
+            FROM structural_sites s JOIN structural_files f ON f.path=s.path WHERE s.id=?'''
+            arguments = [handle['id'], handle['id']]
+            if handle['id'].endswith(':assignment'):
+                sql += ''' UNION ALL SELECT 'assignment',s.id,s.path,NULL,
+            substr(CAST(s.data AS BLOB),1,8388609),substr(CAST(f.record AS BLOB),1,32769),f.status
+            FROM structural_evidence s JOIN structural_files f ON f.path=s.path WHERE s.id=?'''
+                arguments.append(handle['id'])
+            rows = read(sql + ' LIMIT 2', arguments)
         check()
         if len(rows) != 1: raise ValueError('Unknown or ambiguous captured source handle')
         row = rows[0]
@@ -1608,12 +1614,16 @@ def captured_source(engine, request, *, cancel=None):
             if type(reason) is not str or len(reason.encode()) > 4096: raise ValueError('Bounded captured reason required')
         elif row['member_kind'] == 'callsite':
             certainty, exhaustive, reason = item.get('certainty'), item.get('targets_exhaustive'), item.get('reason')
-            if (row['role'] not in ('call', 'reference') or item.get('role') != row['role'] or
+            if (row['role'] not in ('call', 'reference', 'framework', 'framework_boundary') or item.get('role') != row['role'] or
                     certainty not in ('resolved', 'candidate', 'unresolved') or type(exhaustive) is not bool):
                 raise ValueError('Invalid captured source occurrence')
             if type(reason) is not str or len(reason.encode()) > 4096:
                 raise ValueError('Bounded captured reason required')
             expected_id += ':' + row['role']
+        elif row['member_kind'] == 'assignment':
+            if provenance['syntax_kind'] not in ('assignment', 'augmented_assignment') or item['language'] != 'python':
+                raise ValueError('Invalid captured assignment witness')
+            expected_id += ':assignment'
         else:
             _string(item.get('kind'))
         if row['id'] != expected_id: raise ValueError('Captured source ID differs from its range')

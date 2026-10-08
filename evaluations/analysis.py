@@ -14,7 +14,7 @@ No provider calls, real-corpus download, daemon, dynamic imports of source code,
 or runtime product installation occurs. Experimental selection requires all component and finite-cost proofs.
 """
 import argparse
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, contextmanager, closing
 import hashlib
 from importlib import metadata
 import json
@@ -39,6 +39,7 @@ INPUTS = 'evaluations/code-understanding/'
 DEFAULT_OUTPUT = 'evaluations/results/code-understanding/native-component.json'
 FACTS_OUTPUT = 'evaluations/results/code-understanding/facts.json'
 VIEWS_OUTPUT = 'evaluations/results/code-understanding/views.json'
+BUSINESS_OUTPUT = 'evaluations/results/code-understanding/business.json'
 
 # Separately identified state/storage controls, frozen before producer execution.
 # They do not extend the original construct oracle or its coverage denominator.
@@ -2990,6 +2991,228 @@ def profile_fixture_pilot(root, evidence_directory, *, protocol=None, original_s
         return result
 
 
+def django_framework(root=ROOT, budget=None, *, source_map=None, work_root=None):
+    """Frozen source questions graded after the single structural owner runs."""
+    from evaluations.acceptance import committed
+    root, budget = Path(root), budget or Budget()
+    with SourceRoot(root) as owner:
+        manifest, input_sha = read_json(owner, INPUTS + 'django-framework-inputs.json')
+        review, review_sha = read_json(owner, INPUTS + 'django-framework-review.json')
+        if (input_sha != '2348603f592660275f9a5750c18fe3e08c1679516333e7613fef9f78589f26c9' or
+                review_sha != '93fadbc0202f5354890de3ee8a55670ca753b2f4e59ee42c0cf10898ddc86bbf' or
+                review['status'] != 'admitted_frozen_source_key' or review['task'] != 'T018' or
+                review['input_manifest']['sha256'] != input_sha):
+            raise ValueError('Independently admitted Django source key required')
+        hashes = {INPUTS + 'django-framework-inputs.json': input_sha, INPUTS + 'django-framework-review.json': review_sha}
+        original = {}
+        for record in manifest['synthetic_inventory']:
+            path = record['path']; SourceRoot.parts(path)
+            full = manifest['fixture_root'] + '/' + path
+            raw, sha, info = owner.read(full, budget.max_file_bytes + 1, hash_full=False)
+            if len(raw) != info.st_size or sha != record['sha256'] or len(raw) != record['bytes']:
+                raise ValueError('Frozen Django fixture bytes differ')
+            original[path] = raw; hashes[full] = sha
+    if not committed(root, hashes):
+        raise ValueError('Frozen Django inputs must belong to this committed repository')
+    identity = {'input_manifest_sha256': input_sha, 'independent_review_sha256': review_sha,
+                'synthetic_inventory_sha256': manifest['synthetic_inventory_sha256'],
+                'corpus_revision': manifest['corpus']['revision']}
+    code_paths = ('evaluations/analysis.py', 'repo_graph/analysis.py', 'repo_graph/analysis_native.py',
+                  'repo_graph/analysis_queue.py', 'repo_graph/analysis_queries.py', 'repo_graph/search.py',
+                  'repo_graph/cli.py', 'pyproject.toml', 'uv.lock')
+    with SourceRoot(root) as owner:
+        implementation = {path: owner.read(path, 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    identity['implementation'] = {'commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
+                                  'sha256': implementation}
+    if source_map is None:
+        return dict(schema_version=1, suite='django-framework', status='blocked', source_identity=identity,
+                    case_results=[], failures=[], counts={}, reason='Pinned private source map required',
+                    qualification_complete=False, limits_qualified=False)
+    source_map = Path(source_map)
+    with SourceRoot(source_map.parent) as owner:
+        mapping, map_sha = read_json(owner, source_map.name)
+    selected = [row for row in mapping['corpora'] if row['id'] == 'django']
+    if len(selected) != 1 or selected[0]['revision'] != manifest['corpus']['revision']:
+        raise ValueError('Pinned Django source-map identity differs')
+    from repo_graph.analysis import StructuralIndex, _git_capture
+    from repo_graph.analysis_queries import Queries
+    from repo_graph.search import Search, captured_source, connect
+    from evaluations.engine_checks import _adapter_materialize
+    real = {}
+    with SourceRoot(Path(selected[0]['source'])) as owner:
+        prefix = _git_capture(owner, ['rev-parse', '--show-prefix'], 4096, lambda: False)
+        revision = _git_capture(owner, ['rev-parse', '--verify', 'HEAD'], 128, lambda: False)
+        if prefix is None or prefix.strip() or revision is None or revision.decode().strip() != selected[0]['revision']:
+            raise ValueError('Django source must own the exact pinned repository revision')
+        for record in manifest['corpus']['selected_file_inventory']:
+            raw, sha, info = owner.read(record['path'], budget.max_file_bytes + 1, hash_full=False)
+            if sha != record['sha256'] or len(raw) != record['bytes'] or len(raw) != info.st_size:
+                raise ValueError('Pinned Django source bytes differ')
+            real[record['path']] = raw
+    checks, receipts = [], []
+    def require(value, message):
+        if not value: raise AssertionError(message)
+    def check(identifier, action, observed=None):
+        row = {'id': identifier, 'status': 'passed', **(observed or {})}
+        try: row.update(action() or {})
+        except Exception as error: row.update(status='failed', error_kind=type(error).__name__, reason=str(error)[:1024])
+        checks.append(row)
+    def normalized(index):
+        facts = {key: sorted(index.read_facts(key), key=lambda row: json.dumps(row, sort_keys=True))
+                 for key in ('definitions', 'sites', 'scopes', 'imports', 'relationships', 'evidence')}
+        with closing(connect(index.output, readonly=True, owner=index.output_owner)) as db:
+            facts['dependencies'] = [dict(row) for row in db.execute('SELECT * FROM structural_dependencies ORDER BY path,kind,key')]
+            facts['import_relationships'] = [dict(row) for row in db.execute('SELECT * FROM structural_import_relationships ORDER BY path,ordinal,target_path')]
+        return facts
+    def inspect(index, receipt, facts):
+        engine = Search(index.output)
+        try:
+            slices = []
+            for role in ('definitions', 'sites', 'evidence'):
+                for row in facts[role]:
+                    handle = {key: row[key] for key in ('id', 'path', 'range')}
+                    handle['source_sha256'] = row['provenance']['source_sha256']
+                    result = captured_source(engine, dict(generation=receipt['generation'], handle=handle, max_excerpt_bytes=4096))
+                    slices.append({key: result[key] for key in ('handle', 'text', 'range', 'raw_digest', 'truncated', 'redacted', 'certainty')})
+            facts['source_slices'] = sorted(slices, key=lambda row: json.dumps(row, sort_keys=True))
+        finally: engine.close()
+    def produce(source, output, blobs, context, mode):
+        index = StructuralIndex(source, output, budget=budget, framework_context=context)
+        receipt = index.refresh(sorted(blobs), mode=mode, concurrency=1 if mode == 'serial' else 2)
+        receipts.append({'mode': mode, 'status': receipt['status'], 'coverage': receipt.get('coverage'), 'resources': receipt['resources']})
+        require(receipt['status'] == 'ready', 'Shared index did not publish a coherent generation')
+        facts = normalized(index); inspect(index, receipt, facts)
+        return index, facts
+    def grade_cases(facts, source_kind, mode):
+        definitions = {row['id']: row for row in facts['definitions']}
+        for expected in manifest['cases']:
+            if expected['source_kind'] != source_kind: continue
+            origin = expected['origin']
+            found = [row for row in facts['sites'] if row['role'].startswith('framework') and row['path'] == origin['path']
+                     and all(row['range'][name] == origin['range'][name] for name in ('start_byte', 'end_byte'))]
+            expected_targets = {(row['path'], row['range']['start_byte'], row['range']['end_byte'], row['source_sha256'], row['name'])
+                                for row in expected['expected']['targets']}
+            actual_targets = {(row['path'], row['range']['start_byte'], row['range']['end_byte'], row['provenance']['source_sha256'], row['name'])
+                              for site in found for target in site['targets'] if (row := definitions.get(target)) is not None}
+            matches = len(expected_targets & actual_targets)
+            observed = {'occurrences': len(found), 'expected_targets': len(expected_targets), 'actual_targets': len(actual_targets),
+                'target_precision': matches / len(actual_targets) if actual_targets else None,
+                'target_recall': matches / len(expected_targets) if expected_targets else None,
+                'metric_scope': 'this frozen source case only; unjudged occurrences excluded',
+                'actual': [{name: row[name] for name in ('id', 'range', 'family', 'relation_kind', 'targets', 'certainty', 'reason', 'provenance')} for row in found]}
+            def grade(expected=expected):
+                origin = expected['origin']; key = ('start_byte', 'end_byte')
+                found = [row for row in facts['sites'] if row['role'].startswith('framework') and row['path'] == origin['path']
+                         and all(row['range'][name] == origin['range'][name] for name in key)]
+                require(len(found) == expected['expected']['source_row_count'], 'Physical framework occurrence cardinality differs')
+                if found:
+                    row = found[0]; label = expected['expected']
+                    require(row['family'] == expected['relation_family'] and row['relation_kind'] == expected['relation_kind'], 'Relation family/kind differs')
+                    require(row['certainty'] == label['certainty'] and row['framework_identity_asserted'] == label['framework_identity_asserted'], 'Certainty/identity differs')
+                    require(row['partial'] == label['partial'] and row['provenance']['source_sha256'] == origin['source_sha256'], 'Physical source/partial state differs')
+                    require(len(row['targets']) == label['target_cardinality'], 'Target cardinality differs')
+                    for target_id, target in zip(row['targets'], label['targets']):
+                        actual = definitions[target_id]
+                        require(actual['path'] == target['path'] and actual['name'] == target['name'] and
+                            actual['provenance']['source_sha256'] == target['source_sha256'] and all(actual['range'][name] == target['range'][name]
+                            for name in ('start_byte', 'end_byte', 'start_line', 'end_line')), 'Target declaration/source range differs')
+                    require(any(item['source_role'] == 'candidate_import' for item in row['evidence']), 'Candidate import witness missing')
+            check(mode + ':' + expected['id'], grade, observed)
+    contexts = manifest['source_admission']['frozen_contexts']
+    with worker_directory(source_map, work_root) as work:
+        with tempfile.TemporaryDirectory(prefix='django-framework-', dir=work) as scratch:
+            scratch = Path(scratch)
+            for source_kind, blobs, context in (('synthetic', original, contexts['synthetic']), ('pinned_corpus', real, contexts['pinned_django'])):
+                source = scratch / source_kind; source.mkdir(); _adapter_materialize(source, blobs)
+                mode_facts = {}
+                for mode in ('serial', 'queued'):
+                    index, facts = produce(source, scratch / (source_kind + '-' + mode), blobs, context, mode)
+                    mode_facts[mode] = facts
+                    grade_cases(facts, source_kind, mode)
+                    with Queries(index.output) as queries:
+                        rows, page = [], queries.run({'operation': 'framework'})
+                        for _ in range(128):
+                            rows.extend(page['rows'])
+                            if not page['cursor']: break
+                            page = queries.run({'operation': 'framework', 'cursor': page['cursor']})
+                        check(mode + ':' + source_kind + ':query-membership', lambda: require(not page['truncated'] and
+                            {row['site']['id'] for row in rows} == {row['id'] for row in facts['sites'] if row['role'].startswith('framework')}, 'Framework pagination lost/added occurrences'))
+                check(source_kind + ':mode-parity', lambda: require(mode_facts['serial'] == mode_facts['queued'], 'Serial/queued shared facts or source evidence differ'))
+                if source_kind != 'synthetic': continue
+                for number, mutation in enumerate(manifest['incremental_mutations']):
+                    changed = dict(original)
+                    origins = {case['id']: dict(path=case['origin']['path'], start=case['origin']['range']['start_byte'])
+                               for case in manifest['cases'] if case['source_kind'] == 'synthetic'}
+                    for operation in mutation['operations']:
+                        path = operation['path']; verb = operation['operation']
+                        if verb != 'add': require(hashlib.sha256(changed[path]).hexdigest() == operation['before_sha256'], 'Mutation baseline digest differs')
+                        if verb == 'delete': del changed[path]; continue
+                        if verb == 'rename': path = operation['destination']; changed[path] = changed.pop(operation['path'])
+                        elif verb == 'add': changed[path] = operation['content'].encode()
+                        elif verb == 'replace':
+                            old, new = operation['old'].encode(), operation['new'].encode()
+                            require(changed[path].count(old) == 1, 'Mutation must replace one reviewed slice')
+                            offset = changed[path].index(old)
+                            for origin in origins.values():
+                                if origin['path'] == path and offset + len(old) <= origin['start']:
+                                    origin['start'] += len(new) - len(old)
+                            changed[path] = changed[path].replace(old, new, 1)
+                        else: raise ValueError('Unknown frozen mutation')
+                        require(hashlib.sha256(changed[path]).hexdigest() == operation['after_sha256'] and len(changed[path]) == operation['after_bytes'], 'Mutation result digest differs')
+                    mutated_context = json.loads(json.dumps(context))
+                    for name in ('consumer', 'dependency'): mutated_context[name]['revision'] = mutation['result_inventory_sha256']
+                    _adapter_materialize(source, changed, removed=set(original) - set(changed))
+                    for mode in ('serial', 'queued'):
+                        output = scratch / (source_kind + '-' + mode)
+                        updated_index, updated = produce(source, output, changed, mutated_context, mode)
+                        _, clean = produce(source, scratch / f'clean-{number}-{mode}', changed, mutated_context, mode)
+                        check(mode + ':' + mutation['id'] + ':clean-parity', lambda: require(updated == clean, 'Incremental facts/dependencies/captured slices differ from clean rebuild'))
+                        judgments = {key: value for key, value in mutation['expected'].items() if key.startswith('DJ-')}
+                        for group in ('listed_cases', 'facade_cases'):
+                            if group in mutation['expected']:
+                                for case_id in mutation['affected_cases']:
+                                    if case_id not in judgments: judgments[case_id] = mutation['expected'][group]
+                        if mutation['expected'].get('all_framework_judgments') == 'unchanged':
+                            check(mode + ':' + mutation['id'] + ':unchanged-judgments', lambda: require(
+                                updated['sites'] == mode_facts[mode]['sites'], 'Configuration changed framework or lexical judgments'))
+                        if 'source_parses_for_unchanged_files' in mutation['expected']:
+                            check(mode + ':' + mutation['id'] + ':unchanged-collections', lambda: require(
+                                updated_index.last_attempt['resources']['changed_files_collected'] == 0, 'Configuration update recollected unchanged source'))
+                        for case_id, expected in judgments.items():
+                            def grade_mutation(case_id=case_id, expected=expected):
+                                baseline = next(case for case in manifest['cases'] if case['id'] == case_id)
+                                origin = origins[case_id]
+                                rows = [row for row in updated['sites'] if row['role'].startswith('framework') and row['path'] == origin['path']
+                                        and row['range']['start_byte'] == origin['start']]
+                                require(len(rows) == 1 and rows[0]['certainty'] == expected['certainty'] and len(rows[0]['targets']) == expected['target_cardinality'], 'Mutation certainty/target count differs')
+                                if 'required_row_family' in expected: require(rows[0]['family'] == expected['required_row_family'], 'Mutation row family differs')
+                                if 'reason_code' in expected: require(rows[0]['reason'] == expected['reason_code'], 'Mutation boundary reason differs')
+                                if expected.get('partial'):
+                                    require(rows[0]['partial'] and rows[0]['partial_source_role'] == expected['partial_source_role'], 'Partial callback boundary provenance missing')
+                                if expected['target_cardinality']:
+                                    target = next(row for row in updated['definitions'] if row['id'] == rows[0]['targets'][0])
+                                    before = baseline['expected']['targets']
+                                    require(target['path'] == expected.get('target_path', before[0]['path'] if before else None) and
+                                        target['name'] == expected.get('target_name', before[0]['name'] if before else None), 'Mutation target declaration differs')
+                            check(mode + ':' + mutation['id'] + ':' + case_id, grade_mutation)
+                    _adapter_materialize(source, original, removed=set(changed) - set(original))
+                    for mode in ('serial', 'queued'):
+                        _, restored = produce(source, scratch / (source_kind + '-' + mode), original, context, mode)
+                        check(mode + ':' + mutation['id'] + ':restore-parity', lambda: require(restored == mode_facts[mode], 'Restored source facts/dependencies/captured slices differ'))
+    with SourceRoot(source_map.parent) as owner:
+        require(read_json(owner, source_map.name)[1] == map_sha, 'Private source map changed during finite evaluation')
+    with SourceRoot(root) as owner:
+        after = {path: owner.read(path, 1024 * 1024, hash_full=True)[1] for path in code_paths}
+    check('implementation-stable', lambda: require(after == implementation, 'Implementation changed during finite evaluation'))
+    failures = [row for row in checks if row['status'] != 'passed']
+    return dict(schema_version=1, suite='django-framework', status='failed' if failures else 'passed',
+        source_identity=identity, source_map_sha256=map_sha, case_results=checks, failures=failures, coverage_failures=[],
+        counts=dict(frozen_cases=len(manifest['cases']), mutation_phases=len(manifest['incremental_mutations']),
+                    checks=len(checks), passed=len(checks) - len(failures)), receipts=receipts, environment=environment(),
+        qualification_complete=False, limits_qualified=False, scope='Finite opt-in Django source registrations and explicit unknown boundaries; '
+        'shared serial/queued facts, clean/update/restore and captured source/query parity. Runtime order, full business paths, scale and human UX unqualified.')
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     modes = parser.add_mutually_exclusive_group()
@@ -3008,7 +3231,7 @@ def main(argv=None):
                         help='private directory outside all source roots; alternatively REPO_GRAPH_EVAL_WORK_ROOT')
     parser.add_argument('--preselection-cost-report', type=Path, help='Private actual finite cost wrapper; alternatively REPO_GRAPH_EVAL_PRESELECTION_COST_REPORT; evidence only')
     parser.add_argument('--profile-report', type=Path, help='re-export an existing complete private profile without rerunning workers')
-    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact', 'impact-interface'], default='component')
+    parser.add_argument('--suite', choices=['component', 'constructs', 'incremental', 'queries', 'coverage', 'evidence', 'impact', 'impact-interface', 'django-framework'], default='component')
     parser.add_argument('--output', help='relative path inside this checkout')
     parser.add_argument('--max-result-bytes', type=int,
                         help='finite report cap: 2 MiB for comparison/structural suites, 1 MiB otherwise')
@@ -3023,12 +3246,13 @@ def main(argv=None):
         parser.error('--repetition beyond one requires --protocol')
     structural_task = {'constructs': 'T010', 'incremental': 'T011', 'queries': 'T012', 'coverage': 'T013', 'evidence': 'T014'}.get(args.suite)
     view_task = {'impact': 'T043', 'impact-interface': 'T044'}.get(args.suite)
-    if not (args.engine or args.screen_engines or args.compare or args.profile or args.profile_pilot) and structural_task is None and view_task is None:
+    business_task = 'T018' if args.suite == 'django-framework' else None
+    if not (args.engine or args.screen_engines or args.compare or args.profile or args.profile_pilot) and structural_task is None and view_task is None and business_task is None:
         parser.error('an engine, screening, comparison or profiling mode is required for component')
-    if (structural_task or view_task) and (args.screen_engines or args.compare or args.profile or args.profile_pilot):
+    if (structural_task or view_task or business_task) and (args.screen_engines or args.compare or args.profile or args.profile_pilot):
         parser.error(args.suite + ' uses the shared structural owner directly')
     if args.max_result_bytes is None:
-        args.max_result_bytes = (2 if args.compare or structural_task or view_task or args.protocol else 1) * 1024 * 1024
+        args.max_result_bytes = (2 if args.compare or structural_task or view_task or business_task or args.protocol else 1) * 1024 * 1024
     if args.protocol and (not args.profile_pilot or args.source_map is None):
         parser.error('--protocol requires --profile-pilot and a pinned --source-map')
     if args.protocol and not 0 < args.max_result_bytes <= 2 * 1024 * 1024:
@@ -3044,7 +3268,7 @@ def main(argv=None):
                'evaluations/results/code-understanding/persistent-Django.json' if args.profile_pilot and args.protocol else
                'evaluations/results/code-understanding/persistent-pilot.json' if args.profile_pilot else
                'evaluations/results/code-understanding/reusable-screen.json' if args.screen_engines else
-               VIEWS_OUTPUT if view_task else
+               BUSINESS_OUTPUT if business_task else VIEWS_OUTPUT if view_task else
                FACTS_OUTPUT if structural_task else DEFAULT_OUTPUT)
     args.output = args.output or default
     if args.profile_pilot:
@@ -3062,6 +3286,20 @@ def main(argv=None):
     try:
         if args.max_result_bytes <= 0:
             raise ValueError('Output budget must be positive')
+        if business_task:
+            result = django_framework(ROOT, Budget(max_files=args.max_files,
+                max_total_bytes=args.max_source_bytes, max_nodes=args.max_nodes), source_map=args.source_map, work_root=args.work_root)
+            result['resources'] = {'finite_framework_elapsed_seconds': time.perf_counter() - started,
+                                   'tokens': None, 'native_peak_rss': None}
+            if args.output == BUSINESS_OUTPUT:
+                with SourceRoot(ROOT) as source: report, _ = read_json(source, BUSINESS_OUTPUT, args.max_result_bytes)
+                if type(report.get('tasks')) is not dict: raise ValueError('Existing business evidence required')
+                report['tasks'][business_task] = result
+                size = write_result(ROOT, BUSINESS_OUTPUT, report, args.max_result_bytes)
+            else: size = write_result(ROOT, args.output, result, args.max_result_bytes)
+            print(json.dumps({'status': result['status'], 'counts': result['counts'], 'failures': len(result['failures']),
+                              'result': args.output, 'result_bytes': size}, separators=(',', ':')))
+            return 0 if result['status'] == 'passed' else 1
         if args.profile_pilot:
             if args.protocol:
                 from evaluations.performance import mapped_corpora

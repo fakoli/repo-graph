@@ -2,9 +2,13 @@
 import copy
 import hashlib
 import importlib.util
+import io
 import json
+from contextlib import redirect_stdout
 from pathlib import Path
+import tempfile
 import unittest
+from unittest.mock import patch
 
 from repo_graph import analysis_native as native
 
@@ -16,6 +20,171 @@ AVAILABLE = all(importlib.util.find_spec(name) is not None for name in (
 
 @unittest.skipUnless(AVAILABLE, 'Optional analysis backend')
 class FrameworkSyntaxTests(unittest.TestCase):
+    def test_registration_context_rebinds_without_recollecting_and_is_opt_in(self):
+        from repo_graph.analysis import StructuralIndex
+        root = Path(__file__).resolve().parents[1]
+        manifest = json.loads((root / 'evaluations/code-understanding/django-framework-inputs.json').read_text())
+        context = manifest['source_admission']['frozen_contexts']['synthetic']
+        with tempfile.TemporaryDirectory() as scratch:
+            source, output = Path(scratch) / 'source', Path(scratch) / 'out'; source.mkdir()
+            paths = [record['path'] for record in manifest['synthetic_inventory']]
+            for path in paths:
+                target = source / path; target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((root / manifest['fixture_root'] / path).read_bytes())
+            plain = StructuralIndex(source, output)
+            old = plain.refresh(paths); self.assertEqual(old['status'], 'ready', old)
+            self.assertFalse(any(row['role'].startswith('framework') for row in plain.read_facts('sites')))
+            registered = StructuralIndex(source, output, framework_context=context)
+            with patch.object(native, 'backend', side_effect=AssertionError('Context rebind reparsed source')):
+                ready = registered.refresh(paths)
+            self.assertEqual(ready['status'], 'ready', ready)
+            self.assertEqual(ready['resources']['changed_files_collected'], 0)
+            self.assertEqual(ready['resources']['unchanged_source_collections_reused'], sum(path.endswith('.py') for path in paths))
+            self.assertNotEqual(ready['config_identity'], old['config_identity'])
+            self.assertTrue(any(row['role'] == 'framework' for row in registered.read_facts('sites')))
+            removed = StructuralIndex(source, output).refresh(paths)
+            self.assertEqual(removed['status'], 'ready', removed)
+            self.assertFalse(any(row['role'].startswith('framework') for row in plain.read_facts('sites')))
+            for mutation in ('escape', 'foreign_root', 'gold', 'enabled', 'conflicting_snapshot'):
+                value = copy.deepcopy(context)
+                if mutation == 'escape': value['source_roots'][0]['source_prefix'] = '../'
+                elif mutation == 'foreign_root': value['dependency']['source_root_id'] = 'other'
+                elif mutation == 'gold': value['targets'] = ['oracle']
+                elif mutation == 'enabled': value['enabled'] = 1
+                else: value['dependency']['revision'] = '0' * 64
+                with self.subTest(mutation=mutation), self.assertRaises(ValueError):
+                    StructuralIndex(source, output, framework_context=value)
+            from repo_graph.cli import main
+            config = Path(scratch) / 'enrollment.json'; config.write_text(json.dumps(context))
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                self.assertEqual(main(['analyze', str(source), '--output', str(output), '--framework-context', str(config)]), 0)
+            self.assertEqual(json.loads(buffer.getvalue())['framework_enrollment'], context)
+            buffer = io.StringIO()
+            with redirect_stdout(buffer):
+                self.assertEqual(main(['query', str(output), '--operation', 'framework', '--family', 'framework',
+                                      '--relation-kind', 'django_route']), 0)
+            self.assertEqual(len(json.loads(buffer.getvalue())['rows']), 4)
+            for invalid in ('{"enabled":true,"enabled":false}', '{"enabled":NaN}', '[]'):
+                config.write_text(invalid)
+                with redirect_stdout(io.StringIO()), patch('sys.stderr', io.StringIO()):
+                    self.assertEqual(main(['analyze', str(source), '--output', str(output), '--framework-context', str(config)]), 1)
+
+    def test_shared_framework_pages_evidence_filters_and_held_snapshots(self):
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph.analysis_queries import Queries, SQLSnapshot, Limits, encoded
+        from repo_graph import search
+        from repo_graph.source import SourceRoot
+        root = Path(__file__).resolve().parents[1]
+        manifest = json.loads((root / 'evaluations/code-understanding/django-framework-inputs.json').read_text())
+        context = manifest['source_admission']['frozen_contexts']['synthetic']
+        with tempfile.TemporaryDirectory() as scratch:
+            source, output = Path(scratch) / 'source', Path(scratch) / 'output'
+            source.mkdir()
+            inventory = [record['path'] for record in manifest['synthetic_inventory']]
+            for path in inventory:
+                target = source / path; target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes((root / manifest['fixture_root'] / path).read_bytes())
+            index = StructuralIndex(source, output, framework_context=context)
+            receipt = index.refresh(inventory)
+            self.assertEqual(receipt['status'], 'ready', receipt)
+            with Queries(output) as queries:
+                result = queries.run({'operation': 'framework'})
+                page = result
+                rows = list(result['rows'])
+                while page['cursor']:
+                    page = queries.run({'operation': 'framework', 'cursor': page['cursor']})
+                    rows.extend(page['rows'])
+                self.assertFalse(page['truncated'], page['stop_reason'])
+                result['rows'] = rows
+                facts = list(index.read_facts('sites'))
+                expected = [site for site in facts if site['role'].startswith('framework')]
+                self.assertEqual(len(result['rows']), len(expected))
+                self.assertTrue(any(row['family'] == 'framework_boundary' and row['target'] is None for row in result['rows']))
+                self.assertEqual([row['site']['id'] for row in result['rows']], [site['id'] for site in sorted(expected,
+                    key=lambda row: (row['path'], row['range']['start_byte'], row['range']['end_byte'], row['family'], row['relation_kind'], row['id']))])
+                supported = queries.run({'operation': 'framework', 'families': ['framework'], 'kinds': ['django_route']})
+                self.assertEqual(len(supported['rows']), 4)
+                envelope = {key: result[key] for key in ('generation', 'repository_identity', 'source_identity', 'analyzer_identity', 'config_identity')}
+                handles = [row['site'] for row in result['rows']]
+                handles += [{key: item[key] for key in ('id', 'path', 'range', 'source_sha256')}
+                            for row in result['rows'] for item in row['evidence'] if 'id' in item]
+                engine = search.Search(output)
+                try:
+                    with patch.object(SourceRoot, 'read', side_effect=AssertionError('Source read during captured inspection')), \
+                            patch.object(native, 'backend', side_effect=AssertionError('Parser during captured inspection')):
+                        for handle in handles:
+                            handle = {key: handle[key] for key in ('id', 'path', 'range', 'source_sha256')}
+                            response = search.captured_source(engine, dict(generation=receipt['generation'], handle=handle, max_excerpt_bytes=64))
+                            self.assertLessEqual(len(response['text'].encode('utf-8')), 64)
+                    for changes in ({'families': ['invented']}, {'kinds': ['invented']}, {'operation': 'call', 'families': ['framework']}):
+                        with self.assertRaises(ValueError): queries.run(dict(operation='framework') | changes)
+                finally: engine.close()
+                request = dict(operation='framework', limits=dict(max_edges=1))
+                page = queries.run(request)
+                with self.assertRaises(ValueError): queries.run(request | dict(cursor=page['cursor'], families=['framework']))
+                old_handle = {key: page['rows'][0]['site'][key] for key in ('id', 'path', 'range', 'source_sha256')}
+                (source / 'views.py').write_bytes((source / 'views.py').read_bytes() + b'\n# edited body source\n')
+                refreshed = index.refresh(inventory)
+                self.assertEqual(refreshed['status'], 'ready', refreshed)
+                self.assertNotEqual(refreshed['generation'], receipt['generation'])
+                next_page = queries.run(request | dict(cursor=page['cursor']))
+                self.assertEqual(next_page['generation'], receipt['generation'])
+                self.assertNotEqual(next_page['rows'][0]['site']['id'], old_handle['id'])
+                engine = search.Search(output)
+                try:
+                    with self.assertRaises(search.CapturedSourceConflict):
+                        search.captured_source(engine, dict(generation=receipt['generation'], handle=old_handle))
+                finally: engine.close()
+            with SQLSnapshot(output) as snapshot:
+                entities = snapshot.query(operation='framework', limits=Limits(max_entities=1))
+                self.assertEqual(entities['stop_reason'], 'entity_budget_exceeded')
+                work = snapshot.query(operation='framework', limits=Limits(max_examined_relationships=1))
+                self.assertLessEqual(work['examined_relationships'], 1)
+                edges = snapshot.query(operation='framework', limits=Limits(max_edges=1))
+                self.assertLessEqual(edges['returned_edges'], 1)
+                self.assertEqual(snapshot.query(operation='framework', cancel=lambda: True)['stop_reason'], 'cancelled')
+                byte_page = snapshot.query(operation='framework', limits=Limits(max_response_bytes=1600))
+                self.assertLessEqual(len(encoded(byte_page)), 1600)
+                self.assertEqual(byte_page['stop_reason'], 'response_byte_budget_exceeded')
+
+    def test_frozen_synthetic_framework_occurrences_and_lookalikes(self):
+        root = Path(__file__).resolve().parents[1]
+        manifest = json.loads((root / 'evaluations/code-understanding/django-framework-inputs.json').read_text())
+        files = [native.collect_file(dict(path=record['path'], language='python',
+                 content=(root / manifest['fixture_root'] / record['path']).read_bytes()))
+                 for record in manifest['synthetic_inventory']]
+        ordinary = native.resolve_collected(files)['facts']
+        self.assertFalse(any(site['role'].startswith('framework') for site in ordinary['sites']))
+        facts = native.resolve_collected(files,
+            framework_context=manifest['source_admission']['frozen_contexts']['synthetic'])['facts']
+        definitions = {definition['id']: definition for definition in facts['definitions']}
+        for case in manifest['cases']:
+            if case['source_kind'] != 'synthetic':
+                continue
+            with self.subTest(case=case['id']):
+                origin = case['origin']
+                rows = [site for site in facts['sites'] if site['role'].startswith('framework')
+                        and site['path'] == origin['path'] and all(site['range'][key] == origin['range'][key]
+                        for key in ('start_byte', 'end_byte'))]
+                self.assertEqual(len(rows), case['expected']['source_row_count'])
+                if not rows:
+                    continue
+                row = rows[0]
+                self.assertEqual(row['family'], case['relation_family'])
+                self.assertEqual(row['certainty'], case['expected']['certainty'])
+                self.assertEqual(row['framework_identity_asserted'], case['expected']['framework_identity_asserted'])
+                self.assertEqual(len(row['targets']), case['expected']['target_cardinality'])
+                for target, expected in zip(row['targets'], case['expected']['targets']):
+                    definition = definitions[target]
+                    self.assertEqual((definition['path'], definition['name']), (expected['path'], expected['name']))
+                    for key in ('start_byte', 'end_byte'):
+                        self.assertEqual(definition['range'][key], expected['range'][key])
+        for site in facts['sites']:
+            if site['role'] in ('call', 'reference'):
+                old = next(row for row in ordinary['sites'] if row['id'] == site['id'])
+                self.assertEqual(site, old)
+
     def test_admitted_syntax_roundtrip_preserves_arguments_owners_and_fact_limits(self):
         root = Path(__file__).resolve().parents[1]
         manifest_path = root / 'evaluations/code-understanding/django-framework-inputs.json'
@@ -50,6 +219,10 @@ class FrameworkSyntaxTests(unittest.TestCase):
         self.assertEqual(len(cls['bases']), 1)
         self.assertFalse(cls['decorated']); self.assertFalse(method['conditional'])
         self.assertEqual(command.scopes[method['scope']].owner, cls['id'])
+        conditional = native.collect_file(dict(path='conditional.py', language='python', content=
+            b'if enabled:\n    import django.urls as routes\nfrom . import *\n'))
+        self.assertEqual([row['conditional'] for row in conditional.syntax_metadata['import_contexts']], [True, False])
+        self.assertEqual(conditional.imports[-1]['symbol'], '*')
         self.assertGreater(urls.collected_fact_count, len(urls.definitions) + len(urls.imports))
         budget = native.Budget(max_facts=urls.collected_fact_count - 1)
         with self.assertRaisesRegex(native.StopScan, 'fact_budget_exceeded'):

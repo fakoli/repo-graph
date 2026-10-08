@@ -52,7 +52,10 @@ def _row_entities(row):
     """Declaration handles consume entities; physical occurrences consume edges."""
     if 'site' not in row:
         return {row['id']}
-    return {handle['id'] for handle in (row['caller'], row['target']) if handle is not None}
+    entities = {handle['id'] for handle in (row['caller'], row['target']) if handle is not None}
+    entities.update(handle['id'] for handle in row.get('evidence', []) if handle.get('source_role') in (
+        'framework_api_definition', 'framework_partial_callback', 'callback_definition', 'hook_definition'))
+    return entities
 
 
 @dataclass(frozen=True)
@@ -110,8 +113,21 @@ def _impact_options(selector, relations, certainties):
         certainties, ('resolved', 'candidate', 'unresolved'), ['candidate', 'resolved', 'unresolved'])
 
 
+def _framework_filters(operation, families, kinds):
+    def choices(value, allowed):
+        if value is None: return sorted(allowed)
+        if type(value) is not list or not value or len(value) > len(allowed) or any(type(v) is not str or v not in allowed for v in value) or len(set(value)) != len(value):
+            raise ValueError('Invalid framework family/kind filter')
+        return sorted(value)
+    if operation != 'framework':
+        if families is not None or kinds is not None: raise ValueError('Framework filters require framework operation')
+        return None, None
+    return choices(families, ('framework', 'framework_boundary')), choices(kinds, (
+        'django_route', 'django_management_handle', 'django_orm_get_queryset', 'unknown_framework_candidate'))
+
+
 def _validate_query(seed, operation, depth, prefix, scope, role, cancel, selector=None, relations=None, certainties=None):
-    if (operation not in ('symbol', 'reference', 'call', 'callees', 'callers', 'reachable', 'impact') or
+    if (operation not in ('symbol', 'reference', 'call', 'framework', 'callees', 'callers', 'reachable', 'impact') or
             type(depth) is not int or not 1 <= depth <= 32 or role not in ('call', 'reference', 'all') or
             any(type(v) is not str or len(v) > 4096 for v in (prefix, scope)) or
             seed is not None and (type(seed) is not str or not seed or len(seed) > 8192) or
@@ -169,7 +185,7 @@ class Snapshot:
                     type(site['targets']) is not list or len(site['targets']) != len(set(site['targets'])) or
                     any(target not in self._definitions for target in site['targets'])):
                 raise ValueError('Dangling structural relationship')
-            if site['role'] not in ('call', 'reference') or site['certainty'] not in ('resolved', 'candidate', 'unresolved'):
+            if site['role'] not in ('call', 'reference', 'framework', 'framework_boundary') or site['certainty'] not in ('resolved', 'candidate', 'unresolved'):
                 raise ValueError('Unknown structural role/certainty')
             for target in site['targets'] or [None]:
                 key = (site['id'], target)
@@ -538,16 +554,27 @@ class SQLSnapshot(Snapshot):
             json_extract(s.data,'$.provenance.source_sha256') AS digest,
             json_extract(f.record,'$.sha256') AS file_digest
             FROM structural_sites s JOIN structural_files f ON f.path=s.path WHERE s.id=?''', (key[0],))
-        if (site is None or site['role'] not in ('call', 'reference') or
+        if (site is None or site['role'] not in ('call', 'reference', 'framework', 'framework_boundary') or
                 site['certainty'] not in ('resolved', 'candidate', 'unresolved') or
                 site['exhaustive_type'] not in ('true', 'false') or
                 site['caller_type'] not in ('text', 'null') or type(site['reason']) is not str):
             raise ValueError('Invalid persisted occurrence')
         handle = self._source_handle(site)
         handle['role'] = site['role']
-        return {'site': handle, 'caller': self._handle(site['caller']), 'target': self._handle(key[1]),
+        result = {'site': handle, 'caller': self._handle(site['caller']), 'target': self._handle(key[1]),
                 'certainty': site['certainty'], 'targets_exhaustive': bool(site['exhaustive']),
                 'reason': site['reason'], 'reason_truncated': bool(site['reason_truncated'])}
+        if site['role'] in ('framework', 'framework_boundary'):
+            extra = self._read('''SELECT substr(json_extract(data,'$.relation_kind'),1,128),
+                substr(json_extract(data,'$.candidate_relation_kind'),1,128),
+                json_extract(data,'$.framework_identity_asserted'),json_extract(data,'$.partial'),
+                substr(json_extract(data,'$.partial_source_role'),1,128),
+                substr(json_extract(data,'$.evidence'),1,65537) FROM structural_sites WHERE id=?''', (key[0],))
+            if len(extra[5].encode()) > 65536: raise ValueError('Framework witness byte ceiling exhausted')
+            result.update(family=site['role'], relation_kind=extra[0], candidate_relation_kind=extra[1],
+                          framework_identity_asserted=bool(extra[2]), partial=bool(extra[3]),
+                          partial_source_role=extra[4], evidence=json.loads(extra[5]), runtime_qualified=False)
+        return result
 
     def _next(self, node, after, operation):
         symbols = operation == 'symbol'
@@ -877,7 +904,8 @@ class SQLSnapshot(Snapshot):
         return result
 
     def query(self, seed=None, *, operation='callees', depth=2, prefix='', scope='', role='call',
-              limits=None, cursor=None, cancel=None, _setup=None, selector=None, relations=None, certainties=None):
+              limits=None, cursor=None, cancel=None, _setup=None, selector=None, relations=None, certainties=None,
+              families=None, kinds=None):
         """Return source handles with BFS reachability and indexed occurrence pages.
 
         call/reference list all occurrences, or a seed's outgoing occurrences.
@@ -889,12 +917,15 @@ class SQLSnapshot(Snapshot):
         if self._closed or self._active or type(limits) is not Limits:
             raise ValueError('Invalid bounded persisted query')
         _validate_query(seed, operation, depth, prefix, scope, role, cancel, selector, relations, certainties)
+        families, kinds = _framework_filters(operation, families, kinds)
         if selector is not None or relations is not None or certainties is not None:
             return self._impact_query(seed, selector=selector, relations=relations, certainties=certainties,
                 depth=depth, prefix=prefix, scope=scope, role=role, limits=limits, cursor=cursor, cancel=cancel, setup=_setup)
         requested_role = role
         if operation in ('call', 'reference'):
             role = 'call' if operation == 'call' else 'reference'
+        elif operation == 'framework':
+            role = 'all'
         started, reason, storage_callbacks = self._clock(), None, 0
         signature = hashlib.sha256(encoded({'generation': self.generation,
             'repository': self.repository_identity, 'source': self.source_identity,
@@ -902,7 +933,7 @@ class SQLSnapshot(Snapshot):
             'schema': self.schema, 'implementation': code_identity(), 'order': QUERY_RULE_VERSION,
             'impact': self.impact_receipt if operation == 'impact' else None,
             'operation': operation, 'seed': seed, 'depth': depth, 'prefix': prefix, 'scope': scope,
-            'role': role, 'requested_role': requested_role})).hexdigest()
+            'role': role, 'requested_role': requested_role, 'families': families, 'kinds': kinds})).hexdigest()
         if cursor is not None:
             if type(cursor) is not str or len(cursor) != 64 or cursor not in self._continuations:
                 raise ValueError('Unknown, evicted or foreign snapshot cursor')
@@ -981,12 +1012,18 @@ class SQLSnapshot(Snapshot):
                     if not occurrence['path'].startswith(scope) or not symbols and role != 'all' and occurrence['role'] != role:
                         frontier[0][2] = position
                         continue
+                    if operation == 'framework' and occurrence['role'] not in families:
+                        frontier[0][2] = position
+                        continue
                     if symbols:
                         target = occurrence['id']
                         row = self._handle(target)
                     else:
                         target = (occurrence['caller_id'] if reverse else occurrence['target_id']) or None
                         row = self._row((occurrence['site_id'], occurrence['target_id'] or None))
+                    if operation == 'framework' and row['relation_kind'] not in kinds:
+                        frontier[0][2] = position
+                        continue
                     if prefix:
                         full_name = None if target is None else self._read(
                             "SELECT substr(json_extract(data,'$.name'),1,?) FROM structural_symbols WHERE id=?",
@@ -1122,9 +1159,9 @@ class Queries:
             'cursor': None, 'truncated': True, 'stop_reason': reason}
 
     def run(self, payload, cancel=None):
-        if (self._closed or type(payload) is not dict or len(payload) > 11 or
+        if (self._closed or type(payload) is not dict or len(payload) > 13 or
                 set(payload) - {'seed', 'operation', 'depth', 'prefix', 'scope', 'role', 'limits', 'cursor',
-                               'selector', 'relations', 'certainties'}):
+                               'selector', 'relations', 'certainties', 'families', 'kinds'}):
             raise ValueError('Invalid public query payload or closed sessions')
         extra = {'selector', 'relations', 'certainties'} & set(payload)
         if extra and (payload.get('operation') != 'impact' or any(payload[key] is None for key in extra)):
@@ -1153,6 +1190,8 @@ class Queries:
             'scope': payload.get('scope', ''), 'role': payload.get('role', 'call'),
             'selector': payload.get('selector'), 'relations': payload.get('relations'), 'certainties': payload.get('certainties')}
         _validate_query(**arguments, cancel=cancel)
+        _framework_filters(arguments['operation'], payload.get('families'), payload.get('kinds'))
+        arguments.update(families=payload.get('families'), kinds=payload.get('kinds'))
         cursor = payload.get('cursor')
         if cursor is not None and (type(cursor) is not str or len(cursor) != 64):
             raise ValueError('Invalid public query cursor')

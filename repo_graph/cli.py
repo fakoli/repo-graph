@@ -48,6 +48,8 @@ def _query_command(parsed, output):
     from .analysis_queries import Queries, encoded
     payload = dict(operation=parsed.operation, seed=parsed.seed, depth=parsed.depth,
                    prefix=parsed.prefix, scope=parsed.scope, role=parsed.role)
+    if parsed.family is not None: payload['families'] = parsed.family
+    if parsed.relation_kind is not None: payload['kinds'] = parsed.relation_kind
     if parsed.source_area is not None or parsed.git_base is not None or parsed.relation is not None or parsed.certainty is not None:
         if parsed.operation != 'impact': raise ValueError('Impact selectors and filters require --operation impact')
         if parsed.stdio: raise ValueError('Use selector/filter JSON for --stdio impact requests')
@@ -104,10 +106,13 @@ def main(argv=None):
     analyze.add_argument('--output', required=True, type=Path)
     analyze.add_argument('--mode', choices=['serial', 'queued'], default='serial')
     analyze.add_argument('--workers', type=int, default=1)
+    analyze.add_argument('--framework-context', type=Path, help='Explicit trusted Django dependency/source-root enrollment JSON; no automatic project enrollment')
     analyze.add_argument('--git-base', type=_captured_commit, help='Capture changed paths against this exact Git commit during analysis')
     query = subs.add_parser('query', help='Bounded structural queries; --stdio or --server retains pagination')
     query.add_argument('output', type=Path)
-    query.add_argument('--operation', choices=['symbol', 'reference', 'call', 'callees', 'callers', 'reachable', 'impact'], default='symbol')
+    query.add_argument('--operation', choices=['symbol', 'reference', 'call', 'framework', 'callees', 'callers', 'reachable', 'impact'], default='symbol')
+    query.add_argument('--family', action='append', choices=['framework', 'framework_boundary'])
+    query.add_argument('--relation-kind', action='append', choices=['django_route', 'django_management_handle', 'django_orm_get_queryset', 'unknown_framework_candidate'])
     query.add_argument('--seed'); query.add_argument('--depth', type=int, default=2)
     query.add_argument('--prefix', default=''); query.add_argument('--scope', default='')
     query.add_argument('--role', choices=['call', 'reference', 'all'], default='call')
@@ -170,7 +175,16 @@ def main(argv=None):
             paths = builder.repo_files(root, coverage=coverage)
             if coverage.get('failed'):
                 raise ValueError('Inventory contains unreadable or unsafe paths; no structural generation published')
-            result = StructuralIndex(root, output).refresh(paths, mode=parsed.mode, concurrency=parsed.workers,
+            framework_context = None
+            if parsed.framework_context is not None:
+                from .source import SourceRoot
+                path = parsed.framework_context.expanduser().absolute()
+                with SourceRoot(path.parent) as owner:
+                    raw, _, info = owner.read(path.name, 16385, hash_full=False)
+                if info.st_size != len(raw) or len(raw) > 16384: raise ValueError('Framework enrollment exceeds its byte bound')
+                from .search import _json_record
+                framework_context = _json_record(raw)
+            result = StructuralIndex(root, output, framework_context=framework_context).refresh(paths, mode=parsed.mode, concurrency=parsed.workers,
                 git_base=parsed.git_base)
             print(json.dumps(result, ensure_ascii=False))
             return 0 if result['status'] == 'ready' else 1

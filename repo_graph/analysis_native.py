@@ -1,9 +1,10 @@
 """Experimental, source-only syntax/direct-binding baseline; never reads gold.
 
-Optional native wheels are confined to the analysis extra. This is deliberately
-not a type checker, points-to engine, framework model or runtime call graph.
+Optional native wheels are confined to the analysis extra. Finite framework
+registrations are opt-in; types, points-to analysis and runtime calls are unmodeled.
 """
 from dataclasses import dataclass, field
+import ast
 import copy
 import hashlib
 import importlib
@@ -597,6 +598,7 @@ class CollectedFile:
     def collected_fact_count(self):
         syntax = self.syntax_metadata
         return (len(self.definitions) + len(self.imports)
+                + len(syntax['import_contexts'])
                 + sum(1 + len(row['arguments']) for row in syntax['calls'])
                 + sum(1 + len(row['bases']) for row in syntax['python_declarations'])
                 + sum(2 + len(row['elements']) for row in syntax['python_assignments']))
@@ -682,6 +684,8 @@ class CollectedFile:
                 site['provenance'] = dict(fact['provenance'], binding_scope='inventoried_package_only',
                                           active_build_qualified=False, runtime_qualified=False, mvs_qualified=False)
             self.sites.append(site)
+        if self.language == 'python' and getattr(resolve, 'framework_context', None) is not None:
+            self.sites.extend(resolve.framework_sites(self, work))
 
 
 def _sha(value):
@@ -888,7 +892,7 @@ def _decode_collected(payload, expected_record, work):
     if max(len(scopes) - 1, len(candidates), binding_count, len(payload['errors'])) > payload['counts']['nodes']:
         raise ValueError('Compact counts understate collected items')
     syntax = payload['syntax_metadata']
-    shape(syntax, 'package_clauses go_control_directive go_bodyless_function go_cgo_import calls python_declarations python_assignments')
+    shape(syntax, 'package_clauses go_control_directive go_bodyless_function go_cgo_import calls import_contexts python_declarations python_assignments')
     sequence(syntax['package_clauses'], budget.max_nodes)
     for item in syntax['package_clauses']:
         shape(item, 'name range')
@@ -899,8 +903,20 @@ def _decode_collected(payload, expected_record, work):
     if record['language'] != 'go' and (syntax['package_clauses'] or any(syntax[k] for k in
             ('go_control_directive', 'go_bodyless_function', 'go_cgo_import'))):
         raise ValueError('Foreign compact language metadata')
-    for key in ('calls', 'python_declarations', 'python_assignments'):
+    for key in ('calls', 'import_contexts', 'python_declarations', 'python_assignments'):
         sequence(syntax[key], budget.max_nodes)
+    if len(syntax['import_contexts']) != len(payload['imports']):
+        raise ValueError('Compact import context inventory differs')
+    for index, row in enumerate(syntax['import_contexts']):
+        shape(row, 'ordinal scope conditional')
+        if type(row['ordinal']) is not int or row['ordinal'] != index:
+            raise ValueError('Foreign compact import context')
+        integer(row['scope'], 0, len(scopes) - 1); boolean(row['conditional'])
+        region = payload['imports'][index]['range']; scope = scopes[row['scope']]
+        if not scope.range['start_byte'] <= region['start_byte'] <= region['end_byte'] <= scope.range['end_byte']:
+            raise ValueError('Compact import outside its owning scope')
+        if record['language'] != 'python' and row['conditional']:
+            raise ValueError('Foreign compact import condition')
     sites = {fact['id']: (fact, scope) for fact, _, scope in candidates}
     seen = set()
     for row in syntax['calls']:
@@ -944,9 +960,12 @@ def _decode_collected(payload, expected_record, work):
         raise ValueError('Compact declaration syntax inventory differs')
     seen = set()
     for row in syntax['python_assignments']:
-        shape(row, 'range scope name conditional kind right elements')
+        shape(row, 'range scope name conditional kind right elements text')
         location(row['range']); integer(row['scope'], 0, len(scopes) - 1)
         string(row['name']); boolean(row['conditional'])
+        string(row['text'])
+        if len(row['text'].encode('utf-8')) != row['range']['end_byte'] - row['range']['start_byte']:
+            raise ValueError('Compact assignment text differs from source range')
         if row['kind'] not in ('assignment', 'augmented_assignment') or scopes[row['scope']].kind != 'module':
             raise ValueError('Invalid compact module assignment')
         key = row['range']['start_byte'], row['range']['end_byte']
@@ -990,7 +1009,7 @@ class FileFacts:
         self.initial_counts = work.nodes, work.facts
         self.syntax_metadata = {'package_clauses': [], 'go_control_directive': False,
                                 'go_bodyless_function': False, 'go_cgo_import': False,
-                                'calls': [], 'python_declarations': [], 'python_assignments': []}
+                                'calls': [], 'import_contexts': [], 'python_declarations': [], 'python_assignments': []}
 
     def operand(self, node):
         self.work.fact()
@@ -1175,8 +1194,10 @@ class FileFacts:
         if (self.language == 'python' and scope.kind == 'module' and right is not None
                 and typ in ('assignment', 'augmented_assignment')):
             self.work.fact()
+            self.work.text(node.end_byte - node.start_byte)
             self.syntax_metadata['python_assignments'].append({
                 'range': self.location(node), 'scope': scope.ordinal,
+                'text': text(self.raw, node),
                 'name': text(self.raw, left) if left is not None and left.type == 'identifier' else '',
                 'conditional': self.conditional(node), 'kind': typ, 'right': self.operand(right),
                 'elements': [self.operand(value) for value in right.named_children if value.type != 'comment']
@@ -1220,6 +1241,8 @@ class FileFacts:
                     specs.append((text(self.raw, alias_node), module, name, alias_node))
                 elif child.type == 'dotted_name' and child != node.child_by_field_name('module_name'):
                     specs.append((text(self.raw, child), module, text(self.raw, child), child))
+                elif child.type == 'wildcard_import':
+                    specs.append(('', module, '*', child))
         elif self.language in ('javascript', 'typescript') and node.type == 'import_statement':
             source = text(self.raw, node.child_by_field_name('source'))
             module = source[1:-1]
@@ -1248,6 +1271,10 @@ class FileFacts:
                     'text': text(self.raw, node), 'provenance': self.provenance(node.type)}
             if self.language == 'go':
                 item['explicit_alias'] = binding_node.type != 'import_spec'
+            self.work.fact()
+            self.syntax_metadata['import_contexts'].append({
+                'ordinal': len(self.imports), 'scope': scope.ordinal,
+                'conditional': self.language == 'python' and self.conditional(node)})
             self.imports.append(item)
             if not name:
                 continue
@@ -1453,7 +1480,63 @@ def module_paths(file, spec, files, configurations, context=None):
     return found, symbol, '' if found else 'import target absent from guarded source inventory'
 
 
-def resolver(files, configurations, context=None, *, definitions=None):
+def django_registration_context(value, work):
+    """Trusted caller enrollment, never a repository file or a source-gold key."""
+    if value is None:
+        return None
+    work.check()
+    if (type(value) is not dict or set(value) != {'schema_version', 'enabled', 'framework_id',
+            'policy_id', 'consumer', 'dependency', 'source_roots'} or
+            type(value['schema_version']) is not int or value['schema_version'] != 1 or
+            value['enabled'] is not True or value['framework_id'] != 'django' or
+            value['policy_id'] != 'django-registration-finite-v1'):
+        raise ValueError('Explicit finite Django registration enrollment required')
+    def token(value):
+        return type(value) is str and 1 <= len(value.encode('utf-8')) <= 128 and not any(ord(c) < 32 for c in value)
+    for name in ('consumer', 'dependency'):
+        row = value[name]
+        fields = {'repository_id', 'revision', 'source_root_id'}
+        if name == 'dependency': fields |= {'module_prefix', 'identity_kind'}
+        if type(row) is not dict or set(row) != fields or not all(token(row[k]) for k in fields):
+            raise ValueError('Typed framework snapshot identity required')
+        if len(row['revision']) not in (40, 64) or any(c not in '0123456789abcdef' for c in row['revision']):
+            raise ValueError('Pinned framework source revision required')
+    dependency = value['dependency']
+    if dependency['module_prefix'] != 'django' or dependency['identity_kind'] not in (
+            'synthetic_fixture', 'declared_dependency_snapshot'):
+        raise ValueError('Finite Django source identity required')
+    roots = value['source_roots']
+    if type(roots) is not list or not 1 <= len(roots) <= 16:
+        raise ValueError('Bounded framework source-root enrollment required')
+    ids, prefixes = set(), set()
+    for root in roots:
+        work.check()
+        if (type(root) is not dict or set(root) != {'id', 'source_prefix', 'ownership'} or
+                not token(root['id']) or root['id'] in ids or
+                root['ownership'] != 'one_explicit_admitted_snapshot'):
+            raise ValueError('Unique owned framework source roots required')
+        prefix = root['source_prefix']
+        if type(prefix) is not str or len(prefix.encode('utf-8')) > 4096 or prefix in prefixes:
+            raise ValueError('Canonical framework source prefix required')
+        if prefix:
+            if not prefix.endswith('/') or str(PurePosixPath(prefix[:-1])) != prefix[:-1]:
+                raise ValueError('Canonical framework source prefix required')
+            try: SourceRoot.parts(prefix[:-1])
+            except OSError as error: raise ValueError('Framework source prefix escapes enrollment') from error
+        ids.add(root['id']); prefixes.add(prefix)
+    if value['consumer']['source_root_id'] not in ids or dependency['source_root_id'] not in ids:
+        raise ValueError('Framework identity refers to an unenrolled source root')
+    if value['consumer']['source_root_id'] == dependency['source_root_id'] and any(
+            value['consumer'][key] != dependency[key] for key in ('repository_id', 'revision')):
+        raise ValueError('One enrolled snapshot cannot have conflicting identities')
+    raw = _json_bytes(value, work.budget, work.cancel)
+    if len(raw) > 16384:
+        raise StopScan('framework_context_byte_budget_exceeded')
+    work.retain(len(raw))
+    return json.loads(raw)
+
+
+def resolver(files, configurations, context=None, *, definitions=None, framework_context=None):
     # The persistent owner supplies indexed lookup; finite comparisons keep their mapping.
     if definitions is None:
         definitions = {definition['id']: definition for file in files.values() for definition in file.definitions}
@@ -1586,7 +1669,300 @@ def resolver(files, configurations, context=None, *, definitions=None):
         return [], str(binding.value), 'lexical_unknown'
     resolve.declared_snapshot_scope = context is not None
     resolve.inventoried_package_scope = context is None
+    resolve.framework_context = framework_context
+    if framework_context is not None:
+        resolve.framework_sites = django_registration_resolver(files, definitions, resolve, framework_context)
     return resolve
+
+
+def django_registration_resolver(files, definitions, lexical, enrollment):
+    """Finite opt-in registrations over the existing target-free handoff.
+
+    Registration witnesses never alter lexical resolution. No imports, fixture
+    expected values, repository configuration or application code are executed.
+    """
+    roots = {row['id']: row['source_prefix'] for row in enrollment['source_roots']}
+    consumer, dependency = enrollment['consumer'], enrollment['dependency']
+    prefix = roots[dependency['source_root_id']]
+    apis = {'django.urls.conf': {'path': 'django_route', 're_path': 'django_route'},
+            'django.core.management.base': {'BaseCommand': 'django_management_handle'},
+            'django.db.models.manager': {'Manager': 'django_orm_get_queryset'}}
+    facades = {('django.urls', 'path'): ('django.urls.conf', 'path'),
+               ('django.urls', 're_path'): ('django.urls.conf', 're_path'),
+               ('django.db.models', 'Manager'): ('django.db.models.manager', 'Manager')}
+
+    def owned(path, identity):
+        matches = [(len(p), key) for key, p in roots.items() if path.startswith(p)]
+        return bool(matches) and max(matches)[1] == identity['source_root_id']
+
+    def witness(file, row, role):
+        identifier = row.get('id')
+        if identifier is None:
+            if row.get('role') == 'import':
+                identifier = 'import:' + hashlib.sha256(_json_bytes([file.path, file.imports.index(row), row['range']], Budget(), None)).hexdigest()
+            else:
+                identifier = f'{file.path}:{row["range"]["start_byte"]}:{row["range"]["end_byte"]}:assignment'
+        return {'id': identifier, 'path': file.path, 'range': row['range'],
+                'source_sha256': file.record['sha256'], 'source_role': role}
+
+    def import_hint(file, expression, scope, seen=()):
+        name = expression.spelling if expression.type == 'identifier' else expression.base if expression.base_identifier else ''
+        if not name:
+            return None
+        bindings = scope.lookup(name)
+        if not bindings:
+            return None
+        if len(bindings) == 1 and bindings[0].kind == 'definition':
+            definition = definitions[bindings[0].value]
+            if definition['kind'] == 'class' and definition['id'] not in seen and len(seen) < 32:
+                declaration = next(row for row in file.syntax_metadata['python_declarations'] if row['id'] == definition['id'])
+                for base in declaration['bases']:
+                    hint = import_hint(file, Expression(**base), file.scopes[declaration['scope']], seen + (definition['id'],))
+                    if hint:
+                        return (*hint[:4], 'transitive_framework_base_is_unqualified')
+        owner = bindings[0].scope.ordinal
+        for item, context in zip(file.imports, file.syntax_metadata['import_contexts']):
+            if context['scope'] != owner or item['name'] != name:
+                continue
+            module, symbol = item['module'], item['symbol']
+            if expression.type != 'identifier':
+                if symbol is None:
+                    symbol = expression.member
+                elif (module, symbol) == ('django.db', 'models'):
+                    module, symbol = 'django.db.models', expression.member
+                # A member of a callable (from_queryset, etc.) is a candidate,
+                # never a direct API identity.
+            physical = facades.get((module, symbol), (module, symbol))
+            kind = apis.get(physical[0], {}).get(physical[1])
+            if not kind and module.startswith('django.core.management.') and symbol == 'BaseCommand':
+                kind = 'django_management_handle'
+            if not kind and module.startswith('django.db.models.') and symbol == 'Manager':
+                kind = 'django_orm_get_queryset'
+            if kind:
+                reason = ''
+                if len(bindings) != 1 or context['conditional'] or owner != 0:
+                    reason = 'shadowed_ambiguous_conditional_or_local_framework_import'
+                elif expression.type != 'identifier' and item['symbol'] not in (None, 'models'):
+                    reason = 'computed_framework_factory_or_member'
+                return module, symbol, kind, item, reason
+        return None
+
+    def module_file(module, work, witnesses):
+        parts = module.split('.')
+        if not parts or parts[0] != dependency['module_prefix']:
+            return None, 'unenrolled_framework_module'
+        for count in range(1, len(parts) + 1):
+            work.check()
+            stem = prefix + '/'.join(parts[:count])
+            candidates = [stem + '.py', stem + '/__init__.py']
+            inventoried = files.inventoried if hasattr(files, 'inventoried') else files.__contains__
+            present = [p for p in candidates if inventoried(p)]
+            if len(present) != 1 or present[0] not in files:
+                return None, 'missing_competing_or_unparsed_framework_module'
+            other = files[present[0]]
+            witnesses.append({'path': other.path, 'source_sha256': other.record['sha256'],
+                              'source_role': 'framework_package' if count < len(parts) else 'framework_api_source',
+                              'partial': other.partial})
+            if other.language != 'python' or other.partial or not owned(other.path, dependency):
+                return None, 'partial_or_unowned_framework_dependency'
+            if count < len(parts):
+                if other.path != candidates[1] or other.module.bindings.get(parts[count]):
+                    return None, 'package_initializer_namespace_rebinding_or_missing_package'
+        return other, ''
+
+    def api_identity(hint, work, witnesses):
+        module, symbol, _, _, reason = hint
+        if reason:
+            return reason
+        other, reason = module_file(module, work, witnesses)
+        if reason:
+            return reason
+        if (module, symbol) in facades:
+            target_module, target_symbol = facades[module, symbol]
+            bindings = other.module.bindings.get(symbol, [])
+            if len(bindings) != 1 or bindings[0].kind != 'import':
+                return 'missing_or_shadowed_finite_framework_facade'
+            spec = bindings[0].value
+            stem = target_module.rsplit('.', 1)[-1]
+            if spec['module'] not in (target_module, '.' + stem) or spec['symbol'] != target_symbol:
+                return 'unsupported_framework_reexport'
+            ordinal = other.imports.index(spec)
+            if other.syntax_metadata['import_contexts'][ordinal]['conditional'] or any(
+                    item['symbol'] == '*' and item['range']['start_byte'] > spec['range']['start_byte']
+                    for item in other.imports):
+                return 'conditional_or_later_wildcard_framework_export'
+            witnesses.append(witness(other, spec, 'framework_export'))
+            module, symbol = target_module, target_symbol
+            other, reason = module_file(module, work, witnesses)
+            if reason:
+                return reason
+        bindings = other.module.bindings.get(symbol, [])
+        if symbol not in apis.get(module, {}):
+            return 'unsupported_framework_api_module'
+        if len(bindings) != 1:
+            return 'missing_or_ambiguous_framework_api_binding'
+        if bindings[0].kind == 'definition':
+            definition = definitions[bindings[0].value]
+            expected = 'function' if symbol in ('path', 're_path') else 'class'
+            if definition['kind'] != expected:
+                return 'unsupported_framework_api_declaration'
+            witnesses.append(witness(other, definition, 'framework_api_definition'))
+            return ''
+        # Real Django exports path/re_path as functools.partial assignments.
+        # That assignment identifies the registration API, never _path targets.
+        if module == 'django.urls.conf' and symbol in ('path', 're_path'):
+            assignments = [row for row in other.syntax_metadata['python_assignments'] if row['name'] == symbol]
+            if len(assignments) != 1 or assignments[0]['conditional'] or assignments[0]['kind'] != 'assignment':
+                return 'unsupported_framework_api_assignment'
+            row = assignments[0]
+            candidate = next((entry for entry in other.candidates if entry[0]['range']['start_byte'] == row['right']['start_byte']
+                              and entry[0]['range']['end_byte'] == row['right']['end_byte']), None)
+            if candidate is None or candidate[1].type != 'identifier':
+                return 'unsupported_framework_api_factory'
+            partial = other.module.bindings.get(candidate[1].spelling, [])
+            arguments = next(item['arguments'] for item in other.syntax_metadata['calls'] if item['site'] == candidate[0]['id'])
+            if (len(partial) != 1 or partial[0].kind != 'import' or
+                    (partial[0].value['module'], partial[0].value['symbol']) != ('functools', 'partial') or
+                    len(arguments) != 2 or arguments[0]['name'] or arguments[0]['expression']['spelling'] != '_path' or
+                    arguments[1]['name'] != 'Pattern' or arguments[1]['expression']['spelling'] != ('RoutePattern' if symbol == 'path' else 'RegexPattern')):
+                return 'unsupported_framework_api_factory'
+            callback = other.module.bindings.get('_path', [])
+            pattern = other.module.bindings.get(arguments[1]['expression']['spelling'], [])
+            if len(callback) != 1 or callback[0].kind != 'definition' or len(pattern) != 1 or pattern[0].kind != 'import':
+                return 'missing_framework_partial_witness'
+            if pattern[0].value['module'] != '.resolvers' or pattern[0].value['symbol'] != arguments[1]['expression']['spelling']:
+                return 'unsupported_framework_pattern_witness'
+            witnesses.extend([witness(other, row, 'framework_api_assignment'),
+                              witness(other, partial[0].value, 'framework_partial_import'),
+                              witness(other, definitions[callback[0].value], 'framework_partial_callback'),
+                              witness(other, pattern[0].value, 'framework_pattern_import')])
+            return ''
+        return 'shadowed_or_unsupported_framework_api'
+
+    def framework_sites(file, work):
+        if not owned(file.path, consumer):
+            return
+        declarations = {row['id']: row for row in file.syntax_metadata['python_declarations']}
+        calls = {row['site']: row['arguments'] for row in file.syntax_metadata['calls']}
+        candidates = {(entry[0]['range']['start_byte'], entry[0]['range']['end_byte']): entry
+                      for entry in file.candidates if entry[0]['role'] == 'call'}
+        methods_by_scope = {}
+        for definition in file.definitions:
+            if definition['kind'] == 'method':
+                methods_by_scope.setdefault((declarations[definition['id']]['scope'],
+                    definition['name'].rsplit('.', 1)[-1]), []).append(definition)
+
+        def row(origin, hint, reason, targets, evidence, source_role=None):
+            if file.partial:
+                reason, source_role = 'partial_framework_origin', 'origin'
+            elif source_role is None:
+                source_role = next((item['source_role'] for item in evidence if item.get('partial')), None)
+            if reason:
+                targets = []
+            family = 'framework_boundary' if reason else 'framework'
+            result = {key: origin[key] for key in ('path', 'range', 'text', 'provenance')}
+            result.update(id=f'{file.path}:{origin["range"]["start_byte"]}:{origin["range"]["end_byte"]}:{family}',
+                language='python', role=family, family=family,
+                relation_kind='unknown_framework_candidate' if reason else hint[2], candidate_relation_kind=hint[2],
+                caller=origin.get('caller'), targets=targets, certainty='unresolved' if reason else 'resolved',
+                targets_exhaustive=not bool(reason), reason=reason or 'finite source registration; runtime invocation unqualified',
+                resolution_method=enrollment['policy_id'], syntax_role='static_framework_registration',
+                framework_identity_asserted=not bool(reason), partial=file.partial or source_role is not None,
+                partial_source_role=source_role, runtime_qualified=False,
+                evidence=evidence)
+            work.fact(); work.retain(_json_bytes(result, work.budget, work.cancel, measure=True))
+            return result
+
+        patterns = [assignment for assignment in file.syntax_metadata['python_assignments'] if assignment['name'] == 'urlpatterns']
+        mutation = any(expression is not None and expression.base_identifier and expression.base == 'urlpatterns'
+                       for _, expression, _ in candidates.values())
+        for assignment in patterns:
+            elements = assignment['elements'] if assignment['right']['type'] in ('list', 'tuple') else [assignment['right']]
+            for element in elements:
+                work.check()
+                candidate = candidates.get((element['start_byte'], element['end_byte']))
+                if candidate is None or candidate[1] is None:
+                    continue
+                origin, expression, scope = candidate
+                hint = import_hint(file, expression, scope)
+                if hint is None or hint[2] != 'django_route':
+                    continue
+                evidence = [witness(file, hint[3], 'candidate_import')]
+                reason = api_identity(hint, work, evidence)
+                targets, source_role = [], None
+                arguments = calls[origin['id']]
+                if not reason and (mutation or len(patterns) != 1 or assignment['conditional'] or assignment['kind'] != 'assignment'
+                                  or assignment['right']['type'] not in ('list', 'tuple')):
+                    reason = 'computed_conditional_or_mutated_urlpatterns'
+                if not reason:
+                    positional = [value['expression'] for value in arguments if not value['name']]
+                    literal = None
+                    if positional and positional[0]['type'] == 'string':
+                        try: literal = ast.literal_eval(positional[0]['spelling'])
+                        except (ValueError, SyntaxError): pass
+                    if type(literal) is not str or len(positional) < 2:
+                        reason = 'computed_route_or_keyword_only_registration'
+                    else:
+                        callback = Expression(**positional[1])
+                        targets, reason, _ = lexical(file, callback, scope, origin['range']['start_byte'])
+                        if (len(targets) == 1 and definitions[targets[0]]['kind'] == 'function'
+                                and owned(definitions[targets[0]]['path'], consumer)):
+                            reason = ''
+                            evidence.append(witness(files[definitions[targets[0]]['path']], definitions[targets[0]], 'callback_definition'))
+                        else:
+                            targets = []; reason = 'unsupported_or_unresolved_callback: ' + reason
+                            name = callback.spelling if callback.type == 'identifier' else callback.base
+                            for binding in scope.lookup(name):
+                                if binding.kind == 'import':
+                                    paths, _, _ = module_paths(file, binding.value, files, {})
+                                    if any(files[path].partial for path in paths):
+                                        reason, source_role = 'partial_callback_source', 'callback_dependency'
+                                        evidence.extend({'path': path, 'source_sha256': files[path].record['sha256'],
+                                                         'source_role': source_role, 'partial': True}
+                                                        for path in paths if files[path].partial)
+                yield row(origin, hint, reason, targets, evidence, source_role)
+
+        for definition in file.definitions:
+            declaration = declarations.get(definition['id'])
+            if definition['kind'] != 'class' or declaration is None or declaration['scope'] != 0:
+                continue
+            hints = []
+            for base in declaration['bases']:
+                expression = Expression(**base)
+                hint = import_hint(file, expression, file.module)
+                if hint is None and expression.type == 'call':
+                    candidate = candidates.get((expression.start_byte, expression.end_byte))
+                    hint = import_hint(file, candidate[1], file.module) if candidate and candidate[1] else None
+                    if hint: hint = (*hint[:4], 'computed_framework_factory_or_member')
+                if hint: hints.append(hint)
+            if not hints:
+                continue
+            hint = hints[0]
+            if hint[2] == 'django_route':
+                continue
+            if hint[2] == 'django_management_handle' and (definition['name'] != 'Command' or
+                    '/management/commands/' not in '/' + file.path):
+                continue
+            evidence = [witness(file, hint[3], 'candidate_import')]
+            reason = api_identity(hint, work, evidence)
+            local = file.module.bindings.get(definition['name'], [])
+            if not reason and (len(local) != 1 or local[0].kind != 'definition' or declaration['decorated']
+                              or declaration['conditional'] or len(declaration['bases']) != 1):
+                reason = 'decorated_conditional_multiple_or_shadowed_framework_class'
+            method_name = 'handle' if hint[2] == 'django_management_handle' else 'get_queryset'
+            class_scope = next(scope for scope in file.scopes if scope.owner == definition['id'] and scope.kind == 'class')
+            # Methods deliberately have no ordinary lexical binding: class
+            # ownership was retained by the collector, without receiver dispatch.
+            methods = methods_by_scope.get((class_scope.ordinal, method_name), [])
+            target = methods[0] if len(methods) == 1 else None
+            if not reason and (target is None or class_scope.bindings.get(method_name) or
+                               declarations[target['id']]['decorated'] or declarations[target['id']]['conditional']):
+                reason = 'missing_decorated_or_ambiguous_local_hook'
+            if target is not None:
+                evidence.append(witness(file, target, 'hook_definition'))
+            origin = dict(definition, caller=definition['id'])
+            yield row(origin, hint, reason, [target['id']] if target and not reason else [], evidence)
+    return framework_sites
 
 
 def _collect_file(record, raw, parser, work, measurements=None):
@@ -1664,7 +2040,7 @@ def collect_file(supplied, budget=None, cancel=None, *, measurements=None, sourc
             measurements['collect_elapsed_seconds'] = time.perf_counter() - started
 
 
-def resolve_collected(collected, configurations=None, budget=None, cancel=None, go_context=None):
+def resolve_collected(collected, configurations=None, budget=None, cancel=None, go_context=None, framework_context=None):
     """Bind complete compact files with the same resolver used by extract.
 
     Admission is aggregate and raises StopScan on limits; per-site resolution
@@ -1722,7 +2098,8 @@ def resolve_collected(collected, configurations=None, budget=None, cancel=None, 
     if total > work.budget.max_total_bytes:
         raise StopScan('source_byte_budget_exceeded')
     context = go_contexts(files, configurations, go_context, work) if go_context is not None else None
-    resolve = resolver(files, configurations, context)
+    framework_context = django_registration_context(framework_context, work)
+    resolve = resolver(files, configurations, context, framework_context=framework_context)
     stopped, errors = None, []
     for file in files.values():
         try:
@@ -1741,7 +2118,7 @@ def resolve_collected(collected, configurations=None, budget=None, cancel=None, 
                           'elapsed_seconds': time.perf_counter() - work.started}}
 
 
-def extract(blobs, budget=None, cancel=None, go_context=None):
+def extract(blobs, budget=None, cancel=None, go_context=None, framework_context=None):
     """Parse supplied bounded bytes. No expected definitions/cases/targets input.
 
     Ordinary blobs use path, language, content and optional kind. With an
@@ -1816,7 +2193,8 @@ def extract(blobs, budget=None, cancel=None, go_context=None):
         except StopScan as error:
             stopped = stopped or str(error)
             context = {'modules': {}, 'packages': {}, 'dependencies': [], 'owners': owners}
-    resolve = resolver(files, configurations, context)
+    framework_context = django_registration_context(framework_context, work)
+    resolve = resolver(files, configurations, context, framework_context=framework_context)
     for file in files.values():
         try:
             file.emit_sites(resolve, work)

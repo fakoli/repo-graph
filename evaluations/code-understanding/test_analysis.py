@@ -50,7 +50,7 @@ class BackendTests(unittest.TestCase):
             admitted = []
             def launch(held_root, held_evidence, **options):
                 self.assertEqual(held_root, checkout)
-                self.assertEqual(options, dict(protocol=protocol, original_source=original))
+                self.assertEqual(options, dict(protocol=protocol, original_source=original, repetition=1))
                 self.assertEqual(held_evidence.parent, Path('/proc/self/fd'))
                 with performance.SourceRoot(held_evidence) as owner, performance.SourceRoot(evidence) as expected:
                     self.assertEqual(owner.identity, expected.identity)
@@ -152,7 +152,7 @@ class BackendTests(unittest.TestCase):
                     patch.object(analysis, 'write_result', return_value=123) as written, \
                     patch.object(analysis, 'record_task') as recorded, redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(analysis.main(['--profile-pilot']), 0)
-            pilot.assert_called_once_with(ROOT, evidence)
+            pilot.assert_called_once_with(ROOT, evidence, repetition=1)
             self.assertEqual(written.call_args.args[1], 'evaluations/results/code-understanding/persistent-pilot.json')
             self.assertFalse(recorded.called)
             self.assertFalse(json.loads(output.getvalue())['qualification_complete'])

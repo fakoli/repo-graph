@@ -352,6 +352,8 @@ def _schema(db):
     CREATE TABLE IF NOT EXISTS structural_sites(id TEXT PRIMARY KEY, path TEXT NOT NULL,
       ordinal INTEGER NOT NULL, role TEXT NOT NULL, data TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS structural_site_file ON structural_sites(path,ordinal);
+    CREATE TABLE IF NOT EXISTS structural_evidence(id TEXT PRIMARY KEY, path TEXT NOT NULL,
+      ordinal INTEGER NOT NULL, data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS structural_import_relationships(id TEXT NOT NULL, path TEXT NOT NULL,
       ordinal INTEGER NOT NULL, start_byte INTEGER NOT NULL, end_byte INTEGER NOT NULL,
       target_path TEXT NOT NULL, certainty TEXT NOT NULL, data TEXT NOT NULL,
@@ -383,11 +385,13 @@ def _schema(db):
 
 
 class StructuralIndex:
-    def __init__(self, root, output, *, budget=None, limits=None):
+    def __init__(self, root, output, *, budget=None, limits=None, framework_context=None):
         self.root, self.output = Path(root), Path(output)
         self.budget, self.limits = budget or native.Budget(), limits or IndexLimits()
         if type(self.budget) is not native.Budget or type(self.limits) is not IndexLimits:
             raise ValueError('Typed structural index limits required')
+        self.framework_context = native.django_registration_context(
+            framework_context, native.Work(self.budget, None))
         with SourceRoot(self.root) as source:
             self.owner = source.identity
         self.output.mkdir(parents=True, exist_ok=True)
@@ -417,7 +421,8 @@ class StructuralIndex:
 
     def read_facts(self, kind):
         tables = {'definitions': 'structural_symbols', 'sites': 'structural_sites',
-                  'scopes': 'structural_scopes', 'imports': 'structural_imports', 'relationships': 'structural_relationships'}
+                  'scopes': 'structural_scopes', 'imports': 'structural_imports', 'relationships': 'structural_relationships',
+                  'evidence': 'structural_evidence'}
         if kind not in tables:
             raise ValueError('Unknown structural fact kind')
         with closing(connect(self.output, readonly=True, owner=self.output_owner)) as db:
@@ -459,9 +464,11 @@ class StructuralIndex:
 
         try:
             analyzer = analyzer_identity()
-            config = hashlib.sha256(encoded({'budget': asdict(budget), 'limits': asdict(limits),
+            collection_config = hashlib.sha256(encoded({'budget': asdict(budget), 'limits': asdict(limits),
                                              'versions': native.PINS, 'schema': SCHEMA,
                                              'impact_schema': IMPACT_SCHEMA})).hexdigest()
+            config = hashlib.sha256(encoded({'collection': collection_config,
+                                             'framework_context': self.framework_context})).hexdigest()
             with SourceRoot(self.output) as output:
                 if output.identity != self.output_owner:
                     raise RuntimeError('Index output ownership changed')
@@ -492,10 +499,10 @@ class StructuralIndex:
                 if pages * page_size > limits.max_index_bytes:
                     raise native.StopScan('index_byte_budget_exceeded')
                 db.set_progress_handler(lambda: int(check()), 1000)
-                if old.get('structural_analyzer') != analyzer or old.get('structural_config') != config:
+                if old.get('structural_analyzer') != analyzer or old.get('structural_collection_config') != collection_config:
                     for table in ('structural_files', 'structural_symbols', 'structural_scopes', 'structural_imports',
                                   'structural_summaries', 'structural_dependencies', 'structural_sites', 'structural_relationships',
-                                  'structural_import_relationships'):
+                                  'structural_import_relationships', 'structural_evidence'):
                         db.execute('DELETE FROM ' + table)
                     resources['invalidation_reason'] = 'analyzer_or_limits_changed_or_initial_index'
                 else:
@@ -538,12 +545,21 @@ class StructuralIndex:
                         db.execute('DELETE FROM structural_symbols WHERE path=?', (file.path,))
                         db.execute('DELETE FROM structural_scopes WHERE path=?', (file.path,))
                         db.execute('DELETE FROM structural_imports WHERE path=?', (file.path,))
+                        db.execute('DELETE FROM structural_evidence WHERE path=?', (file.path,))
                         db.executemany('INSERT INTO structural_symbols VALUES(?,?,?,?,?,?)',
                             ((d['id'], file.path, i, encoded(d), d['range']['start_byte'], d['range']['end_byte']) for i, d in enumerate(definitions)))
                         db.executemany('INSERT INTO structural_scopes VALUES(?,?,?)',
                             ((file.path, i, encoded(s)) for i, s in enumerate(scopes)))
                         db.executemany('INSERT INTO structural_imports VALUES(?,?,?)',
                             ((file.path, i, encoded(s)) for i, s in enumerate(imports)))
+                        for ordinal, row in enumerate(file.syntax_metadata['python_assignments']):
+                            span = row['range']
+                            identifier = f'{file.path}:{span["start_byte"]}:{span["end_byte"]}:assignment'
+                            data = dict(id=identifier, path=file.path, language=file.language,
+                                text=row['text'], range=span, provenance=dict(source_sha256=file.record['sha256'],
+                                rule_version=native.RULE_VERSION, syntax_kind=row['kind'], evidence_kind='static_syntax'))
+                            db.execute('INSERT INTO structural_evidence VALUES(?,?,?,?)',
+                                (identifier, file.path, ordinal, encoded(data)))
                         db.execute('UPDATE structural_files SET ir=?,ir_sha=?,status=? WHERE path=?',
                             (encoded(payload), digest, 'partial_parse' if file.partial else 'parsed', file.path))
                         resources['changed_files_collected'] += 1
@@ -598,6 +614,7 @@ class StructuralIndex:
                         db.execute('DELETE FROM structural_symbols WHERE path=?', (path,))
                         db.execute('DELETE FROM structural_scopes WHERE path=?', (path,))
                         db.execute('DELETE FROM structural_imports WHERE path=?', (path,))
+                        db.execute('DELETE FROM structural_evidence WHERE path=?', (path,))
                         db.execute('DELETE FROM structural_summaries WHERE path=?', (path,))
                         continue
                     if batch and (len(batch) >= min(limits.batch_files, budget.max_files) or batch_bytes + len(raw) > budget.max_total_bytes):
@@ -607,9 +624,12 @@ class StructuralIndex:
                     batch.append(dict(record, content=raw))
                     batch_bytes += len(raw)
                 flush()
+                if old.get('structural_config') != config:
+                    # Enrollment affects binding identity, never target-free syntax.
+                    db.execute('INSERT OR IGNORE INTO structural_dirty SELECT path FROM structural_files')
                 for table in ('structural_files', 'structural_symbols', 'structural_scopes', 'structural_imports',
                               'structural_summaries', 'structural_dependencies', 'structural_sites', 'structural_relationships',
-                              'structural_import_relationships'):
+                              'structural_import_relationships', 'structural_evidence'):
                     db.execute('DELETE FROM ' + table + ' WHERE path NOT IN (SELECT path FROM structural_seen)')
                 files = _Files(db, budget, check)
                 files.index_go_packages()
@@ -629,7 +649,8 @@ class StructuralIndex:
                     files.observe('configurations', '*')
                     file = files[path]
                     # Per-file resolver caches cannot conceal a dependency of the next consumer.
-                    resolve = native.resolver(files, configurations, definitions=_Definitions(db))
+                    resolve = native.resolver(files, configurations, definitions=_Definitions(db),
+                                              framework_context=self.framework_context)
                     work = native.Work(budget, check)
                     work.facts = file.collected_fact_count
                     unknown_import = False
@@ -685,7 +706,7 @@ class StructuralIndex:
                         raise native.StopScan('source_changed_before_publication')
                 source_identity = manifest.hexdigest()
                 generation = hashlib.sha256(source_identity.encode())
-                for table in ('structural_symbols', 'structural_sites', 'structural_scopes', 'structural_imports'):
+                for table in ('structural_symbols', 'structural_sites', 'structural_scopes', 'structural_imports', 'structural_evidence'):
                     for row in db.execute('SELECT data FROM ' + table + ' ORDER BY path,ordinal'):
                         generation.update(row[0] if type(row[0]) is bytes else row[0].encode())
                 generation.update(IMPACT_SCHEMA.encode())
@@ -701,6 +722,7 @@ class StructuralIndex:
                 receipt = {'status': 'ready', 'published': True, 'generation': generation.hexdigest(),
                     'source_identity': source_identity, 'repository_identity': self.owner,
                     'analyzer_identity': analyzer, 'config_identity': config, 'resources': resources,
+                    'framework_enrollment': self.framework_context,
                     'coverage': _coverage(db, count, check),
                     'versions': {'schema': SCHEMA, 'rules': native.RULE_VERSION, 'grammars': dict(native.PINS)},
                     'revision_dirty': dict(git_after, content_identity=source_identity),
@@ -729,6 +751,7 @@ class StructuralIndex:
                     'structural_generation': receipt['generation'],
                     'analyzer_identity': analyzer, 'config_identity': config}, check=check)
                 values = {'schema': SCHEMA, 'repository': self.owner, 'analyzer': analyzer, 'config': config,
+                          'collection_config': collection_config,
                           'source': source_identity, 'generation': receipt['generation'], 'receipt': encoded(receipt).decode()}
                 db.executemany('INSERT OR REPLACE INTO meta VALUES(?,?)',
                                (('structural_' + key, value) for key, value in values.items()))

@@ -41,7 +41,10 @@ binding, call and framework coverage separately for every selected construct.
 | Missing import | Import and callsite retained when the syntax is supported | Missing target remains unresolved | No network/module installation or invented dependency target |
 | Dynamic/computed invocation | Supported call syntax retained | Unsupported/computed callee remains unresolved | Reflection, generated code and runtime loading not modeled |
 | UTF-8 and CRLF | Physical source ranges, text and digest retained | Same binding rules as the surrounding construct | No normalized-source offset substitution |
-| Django/Odoo hooks and service contracts | Source can be inventoried | Not yet qualified in this implementation slice | Separate mandatory framework and explicit service-contract tasks remain open |
+| Django routes | Literal module `urlpatterns`, registration arguments and import witnesses retained in the same collection | Opt-in finite source identity for `path`/`re_path`; one ordinary relative/local callback | Computed routes, receiver callbacks, decorators, include expansion, mutation and ambiguous/partial dependencies remain explicit unknown boundaries |
+| Django management hooks | Class/base, decorator and local-method ownership retained | Direct imported `BaseCommand` and one ordinary local `Command.handle` | Installed-app precedence, inherited hooks, multiple bases and decorated/ambiguous hooks unqualified |
+| Django Manager hooks | Same collected class/base/local-method facts | Direct imported `Manager` and one ordinary local `get_queryset` | Factories and transitive inheritance remain unknown; model attachment and database execution unqualified |
+| Odoo hooks and service contracts | Source can be inventoried | Not yet implemented in this slice | Separate mandatory framework and explicit service-contract tasks remain open |
 
 Go provenance marks local bindings `inventoried_package_only`, with active
 build, runtime and MVS qualification false. A registered external source
@@ -59,6 +62,11 @@ inventory fingerprint and rebuilds its bindings on any inventory change. This
 fallback does not qualify dynamic dispatch or finer dependency closure.
 Analyzer, grammar-version or index-limit changes rebuild collection and binding
 facts. Refresh receipts report actual collection, lookup and binding work.
+Explicit Django enrollment changes rebind source facts and preserve unchanged
+target-free collections. Enrollment is captured in the generation receipt; a
+repository file or a module name cannot enroll itself. The four admitted facade
+edges and API assignment witnesses identify registrations only and never change
+ordinary absolute-import or lexical-call resolution.
 
 Interrupted or failed attempts retain the prior published coverage generation,
 the failing path and owned collector failures. An unconsumed input iterator is
@@ -93,3 +101,31 @@ reviewed target-enumeration expectations; conservative unresolved output can
 pass the direct-binding gate while their missing alternatives remain failures
 of receiver coverage. These selected cases are not population precision/recall
 or complete business-path evidence.
+
+## Finite Django registrations
+
+With an explicitly trusted dependency/source-root enrollment JSON, run:
+
+```sh
+repo-graph analyze . --output ../repo-index --framework-context ../django-context.json
+repo-graph query ../repo-index --operation framework
+repo-graph query ../repo-index --operation framework --family framework --relation-kind django_route
+```
+
+The default framework page includes qualified occurrences and empty-target
+boundaries. Physical occurrences are retained even when several registrations
+share a callback. Queries, continuations, inspection and search use the same
+captured structural index. Declaration witnesses count toward entity limits;
+source inspection also accepts bounded assignment witnesses from that collection.
+No project imports, application initialization or model inference are run.
+
+The frozen synthetic and pinned Django source check is:
+
+```sh
+uv run python evaluations/analysis.py --suite django-framework
+```
+
+Its configured private source map must supply the admitted Django revision.
+The business report retains individual source and mutation results, uncertainty,
+functional resource receipts and failures. These checks do not qualify population
+precision/recall, representative scale, agent answers, human UX or a release.
