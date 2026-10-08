@@ -293,6 +293,7 @@ def _odoo_publish(db, files, context, budget, check):
         for declaration in payload['records']:
             work.node()
             attributes = declaration['attributes']; identifier = attributes.get('id')
+            if attributes.get('model') != 'ir.cron': continue
             key = (owner['consumer_id'], owner['service_id'], owner['configuration_namespace'], identifier)
             fields = declaration['fields']
             codes = [field for field in fields if field['attributes'].get('name') == 'code']

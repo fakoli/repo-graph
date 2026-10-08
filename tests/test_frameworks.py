@@ -134,6 +134,7 @@ class FrameworkSyntaxTests(unittest.TestCase):
                 'child_code':blobs['data/jobs.xml'].replace(b'model.action_post()',b'<value>model.action_post()</value>'),
                 'cdata_code':blobs['data/jobs.xml'].replace(b'model.action_post()',b'<![CDATA[model.action_post()]]>'),
                 'ambiguous_record_child':blobs['data/jobs.xml'].replace(b'<field name="code">model.action_post()</field>',b'<field name="code">model.action_post()</field><other/>'),
+                'cross_model_duplicate':blobs['data/jobs.xml'].replace(b'</odoo>',b'<record id="invoice_job" model="unrelated.model"/></odoo>'),
             }.items():
                 (source/'data/jobs.xml').write_bytes(changed)
                 with self.subTest(configuration=label):
@@ -153,7 +154,7 @@ class FrameworkSyntaxTests(unittest.TestCase):
             plain=StructuralIndex(source,output)
             self.assertEqual(plain.refresh(sorted(blobs))['status'],'ready')
             self.assertFalse(any(row['role'].startswith('framework') for row in plain.read_facts('sites')))
-            duplicate = 'data/duplicate.xml'; (source/duplicate).write_bytes(blobs['data/jobs.xml'])
+            duplicate = 'data/duplicate.xml'; (source/duplicate).write_bytes(blobs['data/jobs.xml'].replace(b'model="ir.cron"',b'model="unrelated.model"'))
             duplicate_context = copy.deepcopy(context)
             duplicate_context['ownership'].append(dict(path=duplicate,consumer_id='application',service_id='source',configuration_namespace='addon'))
             duplicate_context['configurations'].append(dict(path=duplicate,manifest_path='__manifest__.py'))
@@ -181,6 +182,13 @@ class FrameworkSyntaxTests(unittest.TestCase):
         facts = native.resolve_collected(files,framework_context=context)['facts']
         dispatch = [row for row in facts['sites'] if row['role']=='framework_boundary' and row['text']=='draft_picking.action_confirm()']
         self.assertEqual(len(dispatch),1);self.assertEqual(dispatch[0]['targets'],[])
+        for removed,expected in (({'odoo/__init__.py'},5),({'odoo/orm/__init__.py'},0)):
+            with self.subTest(missing_namespace=sorted(removed)):
+                files = [native.collect_file(dict(path=path,language='python',content=raw)) for path,raw in blobs.items() if path.endswith('.py') and path not in removed]
+                result = native.resolve_collected(files,framework_context=context)
+                self.assertEqual(result['status'],'complete',result['stop_reason'])
+                rows = [row for row in result['facts']['sites'] if row['path']=='models.py' and row.get('candidate_relation_kind')=='odoo_model_method_declaration']
+                self.assertEqual(sum(row['family']=='framework' for row in rows),expected)
         raw = blobs['data/jobs.xml']
         for label,changed in {
             'dtd':b'<!DOCTYPE odoo [<!ENTITY x "call">]>'+raw,

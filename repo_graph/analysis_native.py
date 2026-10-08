@@ -1787,7 +1787,9 @@ def odoo_configuration(record, raw, work):
                      content=fragment(node['content'], node['content'] if empty else a))
         if name == 'field' and stack and stack[-1]['name'] == 'record':
             stack[-1]['fields'].append(value)
-        elif name == 'record' and node['attributes'].get('model') == 'ir.cron':
+        elif name == 'record':
+            # Namespace identity ambiguity spans all physical record models;
+            # hook publication separately admits only ir.cron declarations.
             if len(records) >= min(work.budget.max_facts, 4096): raise StopScan('configuration_record_budget_exceeded')
             value['fields'] = node['fields']; value['ambiguous'] = node['ambiguous']; records.append(value)
     def data(value):
@@ -1873,7 +1875,7 @@ def decode_configuration(encoded, expected_record, digest, raw, work):
     for row in payload['records']:
         span = value(row,'range text attributes children content fields ambiguous')
         if (type(row['fields']) is not list or len(row['fields']) > work.budget.max_facts or
-                type(row['ambiguous']) is not bool or row['attributes'].get('model') != 'ir.cron'):
+                type(row['ambiguous']) is not bool):
             raise ValueError('Invalid finite configuration record')
         previous = span['start_byte']
         for field in row['fields']:
@@ -2139,9 +2141,9 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
             candidates = [stem + '.py', stem + '/__init__.py']
             inventoried = files.inventoried if hasattr(files, 'inventoried') else files.__contains__
             present = [p for p in candidates if inventoried(p)]
-            if odoo and not present and count < len(parts):
-                # Explicit dependency-root enrollment admits the physical Odoo
-                # namespace only when both competing canonical files are absent.
+            if odoo and not present and count == 1 and count < len(parts):
+                # Explicit dependency-root enrollment admits only the Odoo root
+                # namespace when both competing canonical files are absent.
                 continue
             if len(present) != 1 or present[0] not in files:
                 return None, 'missing_competing_or_unparsed_framework_module'
