@@ -118,6 +118,25 @@ class AdapterEvidence(unittest.TestCase):
 
 
 class FreezeInputs(unittest.TestCase):
+    def test_ranking_report_retains_failed_attempts_after_repeated_success(self):
+        with tempfile.TemporaryDirectory() as scratch:
+            root = Path(scratch)
+            report = root / 'evaluations/results/code-understanding/business.json'
+            report.parent.mkdir(parents=True)
+            first = {'status': 'blocked', 'source_identity': {'revision': 'first'},
+                     'case_results': [{'id': 'input-refusal', 'status': 'failed'}],
+                     'prior_failed_attempts': [{'status': 'blocked', 'error_kind': 'FileNotFoundError'}]}
+            report.write_text(json.dumps({'tasks': {'T047': first, 'T020': {'task_accepted': True}}}))
+            for revision in ('corrected', 'repeated'):
+                gate._record_ranking_boundary(root, {'status': 'passed', 'source_identity': {'revision': revision},
+                                                     'case_results': [{'id': 'input-refusal', 'status': 'passed'}]})
+                current = json.loads(report.read_text())
+                self.assertEqual(current['tasks']['T020'], {'task_accepted': True})
+                result = current['tasks']['T047']
+                self.assertEqual(result['source_identity'], {'revision': revision})
+                self.assertEqual(result['prior_failed_attempts'], [first['prior_failed_attempts'][0],
+                    {key: value for key, value in first.items() if not key.startswith('prior_')}])
+
     def test_impact_aggregate_refuses_failed_foreign_and_stale_child_evidence(self):
         fixture, frozen = analysis.frozen_inputs(gate.ROOT)
         original = json.loads((gate.ROOT / 'evaluations/results/code-understanding/views.json').read_text())

@@ -2441,6 +2441,13 @@ def _record_ranking_boundary(root, result):
         existing, _ = read_json(source, path, 2 * 1024 * 1024)
     if type(existing) is not dict or type(existing.get('tasks')) is not dict:
         raise ValueError('Existing business evidence required')
+    previous = existing['tasks'].get('T047', {})
+    for key in ('prior_failed_attempt', 'prior_failed_attempts', 'prior_passed_attempt'):
+        if key in previous:
+            result.setdefault(key, previous[key])
+    if previous.get('status') not in (None, 'passed'):
+        failure = {key: value for key, value in previous.items() if not key.startswith('prior_')}
+        result['prior_failed_attempts'] = [*result.get('prior_failed_attempts', []), failure]
     existing['tasks']['T047'] = result
     write_result(root, path, existing, 2 * 1024 * 1024)
 
