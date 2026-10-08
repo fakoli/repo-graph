@@ -20,6 +20,195 @@ AVAILABLE = all(importlib.util.find_spec(name) is not None for name in (
 
 @unittest.skipUnless(AVAILABLE, 'Optional analysis backend')
 class FrameworkSyntaxTests(unittest.TestCase):
+    @staticmethod
+    def odoo_inputs():
+        root = Path(__file__).resolve().parents[1]
+        manifest = json.loads((root / 'evaluations/code-understanding/odoo-framework-inputs.json').read_text())
+        blobs = {row['path']: (root / manifest['fixture_root'] / row['path']).read_bytes()
+                 for row in manifest['synthetic_inventory']}
+        context = dict(schema_version=1, enabled=True, framework_id='odoo', policy_id='odoo-hooks-finite-v1',
+            consumer=dict(repository_id='synthetic',revision='0' * 64,source_root_id='synthetic',consumer_id='application',service_id='source'),
+            dependency=dict(repository_id='synthetic',revision='0' * 64,source_root_id='synthetic',module_prefix='odoo',identity_kind='synthetic_fixture'),
+            source_roots=[dict(id='synthetic',source_prefix='',ownership='one_explicit_admitted_snapshot')],
+            ownership=[dict(path=path,consumer_id='application',service_id='source',configuration_namespace='addon') for path in blobs if not path.startswith('odoo/') and path != 'foreign_models.py'] +
+                      [dict(path='foreign_models.py',consumer_id='foreign',service_id='foreign',configuration_namespace='other')],
+            configurations=[dict(path='data/jobs.xml',manifest_path='__manifest__.py')])
+        return manifest, blobs, context
+
+    def test_odoo_collected_declarations_are_finite_and_dispatch_is_unresolved(self):
+        manifest, blobs, context = self.odoo_inputs()
+        files = [native.collect_file(dict(path=path,language='python',content=raw)) for path,raw in blobs.items() if path.endswith('.py')]
+        ordinary = native.resolve_collected(files)['facts']
+        result = native.resolve_collected(files,framework_context=context)
+        self.assertEqual(result['status'],'complete',result)
+        facts = result['facts']; definitions = {row['id']:row for row in facts['definitions']}
+        self.assertEqual([row for row in facts['sites'] if not row['role'].startswith('framework')],ordinary['sites'])
+        for case in manifest['cases']:
+            if case['source_kind'] != 'synthetic' or case['origin']['path'].endswith('.xml'): continue
+            origin, expected = case['origin'], case['expected']
+            rows = [row for row in facts['sites'] if row['role'].startswith('framework') and row['path'] == origin['path'] and
+                    all(row['range'][k] == origin['range'][k] for k in ('start_byte','end_byte'))]
+            with self.subTest(case=case['id']):
+                self.assertEqual(len(rows),0 if expected['row_family'] is None else 1)
+                if not rows: continue
+                row = rows[0]
+                self.assertEqual((row['family'],row['relation_kind'],len(row['targets'])),(expected['row_family'],expected['row_kind'],expected['target_cardinality']))
+                self.assertEqual(row['targets_exhaustive'],expected['targets_exhaustive_for_declared_source_scope'])
+                self.assertEqual((row['runtime_dispatch'],row['runtime_callable_targets']),('unresolved',[]))
+                for witness in case['witnesses']:
+                    self.assertTrue(any(item['path'] == witness['path'] and all(item['range'][k] == witness['range'][k] for k in ('start_byte','end_byte')) for item in row['evidence']),witness)
+                for identifier, target in zip(row['targets'],expected['targets']):
+                    declaration = definitions[identifier]
+                    self.assertEqual(declaration['kind'],'method')
+                    self.assertEqual(declaration['name'],target['name'])
+                    self.assertEqual({k:declaration['range'][k] for k in ('start_byte','end_byte')},{k:target['range'][k] for k in ('start_byte','end_byte')})
+        self.assertFalse(any(row['path'] == 'foreign_models.py' and row['role'].startswith('framework') for row in facts['sites']))
+        for path in ('controllers.py','models.py','__manifest__.py'):
+            file = next(file for file in files if file.path == path)
+            payload = file.to_json(); decoded = native.CollectedFile.from_json(payload,file.record,hashlib.sha256(payload).hexdigest())
+            self.assertEqual(decoded.to_json(),payload)
+            self.assertEqual(decoded.collected_fact_count,file.collected_fact_count)
+            data = json.loads(payload)
+            if path == '__manifest__.py': del data['syntax_metadata']['python_dictionaries'][0]['literal']
+            elif path == 'models.py': del data['syntax_metadata']['python_declarations'][0]['decorators']
+            else: del data['syntax_metadata']['calls'][0]['receiver_root']
+            mutated = json.dumps(data).encode()
+            with self.assertRaises(ValueError): native.CollectedFile.from_json(mutated,file.record,hashlib.sha256(mutated).hexdigest())
+
+    def test_odoo_shared_configuration_sources_and_incremental_membership(self):
+        from repo_graph.analysis import StructuralIndex
+        from repo_graph.analysis_queries import Queries
+        from repo_graph import search
+        from repo_graph.source import SourceRoot
+        manifest, blobs, context = self.odoo_inputs()
+        with tempfile.TemporaryDirectory() as scratch:
+            source,output = Path(scratch)/'source',Path(scratch)/'index'; source.mkdir()
+            for path,raw in blobs.items():
+                target = source/path; target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+            index = StructuralIndex(source,output,framework_context=context)
+            ready = index.refresh(sorted(blobs)); self.assertEqual(ready['status'],'ready',ready)
+            from repo_graph.cli import main
+            buffer=io.StringIO()
+            with redirect_stdout(buffer):
+                self.assertEqual(main(['query',str(output),'--operation','framework','--family','framework','--relation-kind','odoo_route_annotation']),0)
+            self.assertEqual(len(json.loads(buffer.getvalue())['rows']),1)
+            sites = [row for row in index.read_facts('sites') if row['role'].startswith('framework')]
+            definitions = {row['id']:row for row in index.read_facts('definitions')}
+            for case in manifest['cases']:
+                if case['source_kind'] != 'synthetic' or not case['origin']['path'].endswith('.xml'): continue
+                origin,expected = case['origin'],case['expected']
+                rows = [row for row in sites if row['path'] == origin['path'] and all(row['range'][k] == origin['range'][k] for k in ('start_byte','end_byte'))]
+                with self.subTest(case=case['id']):
+                    self.assertEqual(len(rows),1)
+                    row = rows[0]
+                    self.assertEqual((row['family'],row['relation_kind'],len(row['targets'])),(expected['row_family'],expected['row_kind'],expected['target_cardinality']))
+                    for target in row['targets']:
+                        self.assertEqual((definitions[target]['kind'],definitions[target]['callable']),('configuration_value',False))
+            with Queries(output) as queries:
+                result = queries.run(dict(operation='framework',limits=dict(max_edges=100,max_entities=100,max_response_bytes=131072)))
+                self.assertFalse(result['truncated'],result)
+                engine = search.Search(output)
+                try:
+                    handles = [row['site'] for row in result['rows']] + [row['target'] for row in result['rows'] if row['target']]
+                    handles += [item for row in result['rows'] for item in row['evidence'] if 'id' in item]
+                    with patch.object(SourceRoot,'read',side_effect=AssertionError('Query reread source')),patch.object(native,'backend',side_effect=AssertionError('Query parsed source')):
+                        for handle in handles:
+                            handle = {k:handle[k] for k in ('id','path','range','source_sha256')}
+                            inspected = search.captured_source(engine,dict(generation=ready['generation'],handle=handle,max_excerpt_bytes=8192))
+                            self.assertTrue(inspected['text'])
+                finally: engine.close()
+            before_clean = list(index.read_facts('sites'))
+            clean = index.refresh(sorted(blobs)); self.assertEqual(clean['status'],'ready',clean)
+            self.assertEqual(list(index.read_facts('sites')),before_clean)
+            rebuilt = StructuralIndex(source,Path(scratch)/'rebuilt',framework_context=context)
+            self.assertEqual(rebuilt.refresh(sorted(blobs),mode='queued',concurrency=2)['status'],'ready')
+            self.assertEqual(list(rebuilt.read_facts('sites')),before_clean)
+            (source/'__manifest__.py').write_bytes(b'{"data": []}\n')
+            removed = index.refresh(sorted(blobs)); self.assertEqual(removed['status'],'ready',removed)
+            self.assertFalse(any(row['path'].endswith('.xml') and row['targets'] for row in index.read_facts('sites')))
+            (source/'__manifest__.py').write_bytes(blobs['__manifest__.py'])
+            self.assertEqual(index.refresh(sorted(blobs))['status'],'ready')
+            self.assertTrue(any(row['path'].endswith('.xml') and row['targets'] for row in index.read_facts('sites')))
+            for label,changed in {
+                'literal_forcecreate':blobs['data/jobs.xml'].replace(b'<record id="invoice_job"',b'<record forcecreate="True" id="invoice_job"'),
+                'child_code':blobs['data/jobs.xml'].replace(b'model.action_post()',b'<value>model.action_post()</value>'),
+                'cdata_code':blobs['data/jobs.xml'].replace(b'model.action_post()',b'<![CDATA[model.action_post()]]>'),
+                'ambiguous_record_child':blobs['data/jobs.xml'].replace(b'<field name="code">model.action_post()</field>',b'<field name="code">model.action_post()</field><other/>'),
+            }.items():
+                (source/'data/jobs.xml').write_bytes(changed)
+                with self.subTest(configuration=label):
+                    self.assertEqual(index.refresh(sorted(blobs))['status'],'ready')
+                    targets = [row for row in index.read_facts('sites') if row['path'].endswith('.xml') and row['targets']]
+                    self.assertEqual(len(targets),1 if label=='literal_forcecreate' else 0)
+            (source/'data/jobs.xml').write_bytes(blobs['data/jobs.xml'])
+            other_paths = {'other/__manifest__.py':blobs['__manifest__.py'],'other/data/jobs.xml':blobs['data/jobs.xml']}
+            for path,raw in other_paths.items():
+                target=source/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(raw)
+            separate_context=copy.deepcopy(context)
+            separate_context['ownership'].append(dict(path='other/',consumer_id='application',service_id='source',configuration_namespace='other-addon'))
+            separate_context['configurations'].append(dict(path='other/data/jobs.xml',manifest_path='other/__manifest__.py'))
+            separate_index=StructuralIndex(source,output,framework_context=separate_context)
+            self.assertEqual(separate_index.refresh(sorted([*blobs,*other_paths]))['status'],'ready')
+            self.assertEqual(len([row for row in separate_index.read_facts('sites') if row['path'].endswith('.xml') and row['targets']]),2)
+            plain=StructuralIndex(source,output)
+            self.assertEqual(plain.refresh(sorted(blobs))['status'],'ready')
+            self.assertFalse(any(row['role'].startswith('framework') for row in plain.read_facts('sites')))
+            duplicate = 'data/duplicate.xml'; (source/duplicate).write_bytes(blobs['data/jobs.xml'])
+            duplicate_context = copy.deepcopy(context)
+            duplicate_context['ownership'].append(dict(path=duplicate,consumer_id='application',service_id='source',configuration_namespace='addon'))
+            duplicate_context['configurations'].append(dict(path=duplicate,manifest_path='__manifest__.py'))
+            duplicate_index = StructuralIndex(source,output,framework_context=duplicate_context)
+            repeated = duplicate_index.refresh(sorted([*blobs,duplicate])); self.assertEqual(repeated['status'],'ready',repeated)
+            self.assertFalse(any(row['path'].endswith('.xml') and row['targets'] for row in duplicate_index.read_facts('sites')))
+            self.assertEqual(index.refresh(sorted(blobs))['status'],'ready')
+            self.assertTrue(any(row['path'].endswith('.xml') and row['targets'] for row in index.read_facts('sites')))
+
+    def test_odoo_configuration_and_api_negative_guards_are_bounded(self):
+        _,blobs,context = self.odoo_inputs()
+        for label, changes in {
+            'competing_route_module':{'odoo/http/__init__.py':b'def route(*args): pass\n'},
+            'missing_model_facade':{'odoo/models/__init__.py':b'from ..orm.models import MissingModel as Model\n'},
+            'partial_model_api':{'odoo/orm/models.py':b'class Model(\n'},
+            'namespace_member_write':{'models.py':blobs['models.py'] + b'\nmodels.Model = object\n'},
+        }.items():
+            with self.subTest(guard=label):
+                files = [native.collect_file(dict(path=path,language='python',content=raw)) for path,raw in (blobs|changes).items() if path.endswith('.py')]
+                result = native.resolve_collected(files,framework_context=context);self.assertIn(result['status'],('complete','partial'),result['stop_reason'])
+                kind = 'odoo_route_annotation' if label == 'competing_route_module' else 'odoo_model_method_declaration'
+                self.assertFalse(any(row['role']=='framework' and row['relation_kind']==kind for row in result['facts']['sites']))
+        changed = blobs['models.py'].replace(b'return "validated"',b'return draft_picking.action_confirm()')
+        files = [native.collect_file(dict(path=path,language='python',content=raw)) for path,raw in (blobs|{'models.py':changed}).items() if path.endswith('.py')]
+        facts = native.resolve_collected(files,framework_context=context)['facts']
+        dispatch = [row for row in facts['sites'] if row['role']=='framework_boundary' and row['text']=='draft_picking.action_confirm()']
+        self.assertEqual(len(dispatch),1);self.assertEqual(dispatch[0]['targets'],[])
+        raw = blobs['data/jobs.xml']
+        for label,changed in {
+            'dtd':b'<!DOCTYPE odoo [<!ENTITY x "call">]>'+raw,
+            'entity':raw.replace(b'model.action_post()',b'model.action_post(&amp;)'),
+            'malformed':raw[:-9],
+        }.items():
+            with self.subTest(xml=label):
+                record = dict(path='data/jobs.xml',sha256=hashlib.sha256(changed).hexdigest(),bytes=len(changed),kind='configuration',language='configuration')
+                ir = native.odoo_configuration(record,changed,native.Work(native.Budget(),None))
+                self.assertTrue(ir['partial']);self.assertEqual(ir['records'],[])
+        record = dict(path='data/jobs.xml',sha256=hashlib.sha256(raw).hexdigest(),bytes=len(raw),kind='configuration',language='configuration')
+        ir = native.odoo_configuration(record,raw,native.Work(native.Budget(),None))
+        data = native._json_bytes(ir,native.Budget(),None)
+        decoded = native.decode_configuration(data,record,hashlib.sha256(data).hexdigest(),raw,native.Work(native.Budget(),None))
+        self.assertEqual(decoded,ir)
+        for change in ('missing_metadata','source_text','collector'):
+            invalid = copy.deepcopy(ir)
+            if change == 'missing_metadata': del invalid['records'][0]['ambiguous']
+            elif change == 'source_text': invalid['records'][0]['content']['text'] = 'changed'
+            else: invalid['collector_sha256'] = '0' * 64
+            data = native._json_bytes(invalid,native.Budget(),None)
+            with self.subTest(handoff=change),self.assertRaises(ValueError):
+                native.decode_configuration(data,record,hashlib.sha256(data).hexdigest(),raw,native.Work(native.Budget(),None))
+        for budget,cancel,reason in ((native.Budget(max_nodes=1),None,'node_budget_exceeded'),(native.Budget(),lambda:True,'cancelled')):
+            with self.subTest(reason=reason),self.assertRaises(native.StopScan) as stopped:
+                native.odoo_configuration(record,raw,native.Work(budget,cancel))
+            self.assertEqual(str(stopped.exception),reason)
+
     def test_identity_mutation_and_excluded_callback_boundaries(self):
         root = Path(__file__).resolve().parents[1]
         manifest = json.loads((root / 'evaluations/code-understanding/django-framework-inputs.json').read_text())

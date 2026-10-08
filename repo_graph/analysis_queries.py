@@ -148,7 +148,9 @@ def _framework_filters(operation, families, kinds):
         if families is not None or kinds is not None: raise ValueError('Framework filters require framework operation')
         return None, None
     return choices(families, ('framework', 'framework_boundary')), choices(kinds, (
-        'django_route', 'django_management_handle', 'django_orm_get_queryset', 'unknown_framework_candidate'))
+        'django_route', 'django_management_handle', 'django_orm_get_queryset', 'unknown_framework_candidate',
+        'odoo_route_annotation', 'odoo_model_method_declaration', 'odoo_registry_dispatch',
+        'odoo_cron_code_declaration', 'odoo_cron_registry_dispatch'))
 
 
 def _contract_filters(operation, services, protocols, namespaces, relations=None):
@@ -626,6 +628,22 @@ class SQLSnapshot(Snapshot):
             result.update(family=site['role'], relation_kind=extra[0], candidate_relation_kind=extra[1],
                           framework_identity_asserted=bool(extra[2]), partial=bool(extra[3]),
                           partial_source_role=extra[4], evidence=json.loads(extra[5]), runtime_qualified=False)
+            if self.framework_enrollment and self.framework_enrollment['framework_id'] == 'odoo':
+                from .analysis_native import odoo_owner
+                owner = odoo_owner(site['path'], self.framework_enrollment)
+                data = self._read('''SELECT json_extract(data,'$.consumer_id'),json_extract(data,'$.service_id'),
+                    json_extract(data,'$.configuration_namespace'),json_extract(data,'$.runtime_dispatch'),
+                    json_extract(data,'$.runtime_callable_targets'),json_type(data,'$.runtime_qualified')
+                    FROM structural_sites WHERE id=?''', (key[0],))
+                if (owner is None or tuple(data[:3]) != tuple(owner[k] for k in ('consumer_id','service_id','configuration_namespace')) or
+                        data[3] != 'unresolved' or data[4] != '[]' or data[5] != 'false'):
+                    raise ValueError('Invalid captured Odoo ownership or runtime boundary')
+                result.update({k:owner[k] for k in ('consumer_id','service_id','configuration_namespace')})
+                result.update(runtime_dispatch='unresolved',runtime_callable_targets=[])
+                if result['target'] is not None:
+                    kind = self._read("SELECT json_extract(data,'$.kind') FROM structural_symbols WHERE id=?", (key[1],))[0]
+                    if kind not in ('method','configuration_value'): raise ValueError('Invalid finite Odoo source target')
+                    result['target']['kind'] = kind
         elif site['role'] in ('contract','contract_boundary'):
             extra = self._read('''SELECT substr(CAST(data AS BLOB),1,16385) FROM structural_sites WHERE id=?''', (key[0],))
             if len(extra[0]) > 16384: raise ValueError('Contract witness byte ceiling exhausted')

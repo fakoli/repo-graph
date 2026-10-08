@@ -12,6 +12,7 @@ from importlib import metadata
 import json
 import math
 from pathlib import Path, PurePosixPath
+from xml.parsers import expat
 import posixpath
 import re
 import time
@@ -599,11 +600,12 @@ class CollectedFile:
         syntax = self.syntax_metadata
         return (len(self.definitions) + len(self.imports)
                 + len(syntax['import_contexts'])
-                + sum(1 + len(row['arguments']) + sum(len(argument['container_references'])
+                + sum(1 + len(row['arguments']) + sum(len(argument['container_references']) + len(argument['elements'])
                           for argument in row['arguments']) for row in syntax['calls'])
-                + sum(1 + len(row['bases']) for row in syntax['python_declarations'])
-                + sum(2 + len(row['elements']) + len(row['container_references'])
-                      for row in syntax['python_assignments']))
+                + sum(1 + len(row['bases']) + 3 * len(row['decorators']) + bool(row['header']) + bool(row['decorator_stack']) for row in syntax['python_declarations'])
+                + sum(3 + len(row['elements']) + len(row['container_references'])
+                      for row in syntax['python_assignments'])
+                + sum(1 + sum(3 + len(pair['elements']) for pair in row['pairs']) for row in syntax['python_dictionaries']))
 
     def payload(self):
         if self.collector_sha256 != collector_identity():
@@ -904,7 +906,7 @@ def _decode_collected(payload, expected_record, work):
     if max(len(scopes) - 1, len(candidates), binding_count, len(payload['errors'])) > payload['counts']['nodes']:
         raise ValueError('Compact counts understate collected items')
     syntax = payload['syntax_metadata']
-    shape(syntax, 'package_clauses go_control_directive go_bodyless_function go_cgo_import calls import_contexts python_declarations python_assignments')
+    shape(syntax, 'package_clauses go_control_directive go_bodyless_function go_cgo_import calls import_contexts python_declarations python_assignments python_dictionaries')
     sequence(syntax['package_clauses'], budget.max_nodes)
     for item in syntax['package_clauses']:
         shape(item, 'name range')
@@ -915,7 +917,7 @@ def _decode_collected(payload, expected_record, work):
     if record['language'] != 'go' and (syntax['package_clauses'] or any(syntax[k] for k in
             ('go_control_directive', 'go_bodyless_function', 'go_cgo_import'))):
         raise ValueError('Foreign compact language metadata')
-    for key in ('calls', 'import_contexts', 'python_declarations', 'python_assignments'):
+    for key in ('calls', 'import_contexts', 'python_declarations', 'python_assignments', 'python_dictionaries'):
         sequence(syntax[key], budget.max_nodes)
     if len(syntax['import_contexts']) != len(payload['imports']):
         raise ValueError('Compact import context inventory differs')
@@ -932,7 +934,10 @@ def _decode_collected(payload, expected_record, work):
     sites = {fact['id']: (fact, scope) for fact, _, scope in candidates}
     seen = set()
     for row in syntax['calls']:
-        shape(row, 'site arguments')
+        shape(row, 'site arguments receiver_root')
+        string(row['receiver_root'])
+        if record['language'] != 'python' and row['receiver_root']:
+            raise ValueError('Foreign compact receiver syntax')
         if row['site'] not in sites or sites[row['site']][0]['role'] != 'call' or row['site'] in seen:
             raise ValueError('Foreign or duplicate compact argument owner')
         seen.add(row['site'])
@@ -940,20 +945,29 @@ def _decode_collected(payload, expected_record, work):
         sequence(row['arguments'], budget.max_nodes)
         previous = fact['range']['start_byte']
         for argument in row['arguments']:
-            shape(argument, 'name expression container_references')
+            shape(argument, 'name expression container_references elements')
             string(argument['name'])
             value = expression(argument['expression'])
             if not previous <= value.start_byte <= value.end_byte <= fact['range']['end_byte']:
                 raise ValueError('Compact argument outside its call or source order')
             container_references(argument['container_references'], value.start_byte, value.end_byte)
+            sequence(argument['elements'], budget.max_nodes)
+            if argument['elements'] and value.type not in ('list', 'tuple'):
+                raise ValueError('Compact argument elements require a literal container')
+            previous_element = value.start_byte
+            for element in argument['elements']:
+                item = expression(element)
+                if not previous_element <= item.start_byte < item.end_byte <= value.end_byte:
+                    raise ValueError('Compact argument element outside value')
+                previous_element = item.end_byte
             previous = value.end_byte
     if seen != {id for id, (fact, _) in sites.items() if fact['role'] == 'call'}:
         raise ValueError('Compact call argument inventory differs')
-    if record['language'] != 'python' and (syntax['python_declarations'] or syntax['python_assignments']):
+    if record['language'] != 'python' and (syntax['python_declarations'] or syntax['python_assignments'] or syntax['python_dictionaries']):
         raise ValueError('Foreign compact Python syntax')
     seen = set()
     for row in syntax['python_declarations']:
-        shape(row, 'id scope decorated conditional bases')
+        shape(row, 'id scope decorated conditional bases decorators header decorator_stack')
         if row['id'] not in by_id or row['id'] in seen:
             raise ValueError('Foreign or duplicate compact declaration syntax')
         seen.add(row['id'])
@@ -969,18 +983,53 @@ def _decode_collected(payload, expected_record, work):
             value = expression(base)
             if not fact['range']['start_byte'] <= value.start_byte < value.end_byte <= fact['range']['end_byte']:
                 raise ValueError('Compact base outside declaration')
+        sequence(row['decorators'], budget.max_nodes)
+        if row['decorated'] != bool(row['decorators']):
+            raise ValueError('Compact decorator inventory differs')
+        previous = scope.range['start_byte']
+        for decorator in row['decorators']:
+            shape(decorator, 'range text value callee')
+            location(decorator['range']); string(decorator['text'])
+            region = decorator['range']
+            if (not previous <= region['start_byte'] < region['end_byte'] <= fact['range']['start_byte'] or
+                    len(decorator['text'].encode()) != region['end_byte'] - region['start_byte']):
+                raise ValueError('Compact decorator outside declaration envelope')
+            for name in ('value', 'callee'):
+                value = expression(decorator[name])
+                if not region['start_byte'] <= value.start_byte < value.end_byte <= region['end_byte']:
+                    raise ValueError('Compact decorator expression outside annotation')
+            previous = region['end_byte']
+        for name in ('header', 'decorator_stack'):
+            fragment = row[name]
+            if fragment is None: continue
+            shape(fragment, 'range text'); location(fragment['range']); string(fragment['text'])
+            region = fragment['range']
+            if (not scopes[row['scope']].range['start_byte'] <= region['start_byte'] < region['end_byte'] <=
+                    (fact['range']['end_byte'] if name == 'header' else fact['range']['start_byte']) or
+                    len(fragment['text'].encode()) != region['end_byte'] - region['start_byte']):
+                raise ValueError('Compact declaration fragment outside source')
+        if (bool(row['decorator_stack']) != bool(row['decorators']) or
+                fact['kind'] == 'class' and row['header'] is None and not payload['partial'] or
+                row['header'] is not None and (fact['kind'] != 'class' or row['header']['range']['start_byte'] != fact['range']['start_byte']) or
+                row['decorator_stack'] is not None and any(row['decorator_stack']['range'][key] != source['range'][key]
+                    for key, source in (('start_byte', row['decorators'][0]), ('end_byte', row['decorators'][-1])))):
+            raise ValueError('Compact declaration fragment ownership differs')
     if record['language'] == 'python' and seen != {id for id, fact in by_id.items() if fact['kind'] in ('class', 'function', 'method')}:
         raise ValueError('Compact declaration syntax inventory differs')
     seen = set()
     for row in syntax['python_assignments']:
-        shape(row, 'range scope name conditional kind right elements text container_references')
+        shape(row, 'range scope name conditional kind left right elements text container_references')
         location(row['range']); integer(row['scope'], 0, len(scopes) - 1)
         string(row['name']); boolean(row['conditional'])
         string(row['text'])
         if len(row['text'].encode('utf-8')) != row['range']['end_byte'] - row['range']['start_byte']:
             raise ValueError('Compact assignment text differs from source range')
-        if row['kind'] not in ('assignment', 'augmented_assignment') or scopes[row['scope']].kind != 'module':
-            raise ValueError('Invalid compact module assignment')
+        if row['kind'] not in ('assignment', 'augmented_assignment') or scopes[row['scope']].kind not in ('module', 'class'):
+            raise ValueError('Invalid compact source assignment')
+        left = expression(row['left'])
+        if (not row['range']['start_byte'] <= left.start_byte < left.end_byte <= row['range']['end_byte'] or
+                row['name'] != (left.spelling if left.type == 'identifier' else '')):
+            raise ValueError('Compact assignment target differs')
         key = row['range']['start_byte'], row['range']['end_byte']
         if key in seen:
             raise ValueError('Duplicate compact assignment')
@@ -1001,6 +1050,34 @@ def _decode_collected(payload, expected_record, work):
             if not previous <= value.start_byte <= value.end_byte <= right.end_byte:
                 raise ValueError('Compact container element outside value or source order')
             previous = value.end_byte
+    for row in syntax['python_dictionaries']:
+        shape(row, 'range text pairs literal')
+        boolean(row['literal'])
+        location(row['range']); string(row['text']); sequence(row['pairs'], budget.max_nodes)
+        region = row['range']
+        if len(row['text'].encode()) != region['end_byte'] - region['start_byte']:
+            raise ValueError('Compact dictionary text differs')
+        previous = region['start_byte']
+        for pair in row['pairs']:
+            shape(pair, 'range text key value elements')
+            location(pair['range']); string(pair['text']); sequence(pair['elements'], budget.max_nodes)
+            span = pair['range']
+            if not previous <= span['start_byte'] < span['end_byte'] <= region['end_byte'] or len(pair['text'].encode()) != span['end_byte'] - span['start_byte']:
+                raise ValueError('Compact dictionary pair outside source')
+            for item in (pair['key'], pair['value'], *pair['elements']):
+                value = expression(item)
+                if not span['start_byte'] <= value.start_byte < value.end_byte <= span['end_byte']:
+                    raise ValueError('Compact dictionary operand outside pair')
+            operand = Expression(**pair['value'])
+            if pair['elements'] and operand.type not in ('list','tuple'):
+                raise ValueError('Compact dictionary elements require a literal container')
+            cursor = operand.start_byte
+            for item in pair['elements']:
+                element = Expression(**item)
+                if not cursor <= element.start_byte < element.end_byte <= operand.end_byte:
+                    raise ValueError('Compact dictionary element ownership or order differs')
+                cursor = element.end_byte
+            previous = span['end_byte']
     work.check()
     result = CollectedFile(dict(record), scopes, definitions, candidates, payload['imports'],
                          payload['errors'], payload['partial'], dict(payload['counts']), syntax,
@@ -1023,7 +1100,7 @@ class FileFacts:
         self.initial_counts = work.nodes, work.facts
         self.syntax_metadata = {'package_clauses': [], 'go_control_directive': False,
                                 'go_bodyless_function': False, 'go_cgo_import': False,
-                                'calls': [], 'import_contexts': [], 'python_declarations': [], 'python_assignments': []}
+                                'calls': [], 'import_contexts': [], 'python_declarations': [], 'python_assignments': [], 'python_dictionaries': []}
 
     def operand(self, node):
         self.work.fact()
@@ -1051,9 +1128,31 @@ class FileFacts:
             return
         self.work.fact()
         bases = node.child_by_field_name('superclasses')
+        decorators = []
+        if node.parent and node.parent.type == 'decorated_definition':
+            for decorator in node.parent.named_children:
+                if decorator.type != 'decorator': continue
+                self.work.fact(); self.work.text(decorator.end_byte - decorator.start_byte)
+                value = decorator.named_children[0]
+                decorators.append(dict(range=self.location(decorator), text=text(self.raw, decorator),
+                    value=self.operand(value), callee=self.operand(value.child_by_field_name('function') if value.type == 'call' else value)))
+        header, stack = None, None
+        if node.type == 'class_definition':
+            body = node.child_by_field_name('body')
+            end = self.raw.rfind(b':', node.start_byte, body.start_byte) + 1 if body else node.start_byte
+            if end > node.start_byte:
+                self.work.fact(); self.work.text(end - node.start_byte)
+                header = dict(range=configuration_span(self.raw, node.start_byte, end), text=self.raw[node.start_byte:end].decode())
+        if decorators:
+            a, b = decorators[0]['range']['start_byte'], decorators[-1]['range']['end_byte']
+            self.work.fact(); self.work.text(b - a)
+            stack = dict(range=dict(start_byte=a, end_byte=b, start_line=decorators[0]['range']['start_line'],
+                                    end_line=decorators[-1]['range']['end_line']), text=self.raw[a:b].decode())
         self.syntax_metadata['python_declarations'].append({
             'id': definition['id'], 'scope': scope.ordinal,
             'decorated': bool(node.parent and node.parent.type == 'decorated_definition'),
+            'decorators': decorators,
+            'header': header, 'decorator_stack': stack,
             'conditional': self.conditional(node),
             'bases': [self.operand(base) for base in bases.named_children if base.type != 'comment'] if bases else []})
 
@@ -1124,6 +1223,18 @@ class FileFacts:
                                     'range': self.location(node), 'syntax_kind': node.type})
             child_scope = scope
             typ = node.type
+            if self.language == 'python' and typ == 'dictionary' and node.parent and node.parent.type == 'expression_statement' and scope.kind == 'module':
+                pairs = []
+                self.work.fact(); self.work.text(node.end_byte - node.start_byte)
+                for pair in node.named_children:
+                    if pair.type != 'pair': continue
+                    value = unwrap(pair.child_by_field_name('value'))
+                    self.work.fact(); self.work.text(pair.end_byte - pair.start_byte)
+                    pairs.append(dict(range=self.location(pair), text=text(self.raw, pair),
+                        key=self.operand(pair.child_by_field_name('key')), value=self.operand(value),
+                        elements=[self.operand(child) for child in value.named_children if child.type != 'comment'] if value.type in ('list', 'tuple') else []))
+                self.syntax_metadata['python_dictionaries'].append(dict(range=self.location(node), text=text(self.raw, node), pairs=pairs,
+                    literal=not self.conditional(node) and all(child.type in ('pair', 'comment') for child in node.named_children)))
             if self.language == 'go':
                 if typ == 'package_clause':
                     self.syntax_metadata['package_clauses'].append({
@@ -1222,7 +1333,7 @@ class FileFacts:
         left = node.child_by_field_name('left') or node.child_by_field_name('name') or node.child_by_field_name('argument')
         right = unwrap(node.child_by_field_name('right') or node.child_by_field_name('value'))
         names = identifiers(node if typ == 'delete_statement' else left)
-        if (self.language == 'python' and scope.kind == 'module' and right is not None
+        if (self.language == 'python' and scope.kind in ('module', 'class') and right is not None
                 and typ in ('assignment', 'augmented_assignment')):
             self.work.fact()
             self.work.text(node.end_byte - node.start_byte)
@@ -1230,7 +1341,7 @@ class FileFacts:
                 'range': self.location(node), 'scope': scope.ordinal,
                 'text': text(self.raw, node),
                 'name': text(self.raw, left) if left is not None and left.type == 'identifier' else '',
-                'conditional': self.conditional(node), 'kind': typ, 'right': self.operand(right),
+                'conditional': self.conditional(node), 'kind': typ, 'left': self.operand(left), 'right': self.operand(right),
                 'container_references': self.container_references(right),
                 'elements': [self.operand(value) for value in right.named_children if value.type != 'comment']
                             if right.type in ('list', 'tuple') else []})
@@ -1377,8 +1488,14 @@ class FileFacts:
                     values.append({'name': text(self.raw, argument.child_by_field_name('name'))
                                    if argument.type == 'keyword_argument' else '',
                                    'expression': self.operand(value),
+                                   'elements': [self.operand(child) for child in value.named_children if child.type != 'comment'] if value.type in ('list', 'tuple') else [],
                                    'container_references': self.container_references(value) if self.language == 'python' else []})
-                self.syntax_metadata['calls'].append({'site': fact['id'], 'arguments': values})
+                receiver = callee
+                while self.language == 'python' and receiver is not None and receiver.type in ('attribute', 'subscript', 'call'):
+                    self.work.node()
+                    receiver = receiver.child_by_field_name('object') or receiver.child_by_field_name('value') or receiver.child_by_field_name('function')
+                self.syntax_metadata['calls'].append({'site': fact['id'], 'arguments': values,
+                    'receiver_root': text(self.raw, receiver) if self.language == 'python' and receiver is not None and receiver.type == 'identifier' else ''})
         counts = {'nodes': self.work.nodes - self.initial_counts[0],
                   'definitions': len(self.definitions)}
         result = CollectedFile(self.record, scopes, self.definitions, candidates,
@@ -1518,26 +1635,29 @@ def django_registration_context(value, work):
     if value is None:
         return None
     work.check()
-    if (type(value) is not dict or set(value) != {'schema_version', 'enabled', 'framework_id',
-            'policy_id', 'consumer', 'dependency', 'source_roots'} or
+    odoo = type(value) is dict and value.get('framework_id') == 'odoo'
+    fields = {'schema_version', 'enabled', 'framework_id', 'policy_id', 'consumer', 'dependency', 'source_roots'}
+    if odoo: fields |= {'ownership', 'configurations'}
+    if (type(value) is not dict or set(value) != fields or
             type(value['schema_version']) is not int or value['schema_version'] != 1 or
-            value['enabled'] is not True or value['framework_id'] != 'django' or
-            value['policy_id'] != 'django-registration-finite-v1'):
-        raise ValueError('Explicit finite Django registration enrollment required')
+            value['enabled'] is not True or value['framework_id'] not in ('django', 'odoo') or
+            value['policy_id'] != ('odoo-hooks-finite-v1' if odoo else 'django-registration-finite-v1')):
+        raise ValueError('Explicit finite framework registration enrollment required')
     def token(value):
         return type(value) is str and 1 <= len(value.encode('utf-8')) <= 128 and not any(ord(c) < 32 for c in value)
     for name in ('consumer', 'dependency'):
         row = value[name]
         fields = {'repository_id', 'revision', 'source_root_id'}
         if name == 'dependency': fields |= {'module_prefix', 'identity_kind'}
+        elif odoo: fields |= {'consumer_id', 'service_id'}
         if type(row) is not dict or set(row) != fields or not all(token(row[k]) for k in fields):
             raise ValueError('Typed framework snapshot identity required')
         if len(row['revision']) not in (40, 64) or any(c not in '0123456789abcdef' for c in row['revision']):
             raise ValueError('Pinned framework source revision required')
     dependency = value['dependency']
-    if dependency['module_prefix'] != 'django' or dependency['identity_kind'] not in (
+    if dependency['module_prefix'] != value['framework_id'] or dependency['identity_kind'] not in (
             'synthetic_fixture', 'declared_dependency_snapshot'):
-        raise ValueError('Finite Django source identity required')
+        raise ValueError('Finite framework source identity required')
     roots = value['source_roots']
     if type(roots) is not list or not 1 <= len(roots) <= 16:
         raise ValueError('Bounded framework source-root enrollment required')
@@ -1562,11 +1682,211 @@ def django_registration_context(value, work):
     if value['consumer']['source_root_id'] == dependency['source_root_id'] and any(
             value['consumer'][key] != dependency[key] for key in ('repository_id', 'revision')):
         raise ValueError('One enrolled snapshot cannot have conflicting identities')
+    if odoo:
+        owners, paths = value['ownership'], set()
+        if type(owners) is not list or not 1 <= len(owners) <= 32:
+            raise ValueError('Bounded explicit Odoo ownership required')
+        for owner in owners:
+            work.node()
+            if (type(owner) is not dict or set(owner) != {'path', 'consumer_id', 'service_id', 'configuration_namespace'} or
+                    not all(token(owner[k]) for k in ('consumer_id', 'service_id')) or
+                    owner['configuration_namespace'] is not None and not token(owner['configuration_namespace'])):
+                raise ValueError('Typed Odoo consumer/service/namespace ownership required')
+            path = owner['path']
+            if type(path) is not str or not path or len(path.encode()) > 4096 or path in paths:
+                raise ValueError('Unique Odoo source ownership path required')
+            canonical = path[:-1] if path.endswith('/') else path
+            SourceRoot.parts(canonical)
+            if str(PurePosixPath(canonical)) != canonical:
+                raise ValueError('Canonical Odoo ownership path required')
+            consumer_prefix = next(root['source_prefix'] for root in roots if root['id'] == value['consumer']['source_root_id'])
+            if not path.startswith(consumer_prefix):
+                raise ValueError('Odoo ownership lies outside the consumer source root')
+            paths.add(path)
+        configurations = value['configurations']
+        if type(configurations) is not list or len(configurations) > 32:
+            raise ValueError('Bounded Odoo configuration enrollment required')
+        seen = set()
+        for configuration in configurations:
+            work.node()
+            if type(configuration) is not dict or set(configuration) != {'path', 'manifest_path'}:
+                raise ValueError('Explicit Odoo configuration/manifest pair required')
+            for key in ('path', 'manifest_path'):
+                path = configuration[key]
+                if type(path) is not str or len(path.encode()) > 4096 or str(PurePosixPath(path)) != path:
+                    raise ValueError('Canonical Odoo configuration path required')
+                SourceRoot.parts(path)
+            if configuration['path'] in seen or not configuration['path'].endswith('.xml') or not configuration['manifest_path'].endswith('.py'):
+                raise ValueError('Unique finite Odoo configuration role required')
+            owner = odoo_owner(configuration['path'], value)
+            manifest_owner = odoo_owner(configuration['manifest_path'], value)
+            if (owner is None or manifest_owner is None or owner['configuration_namespace'] is None or
+                    any(owner[k] != manifest_owner[k] for k in ('consumer_id', 'service_id', 'configuration_namespace'))):
+                raise ValueError('Configuration and manifest ownership differ')
+            seen.add(configuration['path'])
     raw = _json_bytes(value, work.budget, work.cancel)
     if len(raw) > 16384:
         raise StopScan('framework_context_byte_budget_exceeded')
     work.retain(len(raw))
     return json.loads(raw)
+
+
+def odoo_owner(path, enrollment):
+    owners = [row for row in enrollment['ownership'] if path == row['path'] or
+              row['path'].endswith('/') and path.startswith(row['path'])]
+    return max(owners, key=lambda row: len(row['path'])) if owners else None
+
+
+def configuration_span(raw, start, end):
+    line = raw[:start].count(b'\n') + 1
+    return dict(start_byte=start, end_byte=end, start_line=line,
+                end_line=max(line, raw[:end].count(b'\n') + (not raw[:end].endswith(b'\n'))))
+
+
+def odoo_configuration(record, raw, work):
+    """Target-free XML facts inside the guarded structural source-read owner.
+
+    Expat owns structure. Byte delimiters only locate its already recognized
+    tags; ambiguous delimiter/entity forms are withheld, never interpreted.
+    """
+    work.check()
+    raw.decode('utf-8')
+    parser = expat.ParserCreate('UTF-8')
+    records, stack = [], []
+    def fragment(start, end):
+        work.fact(); work.text(end - start)
+        return dict(range=configuration_span(raw, start, end), text=raw[start:end].decode())
+    def reject(*args): raise ValueError('unsupported_xml_declaration_or_entity')
+    def declaration(version, encoding, standalone):
+        work.node()
+        if encoding is not None and encoding.lower().replace('-', '') != 'utf8': reject()
+    def start(name, attributes):
+        work.node()
+        if len(stack) >= 128: raise StopScan('configuration_depth_budget_exceeded')
+        if (any('<' in value or '>' in value for value in attributes.values()) or
+                any(key == 'xmlns' or key.startswith('xmlns:') for key in attributes)): reject()
+        a = parser.CurrentByteIndex
+        b = raw.find(b'>', a) + 1
+        if b <= a: reject()
+        if stack: stack[-1]['children'] = True
+        work.text(len(name.encode()) + sum(len(k.encode()) + len(v.encode()) for k, v in attributes.items()))
+        stack.append(dict(name=name, attributes=dict(attributes), start=a, content=b,
+                          children=False, fields=[], ambiguous=name == 'record' and (not stack or
+                              any(parent['name'] not in ('odoo','data') for parent in stack))))
+        if len(stack) > 1 and stack[-2]['name'] == 'record' and name != 'field':
+            stack[-2]['ambiguous'] = True
+    def end(name):
+        work.node()
+        node = stack.pop()
+        if node['name'] != name: reject()
+        a = parser.CurrentByteIndex
+        empty = raw[node['start']:node['content']].rstrip().endswith(b'/>')
+        b = node['content'] if empty else raw.find(b'>', a) + 1
+        if b < a and not empty: reject()
+        value = dict(fragment(node['start'], b), attributes=node['attributes'], children=node['children'],
+                     content=fragment(node['content'], node['content'] if empty else a))
+        if name == 'field' and stack and stack[-1]['name'] == 'record':
+            stack[-1]['fields'].append(value)
+        elif name == 'record' and node['attributes'].get('model') == 'ir.cron':
+            if len(records) >= min(work.budget.max_facts, 4096): raise StopScan('configuration_record_budget_exceeded')
+            value['fields'] = node['fields']; value['ambiguous'] = node['ambiguous']; records.append(value)
+    def data(value):
+        work.node()
+    def markup(*args):
+        work.node()
+        if stack: stack[-1]['children'] = True
+    parser.StartElementHandler = start
+    parser.EndElementHandler = end
+    parser.CharacterDataHandler = data
+    parser.CommentHandler = markup
+    parser.ProcessingInstructionHandler = markup
+    parser.StartCdataSectionHandler = markup
+    parser.EndCdataSectionHandler = markup
+    parser.XmlDeclHandler = declaration
+    parser.StartDoctypeDeclHandler = reject
+    parser.EntityDeclHandler = reject
+    parser.ExternalEntityRefHandler = reject
+    parser.SkippedEntityHandler = reject
+    errors = []
+    try:
+        if b'&' in raw: reject()
+        # Chunking ensures the enclosing deadline/cancellation also bounds
+        # parser work between callbacks, including long uninterpreted text.
+        for offset in range(0, len(raw), 65536):
+            work.check(); parser.Parse(raw[offset:offset + 65536], False)
+        parser.Parse(b'', True); work.check()
+    except (ValueError, expat.ExpatError) as error:
+        records = []
+        errors = [dict(kind='unsupported_configuration', range=configuration_span(raw, 0, len(raw)))]
+    return dict(record=record, collector_sha256=collector_identity(), records=records, errors=errors,
+                partial=bool(errors))
+
+
+def decode_configuration(encoded, expected_record, digest, raw, work):
+    """Validate the captured configuration handoff at the shared IR boundary."""
+    work.check()
+    if (type(encoded) is not bytes or len(encoded) > work.budget.max_handoff_bytes or
+            hashlib.sha256(encoded).hexdigest() != digest or expected_record['kind'] != 'configuration' or
+            expected_record['language'] != 'configuration' or expected_record['bytes'] != len(raw) or
+            source_hash(raw) != expected_record['sha256']):
+        raise ValueError('Invalid configuration handoff identity')
+    work.retain(len(encoded))
+    def pairs(values):
+        result = {}
+        for key, value in values:
+            work.node()
+            if key in result: raise ValueError('Duplicate compact configuration field')
+            result[key] = value
+        return result
+    def shape(value, fields):
+        work.node()
+        if type(value) is not dict or set(value) != set(fields.split()): raise ValueError('Invalid compact configuration shape')
+    def fragment(value):
+        shape(value,'range text')
+        region = value['range']; shape(region,'start_byte end_byte start_line end_line')
+        if (any(type(v) is not int for v in region.values()) or
+                not 0 <= region['start_byte'] <= region['end_byte'] <= len(raw) or
+                region != configuration_span(raw,region['start_byte'],region['end_byte']) or type(value['text']) is not str or
+                value['text'].encode() != raw[region['start_byte']:region['end_byte']]):
+            raise ValueError('Configuration fragment differs from captured source')
+        work.fact(); work.text(len(value['text'].encode()))
+        return region
+    def value(row, fields):
+        shape(row, fields)
+        span = fragment({k:row[k] for k in ('range','text')})
+        shape(row['attributes'], ' '.join(row['attributes']) if type(row['attributes']) is dict else '')
+        if (any(type(k) is not str or type(v) is not str for k,v in row['attributes'].items()) or type(row['children']) is not bool):
+            raise ValueError('Typed configuration attributes required')
+        for k,v in row['attributes'].items(): work.node(); work.text(len(k.encode()) + len(v.encode()))
+        content = fragment(row['content'])
+        if not span['start_byte'] <= content['start_byte'] <= content['end_byte'] <= span['end_byte']:
+            raise ValueError('Configuration content outside its owning element')
+        return span
+    try: payload = json.loads(encoded,object_pairs_hook=pairs,parse_constant=lambda value: (_ for _ in ()).throw(ValueError('Invalid compact number')))
+    except (UnicodeError,RecursionError,json.JSONDecodeError) as error: raise ValueError('Invalid compact configuration JSON') from error
+    shape(payload,'record collector_sha256 records errors partial')
+    if (payload['record'] != expected_record or payload['collector_sha256'] != collector_identity() or
+            type(payload['records']) is not list or len(payload['records']) > min(work.budget.max_facts,4096) or
+            type(payload['errors']) is not list or len(payload['errors']) > 1 or type(payload['partial']) is not bool or
+            payload['partial'] != bool(payload['errors']) or payload['partial'] and payload['records']):
+        raise ValueError('Foreign or stale configuration IR')
+    for row in payload['records']:
+        span = value(row,'range text attributes children content fields ambiguous')
+        if (type(row['fields']) is not list or len(row['fields']) > work.budget.max_facts or
+                type(row['ambiguous']) is not bool or row['attributes'].get('model') != 'ir.cron'):
+            raise ValueError('Invalid finite configuration record')
+        previous = span['start_byte']
+        for field in row['fields']:
+            region = value(field,'range text attributes children content')
+            if not previous <= region['start_byte'] < region['end_byte'] <= span['end_byte']:
+                raise ValueError('Configuration field ownership or order differs')
+            previous = region['end_byte']
+    for error in payload['errors']:
+        shape(error,'kind range')
+        if error['kind'] != 'unsupported_configuration' or error['range'] != configuration_span(raw,0,len(raw)):
+            raise ValueError('Invalid captured configuration error')
+    work.check()
+    return payload
 
 
 def resolver(files, configurations, context=None, *, definitions=None, framework_context=None):
@@ -1717,12 +2037,19 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
     roots = {row['id']: row['source_prefix'] for row in enrollment['source_roots']}
     consumer, dependency = enrollment['consumer'], enrollment['dependency']
     prefix = roots[dependency['source_root_id']]
+    odoo = enrollment['framework_id'] == 'odoo'
     apis = {'django.urls.conf': {'path': 'django_route', 're_path': 'django_route'},
             'django.core.management.base': {'BaseCommand': 'django_management_handle'},
             'django.db.models.manager': {'Manager': 'django_orm_get_queryset'}}
     facades = {('django.urls', 'path'): ('django.urls.conf', 'path'),
                ('django.urls', 're_path'): ('django.urls.conf', 're_path'),
                ('django.db.models', 'Manager'): ('django.db.models.manager', 'Manager')}
+    if odoo:
+        apis = {'odoo.http': {'route': 'odoo_route_annotation'},
+                'odoo.orm.models': {'Model': 'odoo_model_method_declaration'},
+                'odoo.orm.decorators': {'model': 'odoo_model_method_declaration'}}
+        facades = {('odoo.models', 'Model'): ('odoo.orm.models', 'Model'),
+                   ('odoo.api', 'model'): ('odoo.orm.decorators', 'model')}
 
     def owned(path, identity):
         matches = [(len(p), key) for key, p in roots.items() if path.startswith(p)]
@@ -1734,7 +2061,8 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
             if row.get('role') == 'import':
                 identifier = 'import:' + hashlib.sha256(_json_bytes([file.path, file.imports.index(row), row['range']], Budget(), None)).hexdigest()
             else:
-                identifier = f'{file.path}:{row["range"]["start_byte"]}:{row["range"]["end_byte"]}:assignment'
+                suffix = 'assignment' if row.get('kind') in ('assignment', 'augmented_assignment') else 'framework_witness'
+                identifier = f'{file.path}:{row["range"]["start_byte"]}:{row["range"]["end_byte"]}:{suffix}'
         return {'id': identifier, 'path': file.path, 'range': row['range'],
                 'source_sha256': file.record['sha256'], 'source_role': role}
 
@@ -1776,6 +2104,8 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                     symbol = expression.member
                 elif (module, symbol) == ('django.db', 'models'):
                     module, symbol = 'django.db.models', expression.member
+                elif odoo and module == 'odoo' and symbol in ('http', 'models', 'api'):
+                    module, symbol = 'odoo.' + symbol, expression.member
                 # A member of a callable (from_queryset, etc.) is a candidate,
                 # never a direct API identity.
             physical = facades.get((module, symbol), (module, symbol))
@@ -1790,8 +2120,12 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                     reason = 'shadowed_ambiguous_conditional_or_local_framework_import'
                 elif later_wildcard(file, bindings[0], work, []):
                     reason = 'later_wildcard_framework_import'
-                elif expression.type != 'identifier' and item['symbol'] not in (None, 'models'):
+                elif expression.type != 'identifier' and item['symbol'] not in ((None, 'http', 'models', 'api') if odoo else (None, 'models')):
                     reason = 'computed_framework_factory_or_member'
+                if odoo and any(assignment['scope'] == owner and assignment['left']['type'] == 'attribute' and
+                        assignment['left']['base_identifier'] and assignment['left']['base'] == name
+                        for assignment in file.syntax_metadata['python_assignments']):
+                    reason = 'mutated_framework_namespace_member'
                 return module, symbol, kind, item, reason
         return None
 
@@ -1805,6 +2139,10 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
             candidates = [stem + '.py', stem + '/__init__.py']
             inventoried = files.inventoried if hasattr(files, 'inventoried') else files.__contains__
             present = [p for p in candidates if inventoried(p)]
+            if odoo and not present and count < len(parts):
+                # Explicit dependency-root enrollment admits the physical Odoo
+                # namespace only when both competing canonical files are absent.
+                continue
             if len(present) != 1 or present[0] not in files:
                 return None, 'missing_competing_or_unparsed_framework_module'
             other = files[present[0]]
@@ -1837,7 +2175,8 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                 return 'conditional_or_later_wildcard_framework_export'
             spec = bindings[0].value
             stem = target_module.rsplit('.', 1)[-1]
-            if spec['module'] not in (target_module, '.' + stem) or spec['symbol'] != target_symbol:
+            modules = (target_module, '.' + stem, '..' + target_module.removeprefix('odoo.')) if odoo else (target_module, '.' + stem)
+            if spec['module'] not in modules or spec['symbol'] != target_symbol:
                 return 'unsupported_framework_reexport'
             ordinal = other.imports.index(spec)
             if other.syntax_metadata['import_contexts'][ordinal]['conditional'] or any(
@@ -1861,7 +2200,7 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
             return 'later_wildcard_framework_api'
         if bindings[0].kind == 'definition':
             definition = definitions[bindings[0].value]
-            expected = 'function' if symbol in ('path', 're_path') else 'class'
+            expected = 'function' if symbol in ('path', 're_path', 'route', 'model') else 'class'
             if definition['kind'] != expected:
                 return 'unsupported_framework_api_declaration'
             witnesses.append(witness(other, definition, 'framework_api_definition'))
@@ -1931,15 +2270,22 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
     def framework_sites(file, work):
         if not owned(file.path, consumer):
             return
+        owner = odoo_owner(file.path, enrollment) if odoo else None
+        if odoo and (owner is None or any(owner[k] != consumer[k] for k in ('consumer_id', 'service_id'))):
+            return
         declarations = {row['id']: row for row in file.syntax_metadata['python_declarations']}
         calls = {row['site']: row['arguments'] for row in file.syntax_metadata['calls']}
+        call_metadata = {row['site']: row for row in file.syntax_metadata['calls']}
         candidates = {(entry[0]['range']['start_byte'], entry[0]['range']['end_byte']): entry
                       for entry in file.candidates if entry[0]['role'] == 'call'}
         methods_by_scope = {}
+        local_methods = {}
+        scopes_by_owner = {scope.owner:scope for scope in file.scopes if scope.owner is not None and scope.kind == 'class'}
         for definition in file.definitions:
             if definition['kind'] == 'method':
                 methods_by_scope.setdefault((declarations[definition['id']]['scope'],
                     definition['name'].rsplit('.', 1)[-1]), []).append(definition)
+                local_methods.setdefault(declarations[definition['id']]['scope'],[]).append(definition)
 
         def row(origin, hint, reason, targets, evidence, source_role=None):
             if file.partial:
@@ -1959,10 +2305,131 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                 framework_identity_asserted=not bool(reason), partial=file.partial or source_role is not None,
                 partial_source_role=source_role, runtime_qualified=False,
                 evidence=evidence)
+            if odoo:
+                result.update({key: owner[key] for key in ('consumer_id', 'service_id', 'configuration_namespace')})
+                result.update(runtime_dispatch='unresolved', runtime_callable_targets=[])
             work.fact(); work.retain(_json_bytes(result, work.budget, work.cancel, measure=True))
             return result
 
-        patterns = [assignment for assignment in file.syntax_metadata['python_assignments'] if assignment['name'] == 'urlpatterns']
+        if odoo:
+            def literal(expression):
+                if expression['type'] != 'string': return None
+                try: value = ast.literal_eval(expression['spelling'])
+                except (ValueError, SyntaxError): return None
+                return value if type(value) is str and value else None
+
+            def decorator_origin(decorator, method):
+                return dict(path=file.path, range=decorator['range'], text=decorator['text'],
+                            provenance=method['provenance'], caller=method['id'])
+
+            # A direct imported annotation qualifies a local declaration only.
+            # Class inheritance and route invocation are separate unknowns.
+            for method in file.definitions:
+                work.node()
+                declaration = declarations.get(method['id'])
+                if method['kind'] != 'method' or declaration is None: continue
+                for decorator in declaration['decorators']:
+                    hint = import_hint(file, Expression(**decorator['callee']), file.scopes[declaration['scope']], work)
+                    if hint is None or hint[2] != 'odoo_route_annotation': continue
+                    evidence = [witness(file, hint[3], 'candidate_import'), witness(file, method, 'hook_definition')]
+                    class_declaration = next((decl for decl in declarations.values() if decl['id'] == file.scopes[declaration['scope']].owner), None)
+                    if class_declaration and class_declaration['header']:
+                        evidence.append(witness(file, class_declaration['header'], 'class_header'))
+                    evidence.extend(witness(file, item, 'decorator_annotation') for item in declaration['decorators'])
+                    evidence.append(witness(file, declaration['decorator_stack'], 'decorator_stack'))
+                    evidence.extend(witness(file, item, 'framework_rebinding') for item in file.syntax_metadata['python_assignments']
+                        if item['scope'] == 0 and item['name'] == (Expression(**decorator['callee']).base or Expression(**decorator['callee']).spelling))
+                    reason = api_identity(hint, work, evidence)
+                    value = decorator['value']
+                    candidate = candidates.get((value['start_byte'], value['end_byte']))
+                    arguments = calls.get(candidate[0]['id'], []) if candidate else []
+                    positional = [arg for arg in arguments if not arg['name']]
+                    class_scope = file.scopes[declaration['scope']]
+                    method_name = method['name'].rsplit('.',1)[-1]
+                    if not reason and (len(declaration['decorators']) != 1 or declaration['conditional'] or
+                            class_scope.bindings.get(method_name) or len(methods_by_scope.get((class_scope.ordinal,method_name),[])) != 1 or
+                            class_declaration and (class_declaration['conditional'] or class_declaration['decorated'])):
+                        reason = 'stacked_or_conditional_route_annotation'
+                    if not reason:
+                        first = positional[0] if len(positional) == 1 else None
+                        routes = ([literal(first['expression'])] if first and first['expression']['type'] == 'string' else
+                                  [literal(element) for element in first['elements']] if first and first['expression']['type'] in ('list', 'tuple') else [])
+                        if not routes or any(route is None for route in routes): reason = 'inherited_computed_or_unsupported_route_annotation'
+                    yield row(decorator_origin(decorator, method), hint, reason, [method['id']], evidence)
+
+            # A canonical Model base and one literal local label identify a
+            # physical method declaration, never a registry model/call target.
+            model_methods = {}
+            for definition in file.definitions:
+                work.node()
+                declaration = declarations.get(definition['id'])
+                if definition['kind'] != 'class' or declaration is None: continue
+                hints = []
+                for base in declaration['bases']:
+                    expression = Expression(**base)
+                    hint = import_hint(file, expression, file.scopes[declaration['scope']], work)
+                    if hint is None and expression.type == 'call':
+                        candidate = candidates.get((expression.start_byte,expression.end_byte))
+                        hint = import_hint(file,candidate[1],file.scopes[declaration['scope']],work) if candidate and candidate[1] else None
+                        if hint: hint = (*hint[:4],'computed_framework_factory_or_member')
+                    if hint: hints.append(hint)
+                hints = [hint for hint in hints if hint and hint[2] == 'odoo_model_method_declaration' and hint[1] == 'Model']
+                if not hints: continue
+                hint = hints[0]
+                evidence = [witness(file, hint[3], 'candidate_import'), witness(file, declaration['header'], 'class_header')]
+                reason = api_identity(hint, work, evidence)
+                class_scope = scopes_by_owner[definition['id']]
+                labels = [assignment for assignment in file.syntax_metadata['python_assignments'] if
+                          assignment['scope'] == class_scope.ordinal and assignment['name'] in ('_name', '_inherit')]
+                names = [label for label in labels if label['name'] == '_name']
+                labels = names or labels
+                if not reason and (declaration['scope'] != 0 or declaration['conditional'] or declaration['decorated'] or
+                                   len(declaration['bases']) != 1 or len(file.module.bindings.get(definition['name'], [])) != 1 or
+                                   any(assignment['left']['type'] == 'attribute' and assignment['left']['base_identifier'] and
+                                       assignment['left']['base'] == definition['name'] for assignment in file.syntax_metadata['python_assignments'])):
+                    reason = 'conditional_decorated_or_ambiguous_model_class'
+                if not reason and (len(labels) != 1 or labels[0]['kind'] != 'assignment' or labels[0]['conditional'] or
+                                   literal(labels[0]['right']) is None or len(class_scope.bindings.get(labels[0]['name'], [])) != 1):
+                    reason = 'computed_missing_or_ambiguous_model_label'
+                evidence.extend(witness(file, label, 'model_label') for label in labels)
+                label_boundary = reason == 'computed_missing_or_ambiguous_model_label' and len(labels) == 1
+                if label_boundary:
+                    origin = dict(path=file.path, range=labels[0]['range'], text=labels[0]['text'],
+                                  provenance=definition['provenance'], caller=definition['id'])
+                    yield row(origin, hint, reason, [], evidence)
+                for method in local_methods.get(class_scope.ordinal,[]):
+                    work.node()
+                    method_declaration = declarations.get(method['id'])
+                    method_reason, method_evidence = reason, list(evidence)
+                    decorations = method_declaration['decorators']
+                    method_evidence.extend(witness(file, item, 'decorator_annotation') for item in decorations)
+                    if decorations and not method_reason:
+                        decoration = decorations[0]
+                        model_hint = import_hint(file, Expression(**decoration['callee']), class_scope, work)
+                        if (len(decorations) != 1 or decoration['value']['type'] != 'attribute' or not model_hint or
+                                model_hint[0:2] != ('odoo.api', 'model')):
+                            method_reason = 'unsupported_model_method_decorator'
+                        else:
+                            method_evidence.append(witness(file, model_hint[3], 'model_decorator_import'))
+                            method_reason = api_identity(model_hint, work, method_evidence)
+                    name = method['name'].rsplit('.', 1)[-1]
+                    if not method_reason and (method_declaration['conditional'] or class_scope.bindings.get(name) or
+                            len(methods_by_scope.get((class_scope.ordinal, name), [])) != 1):
+                        method_reason = 'conditional_or_ambiguous_model_method'
+                    method_evidence.append(witness(file, method, 'hook_definition'))
+                    if not label_boundary:
+                        yield row(dict(method, caller=method['id']), hint, method_reason, [method['id']], method_evidence)
+                    model_methods[method['id']] = (hint, method_evidence)
+            for origin, expression, scope in candidates.values():
+                work.node()
+                if (origin.get('caller') in model_methods and expression is not None and expression.type == 'attribute' and
+                        call_metadata[origin['id']]['receiver_root']):
+                    hint, evidence = model_methods[origin['caller']]
+                    hint = (*hint[:2], 'odoo_registry_dispatch', *hint[3:])
+                    yield row(origin, hint, 'registry_or_receiver_dispatch_is_unresolved', [], evidence)
+            return
+
+        patterns = [assignment for assignment in file.syntax_metadata['python_assignments'] if assignment['scope'] == 0 and assignment['name'] == 'urlpatterns']
         mutation = len(file.module.bindings.get('urlpatterns', [])) != 1 or any(
             assignment['name'] != 'urlpatterns' and any(
                 value['type'] == 'identifier' and value['spelling'] == 'urlpatterns'
@@ -2060,7 +2527,7 @@ def django_registration_resolver(files, definitions, lexical, enrollment):
                               or declaration['conditional'] or len(declaration['bases']) != 1):
                 reason = 'decorated_conditional_multiple_or_shadowed_framework_class'
             method_name = 'handle' if hint[2] == 'django_management_handle' else 'get_queryset'
-            class_scope = next(scope for scope in file.scopes if scope.owner == definition['id'] and scope.kind == 'class')
+            class_scope = scopes_by_owner[definition['id']]
             # Methods deliberately have no ordinary lexical binding: class
             # ownership was retained by the collector, without receiver dispatch.
             methods = methods_by_scope.get((class_scope.ordinal, method_name), [])

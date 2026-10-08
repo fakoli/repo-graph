@@ -198,6 +198,138 @@ def _contract_span(raw, start, end):
                 end_line=raw[:end].count(b'\n') + (not raw[:end].endswith(b'\n')))
 
 
+def _odoo_publish(db, files, context, budget, check):
+    """Project explicitly enrolled XML over the existing captured structural IR."""
+    old_ids = "SELECT id FROM structural_sites WHERE json_extract(data,'$.language')='configuration' AND role IN ('framework','framework_boundary')"
+    db.execute('DELETE FROM structural_relationships WHERE site_id IN (' + old_ids + ')')
+    db.execute('DELETE FROM structural_sites WHERE id IN (' + old_ids + ')')
+    db.execute("DELETE FROM structural_symbols WHERE json_extract(data,'$.kind')='configuration_value'")
+    db.execute("DELETE FROM structural_evidence WHERE json_extract(data,'$.provenance.syntax_kind')='odoo_configuration_witness'")
+    if context is None or context['framework_id'] != 'odoo': return
+    work = native.Work(budget, check)
+    consumer = context['consumer']
+    captured, counts = [], {}
+    for enrolled in context['configurations']:
+        work.node()
+        owner = native.odoo_owner(enrolled['path'], context)
+        if any(owner[k] != consumer[k] for k in ('consumer_id', 'service_id')): continue
+        row = db.execute("SELECT record,ir,ir_sha,configuration FROM structural_files WHERE path=? AND status='configuration' AND language='configuration'", (enrolled['path'],)).fetchone()
+        if row is None or row['ir'] is None: continue
+        record = json.loads(row['record'])
+        payload = native.decode_configuration(row['ir'],record,row['ir_sha'],row['configuration'],work)
+        captured.append((enrolled, owner, payload, row['configuration']))
+        for declaration in payload['records']:
+            work.node()
+            key = (owner['consumer_id'], owner['service_id'], owner['configuration_namespace'], declaration['attributes'].get('id'))
+            counts[key] = counts.get(key, 0) + 1
+    def literal(expression):
+        if expression['type'] != 'string': return None
+        try: value = native.ast.literal_eval(expression['spelling'])
+        except (ValueError, SyntaxError): return None
+        return value if type(value) is str else None
+    def membership(enrolled):
+        manifest_path = enrolled['manifest_path']
+        if manifest_path not in files: return None, 'missing_or_unparsed_manifest'
+        manifest = files[manifest_path]
+        dictionaries = manifest.syntax_metadata['python_dictionaries']
+        if (manifest.partial or manifest.definitions or manifest.imports or manifest.candidates or
+                len(dictionaries) != 1 or not dictionaries[0]['literal']):
+            return None, 'partial_or_computed_manifest'
+        pairs = dictionaries[0]['pairs']
+        names = [literal(pair['key']) for pair in pairs]
+        if None in names or len(names) != len(set(names)): return None, 'ambiguous_or_computed_manifest_keys'
+        rows = [pair for pair in pairs if literal(pair['key']) == 'data']
+        pair = rows[0] if len(rows) == 1 else None
+        if pair is None: return None, 'missing_manifest_data_membership'
+        witness = dict(id=f'{manifest_path}:{pair["range"]["start_byte"]}:{pair["range"]["end_byte"]}:framework_witness',
+            path=manifest_path, range=pair['range'], source_sha256=manifest.record['sha256'], source_role='declared_configuration_membership')
+        values = [literal(item) for item in pair['elements']]
+        if pair['value']['type'] not in ('list', 'tuple') or None in values or len(values) != len(set(values)):
+            return witness, 'computed_or_ambiguous_manifest_data'
+        relative = str(PurePosixPath(enrolled['path']).relative_to(PurePosixPath(manifest_path).parent)) if (
+            PurePosixPath(manifest_path).parent in PurePosixPath(enrolled['path']).parents) else None
+        for value in values:
+            try: SourceRoot.parts(value)
+            except OSError: return witness, 'noncanonical_manifest_data'
+            if str(PurePosixPath(value)) != value: return witness, 'noncanonical_manifest_data'
+        return witness, '' if relative in values else 'configuration_not_in_literal_manifest_data'
+    def fact(path, record, fragment, kind, suffix=''):
+        work.fact(); work.text(len(fragment['text'].encode()))
+        span = fragment['range']
+        return dict(id=f'{path}:{span["start_byte"]}:{span["end_byte"]}' + suffix, path=path,
+            language='configuration', text=fragment['text'], range=span, provenance=dict(
+                source_sha256=record['sha256'], rule_version=native.RULE_VERSION, syntax_kind=kind, evidence_kind='static_syntax'))
+    for enrolled, owner, payload, raw in captured:
+        path, record = enrolled['path'], payload['record']
+        files.consumer = path
+        files.observe('configurations', '*'); files.observe('inventory', '*')
+        files.observe('file', enrolled['manifest_path'])
+        manifest_witness, manifest_reason = membership(enrolled)
+        evidence = [manifest_witness] if manifest_witness else []
+        ordinal = 100000
+        def publish(origin, kind, reason, target=None, witnesses=None):
+            nonlocal ordinal
+            work.fact(); ordinal += 1
+            family = 'framework_boundary' if reason else 'framework'
+            site = fact(path, record, origin, 'odoo_configuration_witness', ':' + family)
+            site.update(language='configuration', role=family, family=family,
+                relation_kind='unknown_framework_candidate' if reason else kind, candidate_relation_kind=kind,
+                caller=None, targets=[] if reason else [target['id']], certainty='unresolved' if reason else 'resolved',
+                targets_exhaustive=not bool(reason), reason=reason or 'finite source declaration; runtime dispatch unresolved',
+                resolution_method=context['policy_id'], syntax_role='static_framework_registration',
+                framework_identity_asserted=not bool(reason), partial=payload['partial'],
+                partial_source_role='configuration' if payload['partial'] else None,
+                runtime_qualified=False, runtime_dispatch='unresolved', runtime_callable_targets=[], evidence=witnesses or evidence,
+                **{key: owner[key] for key in ('consumer_id', 'service_id', 'configuration_namespace')})
+            work.retain(len(encoded(site)))
+            db.execute('INSERT INTO structural_sites VALUES(?,?,?,?,?)', (site['id'], path, ordinal, family, encoded(site)))
+            target_span = target['range'] if target and not reason else dict(start_byte=-1,end_byte=-1)
+            db.execute('INSERT INTO structural_relationships VALUES(?,?,?,?,?,?,?,?,?,?,?)', (
+                site['id'], target['id'] if target and not reason else '', path, family, site['certainty'], '',
+                site['range']['start_byte'], site['range']['end_byte'], path if target and not reason else '',
+                target_span['start_byte'], target_span['end_byte']))
+        if payload['partial']:
+            publish(dict(range=native.configuration_span(raw,0,len(raw)),text=raw.decode()), 'odoo_cron_code_declaration', 'unsupported_or_malformed_configuration')
+        for declaration in payload['records']:
+            work.node()
+            attributes = declaration['attributes']; identifier = attributes.get('id')
+            key = (owner['consumer_id'], owner['service_id'], owner['configuration_namespace'], identifier)
+            fields = declaration['fields']
+            codes = [field for field in fields if field['attributes'].get('name') == 'code']
+            states = [field for field in fields if field['attributes'].get('name') == 'state']
+            model_refs = [field for field in fields if field['attributes'].get('name') == 'model_id']
+            reason = manifest_reason
+            if not reason and (not identifier or '.' in identifier or counts[key] != 1): reason = 'missing_ambiguous_or_duplicate_configuration_identity'
+            if not reason and (set(attributes) - {'id','model','forcecreate'} or
+                    attributes.get('forcecreate','True') not in ('True','False','1','0') or declaration['ambiguous'] or len(codes) != 1 or len(states) != 1 or
+                    states[0]['attributes'] != {'name':'state'} or states[0]['children'] or states[0]['content']['text'].strip() != 'code'):
+                reason = 'unsupported_or_ambiguous_cron_record'
+            code = codes[0] if len(codes) == 1 else None
+            if not reason and (code['attributes'] != {'name':'code'} or code['children'] or not code['content']['text'].strip()):
+                reason = 'computed_eval_or_child_content_cron_code'
+            witnesses = list(evidence)
+            for field in model_refs:
+                item = fact(path, record, field, 'odoo_configuration_witness', ':framework_witness')
+                db.execute('INSERT OR REPLACE INTO structural_evidence VALUES(?,?,?,?)', (item['id'], path, ordinal, encoded(item)))
+                witnesses.append(dict(id=item['id'],path=path,range=item['range'],source_sha256=record['sha256'],source_role='unresolved_model_reference'))
+            target = None
+            if not reason:
+                target = fact(path, record, code['content'], 'odoo_configuration_value')
+                target.update(name=identifier + '.code',kind='configuration_value',callable=False)
+                work.retain(len(encoded(target)))
+                db.execute('INSERT INTO structural_symbols VALUES(?,?,?,?,?,?)', (target['id'], path, ordinal, encoded(target),target['range']['start_byte'],target['range']['end_byte']))
+            origin = code if code and ('eval' in code['attributes'] or code['children']) else declaration
+            publish(origin, 'odoo_cron_code_declaration', reason, target, witnesses)
+            if code and code['content']['text'].strip():
+                # Opaque literal text has no callable meaning. The trimmed physical
+                # slice is a dispatch boundary, including multiline source text.
+                content = code['content']; text = content['text']; a = content['range']['start_byte'] + len(text[:len(text)-len(text.lstrip())].encode())
+                b = content['range']['end_byte'] - len(text[len(text.rstrip()):].encode())
+                dispatch = dict(range=native.configuration_span(raw,a,b),text=raw[a:b].decode())
+                publish(dispatch, 'odoo_cron_registry_dispatch', reason or 'configuration_registry_dispatch_is_unresolved', None, witnesses)
+    files.consumer = None
+
+
 def _contract_capture(capsule, path, raw, digest, record):
     """Capture only enrolled witness slices during the existing source read."""
     if capsule is None: return
@@ -609,14 +741,14 @@ class _Files(Mapping):
                             (self.consumer, kind, key, digest, int(present)))
 
     def __iter__(self):
-        return (r[0] for r in self.db.execute('SELECT path FROM structural_files WHERE ir IS NOT NULL ORDER BY path'))
+        return (r[0] for r in self.db.execute("SELECT path FROM structural_files WHERE ir IS NOT NULL AND kind='source' ORDER BY path"))
 
     def __len__(self):
-        return self.db.execute('SELECT count(*) FROM structural_files WHERE ir IS NOT NULL').fetchone()[0]
+        return self.db.execute("SELECT count(*) FROM structural_files WHERE ir IS NOT NULL AND kind='source'").fetchone()[0]
 
     def __contains__(self, path):
         self.observe('file', path)
-        return self.db.execute('SELECT 1 FROM structural_files WHERE path=? AND ir IS NOT NULL', (path,)).fetchone() is not None
+        return self.db.execute("SELECT 1 FROM structural_files WHERE path=? AND ir IS NOT NULL AND kind='source'", (path,)).fetchone() is not None
 
     def inventoried(self, path):
         self.observe('file', path)
@@ -667,7 +799,7 @@ class _Files(Mapping):
         if path in self.cache:
             self.cache.move_to_end(path)
             return self.cache[path]
-        row = self.db.execute('SELECT record,ir,ir_sha FROM structural_files WHERE path=? AND ir IS NOT NULL', (path,)).fetchone()
+        row = self.db.execute("SELECT record,ir,ir_sha FROM structural_files WHERE path=? AND ir IS NOT NULL AND kind='source'", (path,)).fetchone()
         if row is None:
             raise KeyError(path)
         payload = json.loads(row['ir'])
@@ -927,6 +1059,20 @@ class StructuralIndex:
                                 rule_version=native.RULE_VERSION, syntax_kind=row['kind'], evidence_kind='static_syntax'))
                             db.execute('INSERT INTO structural_evidence VALUES(?,?,?,?)',
                                 (identifier, file.path, ordinal, encoded(data)))
+                        fragments = []
+                        for declaration in file.syntax_metadata['python_declarations']:
+                            fragments.extend(fragment for fragment in (declaration['header'], declaration['decorator_stack'],
+                                *declaration['decorators']) if fragment is not None)
+                        for dictionary in file.syntax_metadata['python_dictionaries']:
+                            fragments.extend(dictionary['pairs'])
+                        for ordinal, fragment in enumerate(fragments):
+                            span = fragment['range']
+                            identifier = f'{file.path}:{span["start_byte"]}:{span["end_byte"]}:framework_witness'
+                            data = dict(id=identifier, path=file.path, language=file.language, text=fragment['text'], range=span,
+                                provenance=dict(source_sha256=file.record['sha256'], rule_version=native.RULE_VERSION,
+                                                syntax_kind='framework_witness', evidence_kind='static_syntax'))
+                            db.execute('INSERT OR REPLACE INTO structural_evidence VALUES(?,?,?,?)',
+                                (identifier, file.path, 10000 + ordinal, encoded(data)))
                         db.execute('UPDATE structural_files SET ir=?,ir_sha=?,status=? WHERE path=?',
                             (encoded(payload), digest, 'partial_parse' if file.partial else 'parsed', file.path))
                         resources['changed_files_collected'] += 1
@@ -953,8 +1099,12 @@ class StructuralIndex:
                     if db.execute('SELECT 1 FROM structural_seen WHERE path=?', (path,)).fetchone():
                         raise ValueError('Duplicate inventory path')
                     db.execute('INSERT INTO structural_seen VALUES(?)', (path,))
-                    language = item.get('language', 'contract' if path in contract_configurations else LANGUAGES.get(PurePosixPath(path).suffix, 'unknown'))
-                    kind = item.get('kind', 'configuration' if path in contract_configurations or PurePosixPath(path).name == 'go.mod' else 'source')
+                    odoo_configuration = self.framework_context is not None and self.framework_context['framework_id'] == 'odoo' and any(
+                        row['path'] == path for row in self.framework_context['configurations'])
+                    language = item.get('language', 'configuration' if odoo_configuration else 'contract' if path in contract_configurations else LANGUAGES.get(PurePosixPath(path).suffix, 'unknown'))
+                    kind = item.get('kind', 'configuration' if odoo_configuration or path in contract_configurations or PurePosixPath(path).name == 'go.mod' else 'source')
+                    if odoo_configuration and (language != 'configuration' or kind != 'configuration'):
+                        raise ValueError('Enrolled Odoo XML requires the configuration source role')
                     if type(language) is not str or not 1 <= len(language.encode()) <= 128 or kind not in ('source', 'configuration'):
                         raise ValueError('Invalid source metadata')
                     remaining = limits.max_source_bytes - resources['source_bytes']
@@ -981,6 +1131,12 @@ class StructuralIndex:
                     db.execute('INSERT OR REPLACE INTO structural_files VALUES(?,?,?,?,?,?,?,?,?)',
                         (path, str(PurePosixPath(path).parent), language, kind, encoded(record), status,
                          None, None, raw if status == 'configuration' else None))
+                    if odoo_configuration and status == 'configuration':
+                        configuration_work = native.Work(budget, check)
+                        payload = native.odoo_configuration(record, raw, configuration_work)
+                        data = encoded(payload); configuration_work.retain(len(data))
+                        db.execute('UPDATE structural_files SET ir=?,ir_sha=? WHERE path=?',
+                                   (data, hashlib.sha256(data).hexdigest(), path))
                     if status != 'pending':
                         db.execute('DELETE FROM structural_symbols WHERE path=?', (path,))
                         db.execute('DELETE FROM structural_scopes WHERE path=?', (path,))
@@ -1066,6 +1222,7 @@ class StructuralIndex:
                                  site['range']['start_byte'], site['range']['end_byte'],
                                  definition['path'] if definition else '', span['start_byte'], span['end_byte']))
                 files.consumer = None
+                _odoo_publish(db, files, self.framework_context, budget, check)
                 try:
                     _contract_publish(db, files, capsule, self.contract_context, check, resources)
                 except ValueError as error:

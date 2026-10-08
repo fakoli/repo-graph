@@ -109,7 +109,7 @@ def main(argv=None):
     analyze.add_argument('--output', required=True, type=Path)
     analyze.add_argument('--mode', choices=['serial', 'queued'], default='serial')
     analyze.add_argument('--workers', type=int, default=1)
-    analyze.add_argument('--framework-context', type=Path, help='Explicit trusted Django dependency/source-root enrollment JSON; no automatic project enrollment')
+    analyze.add_argument('--framework-context', type=Path, help='Explicit trusted Django or Odoo dependency/source ownership enrollment JSON; no automatic project enrollment')
     analyze.add_argument('--contract-context', type=Path, help='Explicit trusted service/profile/source-root enrollment JSON; no automatic contract discovery')
     analyze.add_argument('--git-base', type=_captured_commit, help='Capture changed paths against this exact Git commit during analysis')
     query = subs.add_parser('query', help='Bounded structural queries; --stdio or --server retains pagination')
@@ -119,7 +119,8 @@ def main(argv=None):
     query.add_argument('--protocol', dest='protocols', action='append', choices=['http','rpc','queue'])
     query.add_argument('--namespace', dest='namespaces', action='append')
     query.add_argument('--family', action='append', choices=['framework', 'framework_boundary'])
-    query.add_argument('--relation-kind', action='append', choices=['django_route', 'django_management_handle', 'django_orm_get_queryset', 'unknown_framework_candidate'])
+    query.add_argument('--relation-kind', action='append', choices=['django_route', 'django_management_handle', 'django_orm_get_queryset', 'unknown_framework_candidate',
+        'odoo_route_annotation', 'odoo_model_method_declaration', 'odoo_registry_dispatch', 'odoo_cron_code_declaration', 'odoo_cron_registry_dispatch'])
     query.add_argument('--seed'); query.add_argument('--depth', type=int, default=2)
     query.add_argument('--prefix', default=''); query.add_argument('--scope', default='')
     query.add_argument('--role', choices=['call', 'reference', 'all'], default='call')

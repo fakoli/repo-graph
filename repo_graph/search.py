@@ -1575,7 +1575,7 @@ def captured_source(engine, request, *, cancel=None):
             substr(CAST(s.data AS BLOB),1,8388609),substr(CAST(f.record AS BLOB),1,32769),f.status
             FROM structural_sites s JOIN structural_files f ON f.path=s.path WHERE s.id=?'''
             arguments = [handle['id'], handle['id']]
-            if handle['id'].endswith((':assignment', ':contract_witness')):
+            if handle['id'].endswith((':assignment', ':contract_witness', ':framework_witness')):
                 sql += ''' UNION ALL SELECT 'assignment',s.id,s.path,NULL,
             substr(CAST(s.data AS BLOB),1,8388609),substr(CAST(f.record AS BLOB),1,32769),f.status
             FROM structural_evidence s JOIN structural_files f ON f.path=s.path WHERE s.id=?'''
@@ -1596,13 +1596,22 @@ def captured_source(engine, request, *, cancel=None):
             span=json.dumps(item['range']), span_type='object' if type(item['range']) is dict else None,
             digest=provenance.get('source_sha256'), file_digest=record['sha256']))
         is_contract = provenance.get('syntax_kind') in ('contract_binding','contract_witness')
+        is_odoo = provenance.get('syntax_kind') in ('odoo_configuration_witness','odoo_configuration_value')
+        if is_odoo:
+            from .analysis_native import django_registration_context, odoo_owner, Work, Budget
+            enrollment = django_registration_context(_json_record(meta['structural_receipt']).get('framework_enrollment'), Work(Budget(),check))
+            if (enrollment is None or enrollment['framework_id'] != 'odoo' or
+                    not any(row['path'] == item['path'] for row in enrollment['configurations']) or
+                    odoo_owner(item['path'], enrollment) is None or record['kind'] != 'configuration' or
+                    record['language'] != 'configuration' or row['status'] != 'configuration'):
+                raise ValueError('Unenrolled captured Odoo configuration source')
         if (captured != handle or item.get('id', row['id']) != row['id'] or item['path'] != row['path'] or
-                record['path'] != row['path'] or record['kind'] not in (('source','configuration') if is_contract else ('source',)) or
-                row['status'] not in (('parsed','partial_parse','configuration') if is_contract else ('parsed','partial_parse')) or item['language'] != record['language'] or
+                record['path'] != row['path'] or record['kind'] not in (('source','configuration') if is_contract or is_odoo else ('source',)) or
+                row['status'] not in (('parsed','partial_parse','configuration') if is_contract or is_odoo else ('parsed','partial_parse')) or item['language'] != record['language'] or
                 provenance.get('evidence_kind') != 'static_syntax' or
                 provenance.get('rule_version') != _json_record(meta['structural_receipt'])['versions']['rules']):
             raise ValueError('Captured member/source affinity differs')
-        if item['language'] not in (('python', 'go', 'javascript', 'typescript','contract') if is_contract else ('python', 'go', 'javascript', 'typescript')):
+        if item['language'] not in (('configuration',) if is_odoo else ('python', 'go', 'javascript', 'typescript','contract') if is_contract else ('python', 'go', 'javascript', 'typescript')):
             raise ValueError('Unsupported captured source language')
         _string(provenance.get('syntax_kind'))
         certainty, exhaustive, reason = None, None, ''
@@ -1632,7 +1641,11 @@ def captured_source(engine, request, *, cancel=None):
                 raise ValueError('Bounded captured reason required')
             expected_id += ':' + row['role']
         elif row['member_kind'] == 'assignment':
-            if handle['id'].endswith(':contract_witness'):
+            if handle['id'].endswith(':framework_witness'):
+                if provenance['syntax_kind'] not in ('framework_witness','odoo_configuration_witness'):
+                    raise ValueError('Invalid captured framework witness')
+                expected_id += ':framework_witness'
+            elif handle['id'].endswith(':contract_witness'):
                 if provenance['syntax_kind'] != 'contract_witness': raise ValueError('Invalid captured contract witness')
                 expected_id += ':contract_witness'
             elif provenance['syntax_kind'] not in ('assignment', 'augmented_assignment') or item['language'] != 'python':
