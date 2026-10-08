@@ -20,6 +20,54 @@ from repo_graph import source as source_module
 
 
 class SearchTests(unittest.TestCase):
+    def test_ranking_cli_refuses_inputs_without_importing_producer(self):
+        root = Path(__file__).resolve().parents[1]
+        from evaluations.acceptance import _ranking_inputs
+        _, _, _, inputs = _ranking_inputs(root)
+        command = '''
+import importlib.abc, os, runpy, sys
+from pathlib import Path
+class Guard(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname in ('evaluations.analysis', 'evaluations.tree_sitter_baseline', 'repo_graph.analysis_native'):
+            os._exit(97)
+sys.meta_path.insert(0, Guard())
+script = Path(sys.argv[1])
+sys.path.insert(0, str(script.parents[1]))
+sys.argv = [str(script), '--gate', 'task-preflight', '--task', 'T047', '--checks', 'ranking-boundary']
+runpy.run_path(str(script), run_name='__main__')
+'''
+        with tempfile.TemporaryDirectory() as scratch:
+            parent = Path(scratch)
+            def copy(destination):
+                for path in (*inputs, 'evaluations/acceptance.py', 'repo_graph/__init__.py', 'repo_graph/source.py'):
+                    target = destination / path; target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes((root / path).read_bytes())
+                report = destination / 'evaluations/results/code-understanding/business.json'
+                report.parent.mkdir(parents=True, exist_ok=True); report.write_bytes(b'preserved evidence')
+                return report
+            for control in ('uncommitted', 'changed', 'malformed', 'ancestor_git'):
+                with self.subTest(control=control):
+                    draft = parent / control; report = copy(draft)
+                    if control == 'changed':
+                        source = draft / next(path for path in inputs if '/retrieval/' in path)
+                        source.write_bytes(source.read_bytes() + b'\n')
+                    elif control == 'malformed':
+                        (draft / 'evaluations/code-understanding/function-relevance-review.json').write_bytes(b'{')
+                    elif control == 'ancestor_git':
+                        copy(parent)
+                        for argv in (['init', '-q'], ['add', '--', *inputs],
+                                ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                                 '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Synthetic source key']):
+                            subprocess.run(['git', '-C', str(parent), *argv], check=True,
+                                           capture_output=True, timeout=5)
+                    result = subprocess.run([sys.executable, '-I', '-c', command,
+                        str(draft / 'evaluations/acceptance.py')], capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    observation = json.loads(result.stdout)
+                    self.assertEqual((observation['status'], observation['stopped_phase']), ('blocked', 'inputs'))
+                    self.assertEqual(report.read_bytes(), b'preserved evidence')
+
     def test_impact_cli_selectors_filters_and_producer_git_base_forwarding(self):
         from repo_graph import cli, analysis, analysis_queries
         with tempfile.TemporaryDirectory() as scratch:

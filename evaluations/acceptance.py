@@ -305,6 +305,9 @@ def source_truth(path, candidate_sha, candidates):
 
 
 def committed(root, paths):
+    top = subprocess.run(['git', 'rev-parse', '--show-toplevel'], cwd=root, capture_output=True, text=True)
+    if top.returncode or Path(top.stdout.strip()).resolve() != Path(root).resolve():
+        return False
     commit = subprocess.run(['git', 'rev-parse', '--verify', 'HEAD'], cwd=root, capture_output=True, text=True)
     if commit.returncode:
         return False
@@ -2460,7 +2463,8 @@ def main(argv=None):
                 or args.source_review or args.review_template or args.evidence_root or args.source_map or args.report):
             parser.error('Task preflight supports exactly --task T047 --checks ranking-boundary')
         report = ranking_boundary()
-        _record_ranking_boundary(ROOT, report)
+        if report.get('stopped_phase') != 'inputs':
+            _record_ranking_boundary(ROOT, report)
         print(json.dumps(report, ensure_ascii=False, separators=(',', ':')))
         return 0 if report['status'] == 'passed' else 1
     if args.task or args.checks:
