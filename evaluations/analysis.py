@@ -3394,6 +3394,23 @@ def contract_impact_pages(output, request, *, max_edges=1):
     return rows, pages
 
 
+def _contract_impact_trace(rows, pages, request, actual_rows, source_evidence):
+    """Lossless report projection; repeated physical witnesses are stored once."""
+    references = []
+    for row in rows:
+        witness_references = []
+        for witness in row['evidence']:
+            key = hashlib.sha256(json.dumps(witness,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+            if key in source_evidence and source_evidence[key] != witness: raise ValueError('Contract witness projection collision')
+            source_evidence[key] = witness; witness_references.append(key)
+        projected = dict({k:v for k,v in row.items() if k!='evidence'}, evidence_references=witness_references)
+        key = hashlib.sha256(json.dumps(projected,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+        if key in actual_rows and actual_rows[key] != projected: raise ValueError('Contract row projection collision')
+        actual_rows[key] = projected; references.append(key)
+    return dict(request=request,row_references=references,
+        snapshot={key:pages[0][key] for key in ('generation','repository_identity','source_identity','analyzer_identity','config_identity','impact_identity')})
+
+
 def contract_impact_grade(index, oracle, manifest, state):
     cases = {case['profile_binding_id']:case for case in manifest['cases'] if 'profile_binding_id' in case}
     mutation = next((m for m in manifest['incremental_mutations'] if m['id'] == state), None)
@@ -3426,10 +3443,17 @@ def contract_impact_grade(index, oracle, manifest, state):
         if expected.get('selected_path_exists') is False or expected.get('captured_file_handle', True) is None:
             checks['no_fabricated_missing_handle'] = not any(p['selected_files'] for p in pages)
         results.append(dict(id=assertion['id'],state=state,status='passed' if all(checks.values()) else 'failed',checks=checks,
-            actual_query_rows=rows, selected_case_ids=sorted(observed), source_reference_sets=assertion['source_reference_sets'],
-            pages=[{key:p[key] for key in ('generation','repository_identity','source_identity','analyzer_identity','config_identity',
-                'impact_identity','scope','selected_files','selected_symbols','unavailable_paths','unknown_boundaries','total_count',
-                'examined_work','returned_entities','returned_edges','stop_reason','truncated','storage_setup_seconds','snapshot_copy_seconds')} for p in pages],
+            # Complete actual evidence is retained once in query_traces[state].
+            # Each assertion keeps its own physical selection and measured bounds.
+            observed_rows=[dict(binding_id=r['binding_id'],site_id=r['site']['id'],source_sha256=r['site']['source_sha256'],
+                caller_id=r['caller']['id'] if r['caller'] else None,target_id=r['target']['id'] if r['target'] else None,
+                certainty=r['certainty'],targets_exhaustive=r['targets_exhaustive'],reason=r['reason']) for r in rows],
+            query_trace_state=state, selected_case_ids=sorted(observed), source_reference_sets=assertion['source_reference_sets'],
+            snapshot={key:pages[0][key] for key in ('generation','repository_identity','source_identity','analyzer_identity','config_identity','impact_identity')},
+            scope=pages[0]['scope'],
+            pages=[dict(response_bytes=len(json.dumps(p,sort_keys=True,separators=(',',':')).encode()),
+                **{key:p[key] for key in ('selected_files','selected_symbols','unavailable_paths','unknown_boundaries','total_count',
+                'examined_work','returned_entities','returned_edges','stop_reason','truncated','storage_setup_seconds','snapshot_copy_seconds')}) for p in pages],
             selected_target_metrics=dict(true_positive=tp,false_positive=fp,false_negative=fn,
                 precision=tp/(tp+fp) if tp+fp else None,recall=tp/(tp+fn) if tp+fn else None,
                 scope='Only frozen selected exact target declarations; conservative dependency membership is not runtime precision')))
@@ -3575,7 +3599,7 @@ def contract_impact(root=ROOT, budget=None):
     with SourceRoot(root) as owner:
         before={path:owner.read(path,1024*1024,hash_full=True)[1] for path in code_paths}
     identity['implementation']=dict(commit=subprocess.check_output(['git','rev-parse','HEAD'],cwd=root,text=True).strip(),sha256=before)
-    results=[]; failures=[]; receipts=[]; boundaries=[]
+    results=[]; failures=[]; receipts=[]; boundaries=[]; query_traces={}; actual_rows={}; source_evidence={}
     def require(condition,message):
         if not condition: raise AssertionError(message)
     def capture(identifier,action):
@@ -3612,6 +3636,7 @@ def contract_impact(root=ROOT, budget=None):
             return index
         write(original);index=produce(scratch/'index',original)
         baseline=contract_facts(index);baseline_rows,baseline_pages=contract_impact_pages(index.output,request)
+        query_traces['baseline']=_contract_impact_trace(baseline_rows,baseline_pages,request,actual_rows,source_evidence)
         def baseline_cases():
             rows=contract_impact_grade(index,oracle,manifest,'baseline');results.extend(rows)
             require(all(r['status']=='passed' for r in rows),'Baseline source assertion failed')
@@ -3641,6 +3666,7 @@ def contract_impact(root=ROOT, budget=None):
                 clean=produce(scratch/('clean-'+mutation['id']),blobs,'queued')
                 require(facts==contract_facts(clean),'Update/clean facts or membership differ')
                 current_rows,current_pages=contract_impact_pages(current.output,request)
+                query_traces[mutation['id']]=_contract_impact_trace(current_rows,current_pages,request,actual_rows,source_evidence)
                 require(current_rows==contract_impact_pages(clean.output,request)[0],'Update/clean paged rows differ')
                 # Every published site and available declaration witness is inspected
                 # using captured physical bytes; missing keys never become handles.
@@ -3831,7 +3857,8 @@ def contract_impact(root=ROOT, budget=None):
     failed=failures or any(r['status']=='failed' for r in results) or len(measured)!=43
     return dict(schema_version=1,suite='contract-impact',status='failed' if failed else 'runtime_passed_view_pending',
         component_runtime_status='failed' if failed else 'passed',source_identity=identity,case_results=results,boundary_results=boundaries,
-        failures=failures,producer_receipts=receipts,environment=environment(),
+        failures=failures,producer_receipts=receipts,query_traces=query_traces,environment=environment(),
+        actual_query_rows=actual_rows,source_evidence=source_evidence,
         counts=dict(source_assertions_expected=43,source_assertions_measured=len(measured),mutations_measured=len(mutation_outcomes),
             backend_boundary_controls=sum(r['status']=='passed' for r in boundaries),viewer_controls_pending=1),
         resources=dict(tokens=None,native_peak_rss=None),qualification_complete=False,limits_qualified=False,
