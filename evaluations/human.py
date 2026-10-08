@@ -43,13 +43,13 @@ UPSTREAM = ('T017', 'T018', 'T019', 'T020', 'T021', 'T069')
 
 
 def allocation(questions, slots=5):
-    """Preview only: each slot sees each question once, parity views and rotated order."""
+    """Preview only: paired rotated orders with opposite views; each question once."""
     if type(slots) is not int or not 5 <= slots <= 100:
         raise ValueError('Participant slot count must be an integer from 5 to 100')
     return [dict(slot=slot, question_id=questions[index]['question_id'], order=order + 1,
                  condition='current' if (index + slot) % 2 == 0 else 'new')
         for slot in range(slots) for order in range(len(questions))
-        for index in [(order + slot) % len(questions)]]
+        for index in [(order + slot // 2) % len(questions)]]
 
 
 def capture_schema():
@@ -192,10 +192,14 @@ def validate_protocol(root=ROOT):
             plan = allocation(questions)
             balances = {q['question_id']: {view: sum(r['question_id'] == q['question_id'] and r['condition'] == view for r in plan)
                 for view in ('current', 'new')} for q in questions}
+            order_balances = {str(order): {view: sum(r['order'] == order and r['condition'] == view for r in plan)
+                for view in ('current', 'new')} for order in range(1, 10)}
             categories = {q['question_id']: q['category'] for q in questions}
             check('counterbalance', len(plan) == 45 and all(sorted(row.values()) == [2, 3] for row in balances.values()) and
-                all({r['question_id'] for r in plan if r['slot'] == s} == {q['question_id'] for q in questions} for s in range(5)),
-                'Five anonymous slot preview, parity views and rotated order; each question once per person, explicit3/2 imbalance')
+                all(sorted(row.values()) == [2, 3] for row in order_balances.values()) and
+                all({r['question_id'] for r in plan if r['slot'] == s} == {q['question_id'] for q in questions} and
+                    {r['order'] for r in plan if r['slot'] == s} == set(range(1, 10)) for s in range(5)),
+                'Five anonymous slots, opposite-view paired orders; each question once, explicit3/2 imbalance per question and task position including starts')
             protocol = dict(questions=questions, participants={'minimum_independent_people': 5,
                 'models_as_participants': 'forbidden', 'eligibility': 'Independent of implementation and source-key authorship; retain familiarity and prior exposure privately.',
                 'coaching': 'No implementation/source-key author coaches scored tasks.'},
@@ -204,12 +208,12 @@ def validate_protocol(root=ROOT):
                 'new': {'build': None, 'commands': None, 'config': None, 'analyzer': None, 'snapshot': None}},
                 counterbalance={'status': 'preview_not_actual_assignment', 'minimum_people': 5, 'planned_slots': 5,
                     'condition_rule': '(question_index + slot) modulo2: current for0, new for1',
-                    'order_rule': 'rotate fixed question order by slot modulo9', 'schedule': plan, 'question_view_counts': balances,
+                    'order_rule': 'rotate fixed question order by floor(slot/2) modulo9; pairs share order with opposite conditions',
+                    'schedule': plan, 'question_view_counts': balances,
                     'view_counts': {v: sum(r['condition'] == v for r in plan) for v in ('current', 'new')},
                     'category_view_counts': {c: {v: sum(categories[r['question_id']] == c and r['condition'] == v for r in plan)
                         for v in ('current', 'new')} for c in sorted(set(categories.values()))},
-                    'order_view_counts': {str(o): {v: sum(r['order'] == o and r['condition'] == v for r in plan)
-                        for v in ('current', 'new')} for o in range(1, 10)},
+                    'order_view_counts': order_balances,
                     'actual_assignments': []}, capture=capture_schema(),
                 independent_grading={'human_assessor_assigned': False, 'answers_locked_before_grading': True,
                     'source_key_disputes': 'Resolve through existing source admission before scoring; never silently change gold.',

@@ -47,7 +47,8 @@ class HumanProtocolTests(unittest.TestCase):
         expected = [q['question_id'] for q in questions]
         for slot in range(5):
             rows = [row for row in plan if row['slot'] == slot]
-            self.assertEqual([r['question_id'] for r in rows], expected[slot:] + expected[:slot])
+            rotation = slot // 2
+            self.assertEqual([r['question_id'] for r in rows], expected[rotation:] + expected[:rotation])
             self.assertEqual([r['order'] for r in rows], list(range(1, 10)))
             for row in rows:
                 index = expected.index(row['question_id'])
@@ -57,6 +58,20 @@ class HumanProtocolTests(unittest.TestCase):
             self.assertEqual(sorted([views.count('current'), views.count('new')]), [2, 3])
         even = human.allocation(questions, 6)
         self.assertTrue(all(sum(r['condition'] == 'current' and r['question_id'] == q for r in even) == 3 for q in expected))
+        for slots in range(5, 101):
+            cohort = human.allocation(questions, slots)
+            with self.subTest(slots=slots):
+                self.assertEqual(len(cohort), 9 * slots)
+                for slot in range(slots):
+                    rows = [r for r in cohort if r['slot'] == slot]
+                    self.assertEqual(len(rows), 9)
+                    self.assertEqual({r['question_id'] for r in rows}, set(expected))
+                    self.assertEqual({r['order'] for r in rows}, set(range(1, 10)))
+                for key, values in (('question_id', expected), ('order', range(1, 10))):
+                    for value in values:
+                        views = [r['condition'] for r in cohort if r[key] == value]
+                        self.assertEqual(len(views), slots)
+                        self.assertLessEqual(abs(views.count('current') - views.count('new')), 1)
         for invalid in (True, 4, 5.0, 101):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 human.allocation(questions, invalid)
@@ -76,6 +91,24 @@ class HumanProtocolTests(unittest.TestCase):
             (directory / 'fixtures.json').symlink_to(outside)
             result = human.validate_protocol(root)
             self.assertEqual(result['status'], 'failed'); self.assertIsNone(result['source_identity'])
+
+    def test_counterbalance_guard_rejects_old_position_confounded_plan(self):
+        def old_allocation(questions, slots=5):
+            return [dict(slot=slot, question_id=questions[index]['question_id'], order=order + 1,
+                         condition='current' if (index + slot) % 2 == 0 else 'new')
+                for slot in range(slots) for order in range(len(questions))
+                for index in [(order + slot) % len(questions)]]
+        old = old_allocation(self.result['protocol']['questions'])
+        self.assertEqual([r['condition'] for r in old if r['order'] == 1], ['current'] * 5)
+        self.assertTrue(all(sorted([sum(r['question_id'] == q['question_id'] and r['condition'] == view for r in old)
+            for view in ('current', 'new')]) == [2, 3] for q in self.result['protocol']['questions']))
+        with patch.object(human, 'allocation', side_effect=old_allocation):
+            refused = human.validate_protocol()
+        self.assertEqual([r['id'] for r in refused['case_results']], [r['id'] for r in self.result['case_results']])
+        self.assertEqual(next(r['status'] for r in refused['case_results'] if r['id'] == 'counterbalance'), 'failed')
+        self.assertEqual(refused['status'], 'failed')
+        self.assertEqual(refused['study_execution_status'], 'not_run')
+        self.assertEqual(refused['study_eligibility']['status'], 'blocked')
 
     def private_capture(self):
         question = self.result['protocol']['questions'][4]
