@@ -3277,10 +3277,13 @@ def odoo_framework(root=ROOT, budget=None, *, source_map=None, work_root=None):
     return _framework(root, budget, source_map=source_map, work_root=work_root, framework='odoo')
 
 
+FROZEN_ODOO_NODE_LIMIT = 500_000
+
+
 def _framework(root=ROOT, budget=None, *, source_map=None, work_root=None, framework):
     """Frozen source questions graded after the single structural owner runs."""
     from evaluations.acceptance import committed
-    root, budget = Path(root), budget or Budget()
+    root, budget = Path(root), budget or Budget(max_nodes=FROZEN_ODOO_NODE_LIMIT if framework == 'odoo' else 200_000)
     suite = framework + '-framework'; display = 'Django' if framework == 'django' else 'Odoo'
     task, frozen_input, frozen_review = ({'django': ('T018',
         '2348603f592660275f9a5750c18fe3e08c1679516333e7613fef9f78589f26c9',
@@ -3577,7 +3580,7 @@ def _framework(root=ROOT, budget=None, *, source_map=None, work_root=None, frame
         source_identity=identity, source_map_sha256=map_sha, case_results=checks, failures=failures, coverage_failures=[],
         counts=dict(frozen_cases=len(manifest['cases']), mutation_phases=len(manifest['incremental_mutations']),
                     checks=len(checks), passed=len(checks) - len(failures)), receipts=receipts, query_traces=query_traces, environment=environment(),
-        qualification_complete=False, limits_qualified=False, **({'per_family_metrics': metrics, 'private_evidence_id': evidence_id} if framework == 'odoo' else {}), scope='Finite opt-in ' + display + ' source registrations and explicit unknown boundaries; '
+        qualification_complete=False, limits_qualified=False, **({'per_family_metrics': metrics, 'private_evidence_id': evidence_id, 'limits': vars(budget)} if framework == 'odoo' else {}), scope='Finite opt-in ' + display + ' source registrations and explicit unknown boundaries; '
         'shared serial/queued facts, clean/update/restore and captured source/query parity. Runtime order, full business paths, scale and human UX unqualified.')
 
 
@@ -4223,8 +4226,10 @@ def main(argv=None):
                         help='finite report cap: 2 MiB for comparison/structural suites, 1 MiB otherwise')
     parser.add_argument('--max-files', type=int, default=128)
     parser.add_argument('--max-source-bytes', type=int, default=4 * 1024 * 1024)
-    parser.add_argument('--max-nodes', type=int, default=200_000)
+    parser.add_argument('--max-nodes', type=int, help='node ceiling; frozen Odoo suite defaults to 500000, other suites to 200000')
     args = parser.parse_args(argv)
+    if args.max_nodes is None:
+        args.max_nodes = FROZEN_ODOO_NODE_LIMIT if args.suite == 'odoo-framework' else 200_000
     if args.repetition is not None and not args.profile_pilot:
         parser.error('--repetition requires --profile-pilot')
     if args.repetition is None: args.repetition = 1
