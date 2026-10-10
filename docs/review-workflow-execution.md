@@ -255,7 +255,16 @@ and native gates at release, broadening only after changes or unresolved failure
   review caught an old-v2 resume collision; construction identity now binds
   exact packet semantics, fragment ranges, gaps and anchors. The actual prior
   builder/current-builder probe preserved every old campaign byte and resumed
-  only the matching new construction. No full-plan completion is claimed.
+  only the matching new construction. A further R2 audit found included tests
+  were context rather than assertion-accounted members. V3 adds explicit
+  whole-file integration members, a union assertion map and deduplicated shared
+  closure; any blocked member blocks the group. Automatic integration discovery,
+  class splitting and dynamic closure remain unqualified. Earlier v1/v2 campaign
+  evidence is retained and refused by the new runtime. No full-plan completion
+  is claimed. The [v3 source review](../evaluations/results/review-workflow/source-review-v3-members.json)
+  retains the read-time member failure and repair. A separate two-file,
+  source-only preparation materialized one packet with 23 assertion anchors and
+  45 unique source files; it is not a comparison with the earlier full-suite scope.
 - R4: existing Codex skill extended and validated. Isolated installed Codex
   packet/result/independent-disposition/resume checks passed with synthetic
   results, including repository-config export refusal and reduced result limits.

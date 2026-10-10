@@ -167,6 +167,10 @@ configuration cannot increase permissions, enroll a provider or expand export.
 2. Select one behavior or related assertion family. Start from a complete test
    file plus fixtures, relevant implementation and required callers. Existing
    graph edges are candidate evidence; unresolved edges remain explicit gaps.
+   An explicit `--member` group uses one scoped test file plus named related test
+   files, requiring their union assertion map and sharing one dependency closure.
+   Each member is acquired whole; a blocked member blocks the group. `--include`
+   remains dependency context. No automatic integration discovery is implied.
 3. Deduplicate overlapping source spans. Give each included dependency a
    reason, exact range and digest. Include setup, failure and teardown paths
    needed to interpret the selected positive tests.
@@ -244,13 +248,14 @@ excluded from commits. Reuse guarded atomic publication. Start with immutable
 JSON packet/result records and a small atomically replaced manifest, avoiding
 a second service or event database. Only one coordinator writes campaign state;
 workers return results and do not mutate the manifest. Concurrent coordinators
-are rejected. Schema v2 uses a nonblocking descriptor lock on the campaign
+are rejected. Schema v3 uses a nonblocking descriptor lock on the campaign
 directory; the operating system releases it when the coordinator exits.
 Lifecycle publication replaces only the manifest, after immutable artifacts
 are written. An interruption before replacement preserves the prior state;
 an interruption after assignment publication leaves that attempt assigned.
-Neither case proves a model worker stopped or permits replay. Older v1 records
-are refused explicitly and retained for historical inspection.
+Neither case proves a model worker stopped or permits replay. Older v1/v2
+records are refused explicitly and retained for historical inspection; v3 seals
+test membership as part of the immutable packet contract.
 
 | Record | Minimum contract |
 | --- | --- |
@@ -279,7 +284,7 @@ readback. If delivery is uncertain, reconcile that reference before retrying.
 
 The alpha labels completion `materialized_source_only` and always reports
 `dependencies_complete=false`. A completed result requires the exact materialized
-ranges and every static primary-test assertion in those ranges. Split packets
+ranges and every static declared test-member assertion in those ranges. Split packets
 retain explicit uncovered ranges and a blocked partial-file denominator. An attributed
 independent disposition does not prove dependency closure or authorize deletion.
 Status checks source and result evidence only for its requested page; other

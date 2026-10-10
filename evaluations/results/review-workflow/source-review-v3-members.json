@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "scope": "Experimental source checkpoint for explicitly declared whole-file test members, shared source closure and complete union assertion accounting.",
+  "reviewer": {
+    "model": "unverified",
+    "reasoning": "unverified",
+    "surface": "codex_collaboration",
+    "role": "independent_read_only_reviewer"
+  },
+  "decision": "go_for_experimental_source_checkpoint_conditional_on_exact_head_ci",
+  "reviewed_sha256": {
+    "repo_graph/review.py": "18ed12d6a48208bd8e01a4d2e7d1355fde89057852cac6cb0f761dc089af98aa",
+    "tests/test_review.py": "abd82b337528cc88be2d0e6274598d2d0f0ea726fcf79f609426a7267e6abe0d",
+    "repo_graph/cli.py": "8483945c232b6aac71084b5c2e51609c792c5a5655333babc0a8d236bc997f85",
+    "tests/harness_smoke.py": "5fcf8412bac890f016716a2424856d6cc4656901488d871cecaf0797d29046eb",
+    "README.md": "c80d79fb849203b5eb35a0ac90658567503f8d4ff88dd5b96e5b6f02ae1cbf94",
+    "skills/repo-graph/SKILL.md": "4943c25f01cfc39d9a2c4b8d7f75c612f451977cdef69523a7dcfff031ac4f36",
+    "docs/review-workflow-design.md": "342fe70b29a62b16ddaaeb44bd04f2190a87bd17614e23f1a59b3b8f8088fb69",
+    "docs/review-workflow-execution.md": "48a23c3df0677a8744ffd68a4c1de724071e29e42789b120f3a15133d04f8d5e"
+  },
+  "attempts": [
+    {
+      "decision": "hold",
+      "reviewed_sha256": {
+        "repo_graph/review.py": "4333fa57b9d6a9aca268a6740679f18d115e698584d062a034e8404015b57c91",
+        "tests/test_review.py": "fd22aae710794159b5a5e7e8ed8200abb33a78675e0585672f4503585f404df8"
+      },
+      "finding": "A member disappearing after metadata inspection raised FileNotFoundError instead of publishing a campaign with every group member blocked. Initial positive checks passed but did not detect this race."
+    },
+    {
+      "decision": "go_for_experimental_source_checkpoint_conditional_on_checks",
+      "reviewed_sha256": {
+        "repo_graph/review.py": "18ed12d6a48208bd8e01a4d2e7d1355fde89057852cac6cb0f761dc089af98aa",
+        "tests/test_review.py": "abd82b337528cc88be2d0e6274598d2d0f0ea726fcf79f609426a7267e6abe0d"
+      },
+      "repair": "Shared guarded acquisition returns bounded source-unavailable records and charges measured failed-read bytes; all group members are blocked atomically. Published packet references determine eligibility. Final serialization refusal consistently blocks all declared members."
+    }
+  ],
+  "independent_checks": {
+    "status": "reviewer_reported_pass",
+    "checks": [
+      "six_focused_review_journeys",
+      "after_info_member_disappearance_blocks_entire_group",
+      "simulated_EAGAIN_after_seven_streamed_bytes_is_charged",
+      "unavailable_member_status_is_stale",
+      "simulated_final_serialization_rejection_counts_no_eligible_members",
+      "member_normalization_and_sealed_identity",
+      "shared_source_deduplication_and_union_anchors",
+      "missing_secondary_source_range_or_assertion_refused",
+      "member_source_change_stales_packet",
+      "sensitive_and_symlink_member_refusal",
+      "configuration_members_refused_before_cache_creation",
+      "ordinary_prepublication_and_final_serialized_lengths_equal",
+      "py_compile_and_diff_check"
+    ]
+  },
+  "final_serialization_probe": {
+    "classification": "defensive_invariant",
+    "natural_final_only_rejection_observed": false,
+    "forced_refusal": "every_member_blocked;eligible_zero;packets_zero"
+  },
+  "local_checks": [
+    {
+      "check": "initial_full_product",
+      "status": "passed",
+      "log_sha256": "844cc642a8046a8cca0845a2fac247bd3a1f5af4742e6ea6cfa730266bf377aa",
+      "tests": 127,
+      "duration_seconds": 32.577,
+      "exit_code": 0,
+      "qualifies_read_race": false
+    },
+    {
+      "check": "repaired_full_product",
+      "status": "passed",
+      "log_sha256": "d05cb329a6cd2dcdb4a84cddb99560fb68cffdb0bc71c5cb85ffe2eeefaac725",
+      "tests": 127,
+      "duration_seconds": 32.864,
+      "exit_code": 0,
+      "traceback_deadline_seconds": 90
+    },
+    {
+      "check": "initial_isolated_codex_group_installation",
+      "status": "passed",
+      "log_sha256": "50efc63b726007cdb70a258fb9f76cf2e67bdfa7b1b304a34458fd042db15978",
+      "provider_calls": 0
+    },
+    {
+      "check": "repaired_isolated_codex_group_installation",
+      "status": "passed",
+      "log_sha256": "50efc63b726007cdb70a258fb9f76cf2e67bdfa7b1b304a34458fd042db15978",
+      "provider_calls": 0,
+      "synthetic_results": true
+    },
+    {
+      "check": "evaluation_contracts_and_corpus",
+      "status": "passed",
+      "log_sha256": "4a131f3cdd6307c710c17a7e2c49b58372f81e31d897489ef9357ac116592506",
+      "tests": 8,
+      "families": 12,
+      "keyed_assertions": 18,
+      "affected_source_unchanged_by_read_race_repair": true
+    },
+    {
+      "check": "node_viewer",
+      "status": "passed",
+      "log_sha256": "84705793f805ab5b7cc899f8665224a42530497eaeb53277ef7243c709f489a1",
+      "affected_source_unchanged": true
+    },
+    {
+      "check": "initial_wheel",
+      "status": "passed",
+      "log_sha256": "354295869f38d4c62a1a5c9a9dcf03c4d22fa5d72bdd129f71c906c209841f51",
+      "release_published": false
+    },
+    {
+      "check": "repaired_wheel",
+      "status": "passed",
+      "log_sha256": "e70a32da4dbcb99492185d3a887991b991a22a7cab047d0274b9a5ae3844b443",
+      "release_published": false
+    },
+    {
+      "check": "cli_plan_help",
+      "status": "passed",
+      "log_sha256": "55806f02fd25fb4f0dc18c463a81850486e26e26254385a124a116c9692e275c",
+      "command": "uv run repo-graph review plan --help"
+    },
+    {
+      "check": "skill_creator_quick_validate",
+      "status": "passed"
+    },
+    {
+      "check": "py_compile_and_diff",
+      "status": "passed"
+    }
+  ],
+  "command_repairs": [
+    {
+      "command": "python -m repo_graph.cli review plan --help",
+      "status": "not_exercised",
+      "reason": "Module has no main entrypoint; empty output and exit zero do not verify help. Correct console entrypoint then passed."
+    }
+  ],
+  "real_source_preparation": {
+    "private_receipt_sha256": "63763aa6b4b8fdd0ce08e3dfef801c2943a3cbc531b0f139dfe1d1065a349707",
+    "target_head": "6a0956f717a066409d7b3b89d143c015b2a1d8e6",
+    "requested_files": 2,
+    "eligible_files": 2,
+    "blocked_files": 0,
+    "packets": 1,
+    "unique_materialized_source_files": 45,
+    "assertion_anchors": 23,
+    "materialized_source_bytes": 701475,
+    "serialized_packet_bytes": 775680,
+    "source_read_ceiling_bytes": 1048576,
+    "serialized_packet_ceiling_bytes": 786432,
+    "dependencies_complete": false,
+    "source_unchanged": true,
+    "target_source_execution": false,
+    "model_requests": 0,
+    "comparison": "Selected two-file scope; not comparable to earlier full-suite trial."
+  },
+  "ci": "New checkpoint commit requires its own exact-head checks; later delivery receipt and current PR checks are authoritative.",
+  "prior_review": "source-review-v2-fragments.json and earlier receipts retain prior hashes, failures and source checkpoint limits; they are not v3 reviews.",
+  "unchanged_source_boundaries": {
+    "target_tests_executed": false,
+    "target_tests_removed": 0,
+    "coverage_result": "not_measured",
+    "version_pins_and_consumers": "unchanged"
+  },
+  "review_independence": {
+    "separate_agent_from_author": true,
+    "separate_model_identity": "unverified",
+    "scope": "Source checkpoint only; not independent-model quality acceptance."
+  },
+  "feature_qualified": false,
+  "automatic_delegation_qualified": false,
+  "release_qualified": false,
+  "remaining_holds": [
+    "native_worker_fresh_context_permissions_lifecycle_cancellation_usage",
+    "operator_selected_live_run_ceiling_pending",
+    "independently_graded_comparative_pilot",
+    "token_efficiency_unmeasured",
+    "automatic_integration_discovery_class_splitting_and_dynamic_closure",
+    "feature_release_and_consumer_delivery"
+  ],
+  "model_requests": 0,
+  "model_request_count_scope": "Native qualification and comparative pilot; development collaboration is separate.",
+  "goal_status": "active"
+}

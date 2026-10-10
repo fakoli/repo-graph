@@ -110,6 +110,7 @@ def main(argv=None):
     plan.add_argument('repository', type=Path, nargs='?', default=Path('.'))
     plan.add_argument('--scope', help='Repository-relative test path or directory (default: tests)')
     plan.add_argument('--include', action='append', default=[], help='Explicit repository-relative dependency file')
+    plan.add_argument('--member', action='append', default=[], help='Additional test member; --scope must name one test file')
     plan.add_argument('--output', type=Path, help='Cache directory outside the source repository')
     plan.add_argument('--profile', choices=['test-consolidation'], default='test-consolidation')
     plan.add_argument('--limits', help='JSON object reducing built-in source and result byte ceilings')
@@ -199,7 +200,7 @@ def main(argv=None):
                         from .search import _json_record
                         policy = _json_record(raw, maximum=16384)
                 if set(policy) - {'scope', 'limits'}:
-                    raise ValueError('Review configuration accepts only narrowing scope and reducing limits; use --include for explicit dependencies')
+                    raise ValueError('Review configuration accepts only narrowing scope and reducing limits; use --include for explicit dependencies or --member for test members')
                 scope = parsed.scope if parsed.scope is not None else 'tests'
                 scope = workflow._relative(scope) if scope != '.' else '.'
                 if 'scope' in policy:
@@ -218,7 +219,7 @@ def main(argv=None):
                     overrides = _json_record(parsed.limits, maximum=16384)
                     limits = {**limits, **overrides}
                 result = workflow.plan(root, scope=scope, output=parsed.output,
-                                       include=parsed.include, limits=limits,
+                                       include=parsed.include, members=parsed.member, limits=limits,
                                        authority=parsed.authority)
             elif parsed.review_command == 'next':
                 result = workflow.next_packet(parsed.campaign, worker=parsed.worker)

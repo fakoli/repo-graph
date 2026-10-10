@@ -54,15 +54,68 @@ class ReviewTests(unittest.TestCase):
             stale = review.status(created["campaign"])["packets"][0]
             self.assertEqual("stale", stale["state"])
             self.assertEqual("evidence_invalid", stale["stale_reason"])
+            # Explicit members form one atomic, source-only integration packet.
+            # Shared closure is materialized once and both test files retain
+            # their independent original assertion identities.
+            (root / "tests" / "test_queue_extra.py").write_text(
+                "from pkg.helper import value\ndef test_queue_extra():\n    assert value() == 1\n")
+            grouped = review.plan(root, scope="tests/test_one.py", members=["tests/test_queue_extra.py"], output=Path(temp.name) / "group-cache")
+            self.assertEqual({"requested": 2, "eligible": 2, "blocked": 0, "packets": 1},
+                             {key: grouped["counts"][key] for key in ("requested", "eligible", "blocked", "packets")})
+            self.assertTrue(review.plan(root, scope="tests/test_one.py", members=["tests/test_queue_extra.py"], output=Path(temp.name) / "group-cache")["resumed"])
+            grouped_assigned = review.next_packet(grouped["campaign"], worker="codex-group")
+            grouped_packet = grouped_assigned["packet"]
+            self.assertEqual(["tests/test_one.py", "tests/test_queue_extra.py"], grouped_packet["test_members"])
+            self.assertEqual({"tests/test_one.py", "tests/test_queue_extra.py", "tests/conftest.py", "pkg/__init__.py", "pkg/helper.py", "pkg/extra.py"},
+                             {source["path"] for source in grouped_packet["sources"]})
+            self.assertEqual(2, len(grouped_packet["anchors"]["assertions"]))
+            incomplete = self.result_for(grouped_assigned)
+            incomplete["assertion_map"].pop()
+            with self.assertRaisesRegex(ValueError, "each original assertion"):
+                review.record(grouped["campaign"], incomplete)
+            grouped_result = self.result_for(grouped_assigned)
+            grouped_saved = review.record(grouped["campaign"], grouped_result)
+            grouped_decision = {"kind": "independent_decision", "packet_id": grouped_result["packet_id"], "attempt_id": grouped_result["attempt_id"],
+                                "result_sha256": grouped_saved["sha256"], "reviewer_id": "astra-group", "disposition": "accepted",
+                                "provenance": {"model": "astra", "surface": "codex", "reasoning": "high"}, "rationale": "independent group review"}
+            self.assertEqual("accepted", review.record(grouped["campaign"], grouped_decision)["state"])
+            self.assertEqual(["tests/test_one.py", "tests/test_queue_extra.py"], review.status(grouped["campaign"])["packets"][0]["test_members"])
+            (root / "tests" / "test_queue_extra.py").write_text("changed = True\n" + (root / "tests" / "test_queue_extra.py").read_text())
+            self.assertEqual("stale", review.status(grouped["campaign"])["packets"][0]["state"])
+            (root / "tests" / "test_group_large.py").write_text("#" * 300)
+            blocked_group = review.plan(root, scope="tests/test_one.py", members=["tests/test_group_large.py"], output=Path(temp.name) / "group-blocked", limits={"file_bytes": 128})
+            self.assertEqual(0, blocked_group["counts"]["packets"])
+            self.assertEqual(2, blocked_group["counts"]["blocked"])
+            disappearing = root / "tests" / "test_group_disappears.py"
+            disappearing.write_text("def test_disappears():\n    assert True\n")
+            primary_bytes = (root / "tests" / "test_one.py").stat().st_size
+            original_read, streamed = review.SourceRoot.read, [0]
+            def disappear_after_info(owner, path, *args, **kwargs):
+                measurements = kwargs.setdefault("measurements", {})
+                if owner.root == root and path == "tests/test_group_disappears.py":
+                    disappearing.unlink()
+                try:
+                    return original_read(owner, path, *args, **kwargs)
+                finally:
+                    if owner.root == root:
+                        streamed[0] += measurements.get("stream_bytes", 0)
+            with patch.object(review.SourceRoot, "read", disappear_after_info):
+                raced_group = review.plan(root, scope="tests/test_one.py", members=["tests/test_group_disappears.py"], output=Path(temp.name) / "group-race")
+            self.assertEqual(0, raced_group["counts"]["packets"])
+            self.assertEqual(2, raced_group["counts"]["blocked"])
+            self.assertEqual(primary_bytes, streamed[0])
+            race_rows = review.status(raced_group["campaign"])["inventory_blocked"]
+            self.assertTrue(all("group_blocked:tests/test_group_disappears.py:source_unavailable" in row["reason"] for row in race_rows))
 
     def test_packet_integrity_and_interrupted_publication_do_not_dispatch(self):
         temp, root = self.make_repo()
         with temp:
             created = review.plan(root, output=Path(temp.name) / "cache")
             manifest = Path(created["campaign"]) / "campaign.json"; manifest_original = manifest.read_bytes()
-            legacy = json.loads(manifest_original); legacy["schema"] = "repo-graph-review-v1"; manifest.write_text(json.dumps(legacy))
-            with self.assertRaisesRegex(ValueError, "unsupported campaign schema"):
-                review.next_packet(created["campaign"])
+            for schema in ("repo-graph-review-v1", "repo-graph-review-v2"):
+                legacy = json.loads(manifest_original); legacy["schema"] = schema; manifest.write_text(json.dumps(legacy))
+                with self.assertRaisesRegex(ValueError, "unsupported campaign schema"):
+                    review.next_packet(created["campaign"])
             manifest.write_bytes(manifest_original)
             packet_file = next(Path(created["campaign"]).glob("packet-*.json"))
             original = packet_file.read_bytes()

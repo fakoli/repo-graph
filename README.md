@@ -113,6 +113,18 @@ stale and blocked evidence with pagination. Configuration in
 repository configuration cannot expand source export. It contains no commands,
 provider settings or credentials.
 
+To review related test files together, name a primary file and explicit members:
+
+```bash
+repo-graph review plan . --scope tests/test_api.py --member tests/test_state.py
+```
+
+The group requires every member's assertion map, deduplicates shared dependencies
+and admits whole test files only. If a member is blocked or the group does not
+fit, no partial group is dispatched. `--include` supplies dependency context;
+`--member` declares another test for assertion accounting. Repository configuration
+cannot add members. Automatic integration discovery remains unqualified.
+
 Source reads obey the byte ceiling at the descriptor; failed decoding still
 consumes the campaign budget. Packet limits include JSON escaping and metadata.
 
@@ -131,10 +143,10 @@ prove desktop worker permissions or model quality. Source-only packet review
 remains usable when delegation is unsupported. Other harness review adapters,
 Anvil evidence integration and automatic test edits are outside this slice.
 
-Schema v2 keeps packet payloads immutable and publishes lifecycle changes through
+Schema v3 keeps packet payloads immutable and publishes lifecycle changes through
 one atomic campaign manifest. Descriptor locks reject concurrent coordinators
 and release on process exit; an interrupted assignment is never replayed.
-Earlier v1 records are refused explicitly and remain available as historical
+Earlier v1/v2 records are refused explicitly and remain available as historical
 evidence. Native process cancellation and model completion remain unqualified.
 
 The [design](docs/review-workflow-design.md),

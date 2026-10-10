@@ -76,9 +76,10 @@ def main():
         assert [p['path'] for p in found['results']] == ['queue.py'], found
         if args.harness == 'codex':
             (repo / 'test_queue.py').write_text('from queue import enqueue\n\ndef test_enqueue():\n    assert enqueue() is None\n')
+            (repo / 'test_queue_extra.py').write_text('from queue import enqueue\n\ndef test_enqueue_again():\n    assert enqueue() is None\n')
             cache = Path(scratch) / 'review output'
             policy = repo / 'repo-graph-review.json'
-            for untrusted in ({'include': ['queue.py']}, {'scope': '.'}):
+            for untrusted in ({'include': ['queue.py']}, {'members': ['test_queue_extra.py']}, {'scope': '.'}):
                 policy.write_text(json.dumps(untrusted))
                 refused = subprocess.run([sys.executable, str(script), 'review', 'plan', '.',
                                          '--scope', 'test_queue.py', '--output', str(cache)],
@@ -86,18 +87,22 @@ def main():
                 assert refused.returncode == 1 and not cache.exists(), refused.stderr
             policy.write_text(json.dumps({'scope': 'test_queue.py', 'limits': {'result_bytes': 4096}}))
             planned = json.loads(run([sys.executable, str(script), 'review', 'plan', '.',
-                                      '--scope', 'test_queue.py', '--output', str(cache)]))
+                                      '--scope', 'test_queue.py', '--member', 'test_queue_extra.py', '--output', str(cache)]))
             campaign = planned['campaign']
             assigned = json.loads(run([sys.executable, str(script), 'review', 'next', campaign,
                                        '--worker', 'synthetic-worker']))
             packet, attempt = assigned['packet'], assigned['attempt']
             assert assigned['result_schema']['worker_result']['limits']['bytes'] == 4096
+            assert packet['test_members'] == ['test_queue.py', 'test_queue_extra.py']
+            assert set(packet['anchors']['assertions']) == {'test_queue.py:4', 'test_queue_extra.py:4'}
+            assert len([item for item in packet['sources'] if item['path'] == 'queue.py']) == 1
             sources = [{key: item[key] for key in ('path', 'start_line', 'end_line', 'sha256')}
                        for item in packet['sources']]
             result = dict(packet_id=packet['packet_id'], attempt_id=attempt['attempt_id'],
                           worker_id=attempt['worker_id'], reviewed_ranges=sources, findings=[],
-                          assertion_map=[dict(original='test_queue.py:4', disposition='preserved',
-                                              evidence='The original enqueue assertion remains.')],
+                          assertion_map=[dict(original=anchor, disposition='preserved',
+                                              evidence='The original enqueue assertion remains.')
+                                         for anchor in packet['anchors']['assertions']],
                           outcome='completed')
             result_file = Path(scratch) / 'synthetic-result.json'
             result_file.write_text(json.dumps(result))
