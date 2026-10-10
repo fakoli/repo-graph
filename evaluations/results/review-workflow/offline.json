@@ -129,6 +129,41 @@
     {
       "command": "git diff --check",
       "status": "passed"
+    },
+    {
+      "command": "REPO_GRAPH_PYTHON=.venv/bin/python REPO_GRAPH_UX_FOCUS=paths npm run test:ux",
+      "status": "passed",
+      "source_sha256": {
+        "tests/ux.mjs": "8ce9663dff0791bf450c3b39efb7429cc0887807a9a9844d25fd4b42f2c7160e"
+      },
+      "browser_errors": 0
+    },
+    {
+      "command": "REPO_GRAPH_PYTHON=.venv/bin/python npm run test:ux",
+      "status": "passed",
+      "source_sha256": {
+        "tests/ux.mjs": "8ce9663dff0791bf450c3b39efb7429cc0887807a9a9844d25fd4b42f2c7160e"
+      },
+      "browser_errors": 0,
+      "change": "Read source response JSON immediately on receipt; source and focus assertions unchanged."
+    }
+  ],
+  "ci_attempts": [
+    {
+      "head": "70c2208e75236109d3358f2914f78a10de52537a",
+      "url": "https://github.com/fakoli/repo-graph/actions/runs/38089213687",
+      "status": "failed",
+      "error": "Network.getResponseBody response no longer available after navigation",
+      "file": "tests/ux.mjs",
+      "line": 148
+    },
+    {
+      "head": "70c2208e75236109d3358f2914f78a10de52537a",
+      "url": "https://github.com/fakoli/repo-graph/actions/runs/38089230243",
+      "status": "failed",
+      "error": "Network.getResponseBody response no longer available after navigation",
+      "file": "tests/ux.mjs",
+      "line": 148
     }
   ]
 }

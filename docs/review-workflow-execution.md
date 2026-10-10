@@ -235,7 +235,9 @@ and native gates at release, broadening only after changes or unresolved failure
   permits a source checkpoint after integrity, freshness, denominator and
   bounded-record fixes. Five journey tests cover its core contracts. Oversized
   logical-unit splitting, complete dependencies and operator recovery remain
-  incomplete; no full-plan completion is claimed.
+  incomplete; no full-plan completion is claimed. Follow-up implementation is
+  closing bounded recursive dependency selection, logical-unit packets and
+  interrupted publication without automatic worker replay.
 - R4: existing Codex skill extended and validated. Isolated installed Codex
   packet/result/independent-disposition/resume checks passed with synthetic
   results, including repository-config export refusal and reduced result limits.
@@ -256,7 +258,10 @@ and native gates at release, broadening only after changes or unresolved failure
 - Product Python, Node and structural evaluation checks passed. The first
   browser attempt failed while reading a navigated-away response; the unchanged
   rerun passed with no browser errors. Both attempts remain recorded rather than
-  relabeling the first as a pass.
+  relabeling the first as a pass. Both initial CI runs reproduced that race.
+  Source-response JSON capture now starts immediately on receipt; focused and
+  full browser checks passed after the repair with all assertions preserved.
+  Repaired-source CI is pending.
 - R7: source checkpoint delivery is separate from feature release. Version pins
   and consumers remain unchanged while model/efficiency gates are unpassed.
   [Source review](../evaluations/results/review-workflow/source-review.json) and

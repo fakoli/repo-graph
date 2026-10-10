@@ -42,5 +42,18 @@
   ],
   "feature_qualified": false,
   "automatic_delegation_qualified": false,
-  "release_qualified": false
+  "release_qualified": false,
+  "checkpoint_followup": {
+    "file": "tests/ux.mjs",
+    "sha256": "8ce9663dff0791bf450c3b39efb7429cc0887807a9a9844d25fd4b42f2c7160e",
+    "decision": "go_for_experimental_checkpoint_after_post_repair_exact_source_ci",
+    "finding": "Immediate response body acquisition fixes the reproduced CDP race; exact source-byte, digest/exchange and focus assertions preserved.",
+    "local_verification": [
+      "node_syntax",
+      "focused_browser_paths",
+      "full_browser_ux",
+      "git_diff_check"
+    ],
+    "ci": "pending_repaired_commit"
+  }
 }
