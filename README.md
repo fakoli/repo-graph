@@ -88,6 +88,49 @@ marketplace entry, update/reinstall that entry instead of adding a second copy
 through the canonical marketplace. Select one Repo Graph distribution per
 harness. Uninstall with the native manager.
 
+## Codex source reviews in development
+
+The development source adds bounded, resumable test-consolidation reviews through
+the existing `$repo-graph` skill. These commands are not in published 0.6.0:
+
+```bash
+repo-graph review plan . --scope tests
+repo-graph review next CAMPAIGN --worker SESSION
+repo-graph review record CAMPAIGN --result RESULT.json
+repo-graph review status CAMPAIGN
+```
+
+`plan` captures complete bounded test files and candidate fixture/implementation
+dependencies without importing source or invoking a model. The default cache is
+outside source under `~/.cache/repo-graph/reviews`. `next` assigns one packet and
+returns its source and result schema. `record` checks source identity, citations
+and assertion dispositions; independent acceptance binds the exact result digest
+and a distinct reviewer identity. `status` reports pending, validated, accepted,
+stale and blocked evidence with pagination. Configuration in
+`repo-graph-review.json` accepts a `scope` inside the requested scope and reducing
+`limits`. Additional dependency files require explicit `--include` arguments;
+repository configuration cannot expand source export. It contains no commands,
+provider settings or credentials.
+
+Completion covers materialized packet files; dependency closure remains unknown.
+Status rechecks the requested page's source and result evidence and labels other
+pages' current freshness unknown. Oversized files and unresolved dependencies
+stay visible; logical-unit splitting is not implemented in the alpha. Static assertion
+anchors are not collected pytest cases, and validated citations do not prove
+semantic equivalence. Recommendations preserve distinct failure/recovery checks;
+test execution and source edits are a separate implementation scope. Logs help
+diagnosis and do not replace assertions. Native Codex delegation requires
+qualification on the actual calling surface; a CLI installation smoke does not
+prove desktop worker permissions or model quality. Source-only packet review
+remains usable when delegation is unsupported. Other harness review adapters,
+Anvil evidence integration and automatic test edits are outside this slice.
+
+The [design](docs/review-workflow-design.md),
+[execution plan](docs/review-workflow-execution.md) and
+[decision](docs/adr/0007-bounded-review-workflow.md) specify qualification and
+limits. Comparative token savings remain unmeasured until independent pilot
+receipts pass their gates.
+
 ## Product architecture
 
 Repo Graph has one canonical source repository. Human diagrams and agent search

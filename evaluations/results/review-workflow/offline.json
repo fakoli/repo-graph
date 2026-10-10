@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "surface": {
+    "codex_cli": "0.153.4",
+    "calling_surface": "Codex CLI standalone sandbox; not desktop collaboration"
+  },
+  "cases": [
+    {
+      "id": "legacy_sandbox_config",
+      "command_flags": [
+        "sandbox",
+        "-c",
+        "sandbox_mode=\"read-only\""
+      ],
+      "exit_code": 2,
+      "outcome": "required_permission_profile; not qualified"
+    },
+    {
+      "id": "read_only_source_probe",
+      "command_flags": [
+        "sandbox",
+        "-P",
+        ":read-only"
+      ],
+      "exit_code": 0,
+      "read_succeeded": true,
+      "write_denied": true,
+      "source_unchanged": true,
+      "outcome": "passed"
+    }
+  ],
+  "model_requests": 0,
+  "worker_fresh_context": "not_tested",
+  "worker_model_completion": "not_tested",
+  "worker_cancellation": "not_tested",
+  "worker_usage": "unknown",
+  "automatic_delegation_qualified": false,
+  "token_efficiency_qualified": false,
+  "corpus_key_sha256": "e9756cd06b62d4bca52f82b450c399a3bec6b29a2920486801557943bf7b9397",
+  "scope": "Synthetic source-write probe only. No provider calls, live installations or account configuration changes.",
+  "checks": [
+    {
+      "command": "uv run python -m unittest discover -s tests -q",
+      "status": "passed",
+      "tests": 126,
+      "warnings": "Existing TemporaryDirectory ResourceWarnings observed."
+    },
+    {
+      "command": "uv run python -m unittest discover -s evaluations/code-understanding -q",
+      "status": "passed",
+      "tests": 203,
+      "warnings": "Existing unclosed SQLite ResourceWarning observed."
+    },
+    {
+      "command": "uv run python -m unittest evaluations.test_human -q",
+      "status": "passed",
+      "tests": 7
+    },
+    {
+      "command": "uv run python -m unittest evaluations.test_review_workflow -v",
+      "status": "passed",
+      "tests": 1
+    },
+    {
+      "command": "uv run python evaluations/review_workflow.py --validate-corpus",
+      "status": "passed",
+      "families": 12,
+      "keyed_assertions": 18
+    },
+    {
+      "command": "npm test",
+      "status": "passed"
+    },
+    {
+      "command": "REPO_GRAPH_PYTHON=.venv/bin/python npm run test:ux",
+      "attempts": [
+        {
+          "status": "failed",
+          "error": "Network.getResponseBody response no longer available after navigation",
+          "file": "tests/ux.mjs",
+          "line": 148
+        },
+        {
+          "status": "passed",
+          "source_change_between_attempts": false,
+          "browser_errors": 0
+        }
+      ]
+    },
+    {
+      "command": "uv run python tests/harness_smoke.py --harness codex",
+      "status": "passed",
+      "provider_calls": 0,
+      "checks": [
+        "install",
+        "repeat",
+        "upgrade",
+        "rollback",
+        "shared_skill",
+        "map",
+        "keyword_search",
+        "review_config_refusal",
+        "packet",
+        "synthetic_result",
+        "synthetic_independent_disposition",
+        "resume"
+      ]
+    },
+    {
+      "command": "uv run python tests/harness_smoke.py --harness claude",
+      "status": "passed",
+      "provider_calls": 0
+    },
+    {
+      "command": "uv run python tests/pi_smoke.py",
+      "status": "passed",
+      "provider_calls": 0
+    },
+    {
+      "command": "uv build --wheel",
+      "status": "passed",
+      "release_published": false
+    },
+    {
+      "check": "skill_creator_quick_validate",
+      "status": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "status": "passed"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "reviewer": {
+    "model": "gpt-5.6-sol",
+    "reasoning": "high",
+    "role": "independent_read_only_reviewer"
+  },
+  "decision": "go_for_experimental_source_checkpoint_only",
+  "reviewed_sha256": {
+    "repo_graph/review.py": "5a7a629eee7307129182d39649182d718ca28b5fef1d5affaf08d99452ce4cf8",
+    "repo_graph/cli.py": "7a5f186c17079c4cef90f2f5baca64f3ead5ef8b854da9e2c504c754ebf87d99",
+    "evaluations/review_workflow.py": "aa60188c1f21b8ed4a14c5274c5474b0f86b2c93e70110fbeb5b157d6db9e7e6",
+    "evaluations/review_workflow_cases.json": "e9756cd06b62d4bca52f82b450c399a3bec6b29a2920486801557943bf7b9397"
+  },
+  "fixed_findings": [
+    "packet_and_result_integrity",
+    "publication_consistency",
+    "full_materialized_ranges",
+    "accepted_evidence_freshness",
+    "unsafe_inventory_denominator",
+    "repository_configuration_export_boundary",
+    "bounded_independent_provenance_and_rationale",
+    "partial_coverage_and_all_call_accounting",
+    "failed_call_quality_refusal",
+    "explicit_dependency_and_paged_freshness_knowledge"
+  ],
+  "validation": [
+    "six_focused_tests",
+    "frozen_twelve_family_corpus_integrity",
+    "py_compile",
+    "git_diff_check",
+    "scratch_map_search_compatibility"
+  ],
+  "remaining_holds": [
+    "no_live_model_comparison_or_independent_quality_receipts",
+    "token_efficiency_unmeasured",
+    "native_fresh_context_cancellation_completion_usage_unqualified",
+    "dependency_closure_and_oversized_unit_splitting_incomplete",
+    "operator_publication_recovery_unqualified",
+    "feature_release_and_consumer_delivery_pending"
+  ],
+  "feature_qualified": false,
+  "automatic_delegation_qualified": false,
+  "release_qualified": false
+}
