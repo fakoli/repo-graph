@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "kind": "codex_native_preparation",
+  "status": "provider_free_preparation_only",
+  "observed_on": "2026-10-10",
+  "codex_cli": {
+    "version": "0.153.4",
+    "executable_identity": "codex-cli",
+    "help_observed": [
+      "codex --help",
+      "codex exec --help",
+      "codex sandbox --help",
+      "codex features list"
+    ]
+  },
+  "direct_candidate": {
+    "command": "codex exec --ephemeral --json --sandbox read-only --disable shell_tool --disable plugins --disable apps --disable hooks --cd <PACKET_DIR> --model <SELECTED_MODEL> --output-schema <RESULT_SCHEMA> <PROMPT>",
+    "observed_controls": [
+      "--ephemeral",
+      "--json",
+      "--sandbox read-only",
+      "--disable",
+      "--cd",
+      "--model",
+      "--output-schema"
+    ],
+    "feature_states": {
+      "shell_tool": "stable_true",
+      "plugins": "stable_true",
+      "apps": "stable_true",
+      "hooks": "stable_true"
+    },
+    "status": "candidate_not_invoked",
+    "provider_handling": "Leaves the configured provider unchanged and passes the selected model as input; provider identity/readback is not qualified."
+  },
+  "provider_free_boundary_probe": {
+    "command": "codex sandbox --permission-profile :read-only --sandbox-state-disable-network -- true",
+    "status": "succeeded",
+    "meaning": "The named read-only profile and no-network outer sandbox parsed and ran a provider-free command.",
+    "not_a_model_invocation": "Do not nest a model invocation under this no-network boundary: it would likely block the provider transport."
+  },
+  "help_only_parse": {
+    "command": "codex exec --disable shell_tool --disable plugins --disable apps --disable hooks --help",
+    "status": "succeeded",
+    "meaning": "The listed per-run feature disables parsed; their live runtime effects were not tested."
+  },
+  "not_supported_by_observed_exec_help": [
+    "--ask-for-approval",
+    "--permission-profile"
+  ],
+  "unverified_or_unsupported_for_native_qualification": [
+    "Actual JSONL event fields for structured result, usage, completion, or truncation receipts.",
+    "Configured-provider identity preservation and selected-model readback.",
+    "Fresh-context isolation, ephemeral cleanup, cancellation, child-process ownership, and no-replay recovery.",
+    "Runtime effect of disabling shell_tool, plugins, apps, and hooks, including native MCP tools or user-configured extensions.",
+    "Arbitrary source-execution prevention; help text alone does not qualify this boundary.",
+    "A selected total model-session ceiling, reservation, baseline parity, or live model-session receipts."
+  ],
+  "non_actions": [
+    "No provider or model call",
+    "No account configuration inspection or mutation",
+    "No credential or environment-file inspection",
+    "No fixture execution"
+  ],
+  "next_gate": "Keep review automation at provider-free packet/record level until an operator selects a ceiling and native lifecycle/receipt controls pass bounded qualification.",
+  "legacy_standalone_sandbox_probe": "The earlier -c sandbox_mode probe refused; the named :read-only permission profile was required by that surface."
+}

@@ -5,19 +5,23 @@ This deliberately does not invoke tests, import repository code, or schedule wor
 from __future__ import annotations
 
 import ast
-from contextlib import contextmanager
+from collections import Counter
 import errno
+from contextlib import contextmanager
 import hashlib
 import json
-import os
 from pathlib import Path, PurePosixPath
 import time
 import uuid
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
 
 from .builder import repo_files
 from .source import SourceRoot
 
-SCHEMA = "repo-graph-review-v1"
+SCHEMA = "repo-graph-review-v2"
 MAX_FILES = 2_000
 MAX_FILE_BYTES = 256 * 1024
 MAX_PACKET_BYTES = 768 * 1024
@@ -26,6 +30,8 @@ MAX_RESULT_BYTES = 128 * 1024
 MAX_FINDINGS = 100
 MAX_TEXT = 8_192
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
+PACKET_BASIS_KEYS = ("packet_id", "test", "sources", "source_text", "gaps", "anchors", "bytes", "actual_collected_parameter_count", "scope_digest", "review_scope", "dependencies_complete")
+CLOSURE_GAP = "closure_omissions_unknown;runtime_and_unvisited_edges_are_unqualified"
 
 
 def _json(value):
@@ -78,18 +84,44 @@ def _limits(value):
     return defaults
 
 
-def _read_complete(source, path, ceiling):
+def _read_complete(source, path, ceiling, *, remaining=None):
     info = source.info(path)
     if info.st_size > ceiling:
         return None, {"path": path, "reason": "oversized", "bytes": info.st_size}
-    raw, digest, after = source.read(path, info.st_size, max_bytes=info.st_size)
+    if remaining is not None and info.st_size > remaining:
+        return None, {"path": path, "reason": "source_read_budget", "bytes": info.st_size}
+    measurements = {}
+    try:
+        raw, digest, after = source.read(path, info.st_size, max_bytes=min(info.st_size, remaining) if remaining is not None else info.st_size, measurements=measurements)
+    except OSError as error:
+        if error.errno == errno.EFBIG:
+            return None, {"path": path, "reason": "source_read_budget", "bytes": info.st_size, "read_bytes": measurements.get("stream_bytes", 0)}
+        raise
     if len(raw) != after.st_size:
         _fail(f"partial source read refused: {path}")
     try:
         text = raw.decode("utf-8")
     except UnicodeDecodeError:
-        return None, {"path": path, "reason": "non_utf8_source", "bytes": len(raw)}
+        return None, {"path": path, "reason": "non_utf8_source", "bytes": len(raw), "read_bytes": measurements.get("stream_bytes", len(raw))}
     return {"path": path, "sha256": digest, "bytes": len(raw), "text": text}, None
+
+
+def _unit_fragments(path, item):
+    """Whole top-level test functions only; classes need fixture semantics we do not split."""
+    # ponytail: split top-level functions; add classes after fixture semantics are qualified.
+    tree = ast.parse(item["text"], filename=path)
+    lines = item["text"].splitlines(keepends=True)
+    units = []
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or not node.name.startswith("test"):
+            continue
+        start = min([node.lineno, *(decorator.lineno for decorator in node.decorator_list)])
+        while start > 1 and (not lines[start - 2].strip() or lines[start - 2].lstrip().startswith("#")):
+            start -= 1
+        end = node.end_lineno
+        raw = "".join(lines[start - 1:end]).encode()
+        units.append({"start_line": start, "end_line": end, "sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw), "text": raw.decode()})
+    return units
 
 
 def _is_test(path):
@@ -143,6 +175,65 @@ def _targets(path, tree, text):
     return sorted(set(imports)), sorted(set(unresolved))
 
 
+def _package_inits(path, files):
+    result, parent = [], PurePosixPath(path).parent
+    while str(parent) not in ("", "."):
+        candidate = f"{parent.as_posix()}/__init__.py"
+        if candidate in files: result.append(candidate)
+        parent = parent.parent
+    return result
+
+
+def _local_closure(source, files, initial, limits, used, packet, seen=()):
+    """Finite AST candidates only; runtime/plugin edges stay explicit gaps."""
+    pending, seen, found, gaps = list(initial), set(seen), [], []
+    def fits(items, details):
+        sources = [*packet["sources"], *items]
+        payload = _packet_payload(packet["test"], sources, [*packet["gaps"], *details], packet["anchors"], sum(row["bytes"] for row in sources), "0" * 64)
+        return len(_json(payload).encode()) <= limits["packet_bytes"]
+    def stop(reason):
+        # The shorter summary replaces space reserved in every primary packet.
+        packet["gaps"][packet["gaps"].index(CLOSURE_GAP)] = f"closure_stopped:{reason};known_omissions>=1;pending_unknown"
+    def add_gap(detail):
+        if fits(found, [*gaps, detail]):
+            gaps.append(detail)
+            return True
+        stop("gap_budget")
+        return False
+    while pending:
+        path = pending.pop(0)
+        if path in seen: continue
+        seen.add(path)
+        if _sensitive(path):
+            if not add_gap(f"sensitive_dependency_excluded:{path}"): break
+            continue
+        try: info = source.info(path)
+        except OSError:
+            if not add_gap(f"missing_dependency:{path}"): break
+            continue
+        if used[0] + info.st_size > limits["source_bytes"]:
+            if not add_gap(f"source_read_budget_dependency:{path}"): break
+            continue
+        item, problem = _read_complete(source, path, limits["file_bytes"], remaining=limits["source_bytes"] - used[0])
+        if problem:
+            used[0] += problem.get("read_bytes", 0)
+            if not add_gap(f"blocked_dependency:{path}:{problem['reason']}"): break
+            continue
+        used[0] += item["bytes"]
+        imports, unresolved = _targets(path, set(files), item["text"])
+        derived = [f"unresolved_import:{path}:{name}" for name in unresolved] + [f"dynamic_dependency_edges_unresolved:{path}"]
+        if not fits([*found, item], [*gaps, *derived]):
+            stop("packet_budget")
+            detail = f"packet_budget_dependency:{path}"
+            if fits(found, [*gaps, detail]):
+                gaps.append(detail)
+            break
+        found.append(item)
+        pending.extend(_package_inits(path, set(files)) + imports)
+        gaps.extend(derived)
+    return found, gaps
+
+
 def _anchors(path, text):
     parsed = ast.parse(text)
     tests, positions, gaps = [], [], []
@@ -162,7 +253,7 @@ def _anchors(path, text):
                 expression = item.context_expr
                 if isinstance(expression, ast.Call) and isinstance(expression.func, ast.Attribute) and expression.func.attr == "raises":
                     positions.append((node.lineno, node.col_offset))
-    counts = {line: sum(1 for candidate, _ in positions if candidate == line) for line, _ in positions}
+    counts = Counter(line for line, _ in positions)
     assertions = [f"{path}:{line}" if counts[line] == 1 else f"{path}:{line}:{column + 1}" for line, column in sorted(set(positions))]
     return sorted(tests, key=lambda item: item["line"]), assertions, sorted(set(gaps))
 
@@ -190,19 +281,16 @@ def _campaign_path(campaign):
 @contextmanager
 def _locked(path):
     with SourceRoot(path) as boundary:
-        created = False
+        if fcntl is None:
+            raise RuntimeError("campaign locking requires descriptor flock support")
         try:
-            with boundary.open(".coordinator-lock", create=True):
-                created = True
-                yield boundary
-        except FileExistsError as error:
-            raise RuntimeError("campaign coordinator is locked; interrupted locks require explicit operator recovery") from error
+            fcntl.flock(boundary.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as error:
+            raise RuntimeError("campaign coordinator is locked") from error
+        try:
+            yield boundary
         finally:
-            if created:
-                try:
-                    os.unlink(".coordinator-lock", dir_fd=boundary.fd)
-                except FileNotFoundError:
-                    pass
+            fcntl.flock(boundary.fd, fcntl.LOCK_UN)
 
 
 def _load(boundary):
@@ -217,36 +305,42 @@ def _load(boundary):
 
 
 def _packet_basis(packet):
-    return {key: packet[key] for key in ("packet_id", "test", "sources", "source_text", "gaps", "anchors", "bytes", "actual_collected_parameter_count", "scope_digest", "review_scope", "dependencies_complete")}
+    return {key: packet[key] for key in PACKET_BASIS_KEYS}
 
 
 def _load_packet(boundary, reference):
     raw, _, _ = boundary.read(reference["path"], 2 * 1024 * 1024, max_bytes=2 * 1024 * 1024)
     packet = _parse_json(raw, "packet")
+    if set(packet) != {"schema", "payload_sha256", *PACKET_BASIS_KEYS} or packet.get("schema") != SCHEMA or not isinstance(packet.get("payload_sha256"), str):
+        _fail("invalid immutable packet shape")
+    if type(packet["sources"]) is not list or type(packet["source_text"]) is not list or type(packet["anchors"]) is not dict:
+        _fail("invalid immutable packet content")
     if packet.get("packet_id") != reference["packet_id"]:
         _fail("packet reference identity mismatch")
     if packet.get("payload_sha256") != reference.get("payload_sha256") or packet["payload_sha256"] != _digest(_packet_basis(packet)):
         _fail("packet payload identity mismatch")
-    texts = {item.get("path"): item.get("text") for item in packet.get("source_text", [])}
+    if not all(type(item) is dict and type(item.get("path")) is str and type(item.get("text")) is str for item in packet["source_text"]):
+        _fail("invalid packet source text")
+    texts = {item.get("path"): item.get("text") for item in packet["source_text"]}
     if set(texts) != {item["path"] for item in packet.get("sources", [])}:
         _fail("packet source text inventory mismatch")
     for item in packet["sources"]:
+        if type(item) is not dict or not all(key in item for key in ("path", "sha256", "bytes", "start_line", "end_line")):
+            _fail("invalid packet source metadata")
         text = texts[item["path"]]
-        if type(text) is not str or len(text.encode("utf-8")) != item["bytes"] or hashlib.sha256(text.encode()).hexdigest() != item["sha256"]:
+        fragment = item.get("fragment")
+        expected_bytes = fragment["bytes"] if fragment else item["bytes"]
+        expected_hash = fragment["sha256"] if fragment else item["sha256"]
+        if type(text) is not str or len(text.encode("utf-8")) != expected_bytes or hashlib.sha256(text.encode()).hexdigest() != expected_hash:
             _fail("packet source text identity mismatch")
     for key in ("state", "attempts", "result", "decision", "stale_reason"):
-        if packet.get(key) != reference.get(key):
-            _fail("packet publication is uncertain; explicit recovery required")
+        packet[key] = reference.get(key)
     return packet
 
 
 def _save_packet(boundary, reference, packet):
-    if len(_json(packet).encode()) > 2 * 1024 * 1024:
-        _fail("packet lifecycle exceeds bounded publication ceiling")
-    boundary.write_json(reference["path"], packet)
     for key in ("state", "attempts", "result", "decision", "stale_reason"):
-        if key in packet:
-            reference[key] = packet[key]
+        reference[key] = packet.get(key)
 
 
 def _result_artifact(boundary, state, packet):
@@ -294,6 +388,15 @@ def result_schema(maximum=MAX_RESULT_BYTES):
           "kind": "independent_decision", "disposition": ["accepted", "rejected", "needs_source"]}}
 
 
+def _packet_payload(test, sources, gaps, anchors, total, scope_digest, packet_id="0" * 24):
+    records = [{k: value for k, value in item.items() if k != "text"} | {"start_line": item.get("fragment", {}).get("start_line", 1), "end_line": item.get("fragment", {}).get("end_line", item["text"].count("\n") + 1)} for item in sources]
+    packet = {"schema": SCHEMA, "packet_id": packet_id, "test": test, "sources": records, "review_scope": "materialized_source_only", "dependencies_complete": False,
+              "source_text": [{"path": item["path"], "text": item["text"]} for item in sources], "gaps": sorted(set(gaps)), "anchors": anchors,
+              "bytes": total, "actual_collected_parameter_count": "unknown", "scope_digest": scope_digest}
+    packet["payload_sha256"] = _digest(_packet_basis(packet))
+    return packet
+
+
 def plan(repository, *, scope="tests", output=None, include=(), limits=None, authority="standalone"):
     if authority != "standalone":
         _fail("Anvil-bound review authority is not implemented; use standalone")
@@ -334,36 +437,39 @@ def plan(repository, *, scope="tests", output=None, include=(), limits=None, aut
                 blocked.append({"path": test, "reason": "source_read_budget"})
                 blocked.extend({"path": path, "reason": "source_read_budget"} for path in selected[selected.index(test) + 1:])
                 break
-            primary, problem = _read_complete(source, test, limits["file_bytes"])
+            primary, problem = _read_complete(source, test, limits["file_bytes"], remaining=limits["source_bytes"] - source_bytes)
             if problem:
+                source_bytes += problem.get("read_bytes", 0)
                 blocked.append(problem); continue
             source_bytes += primary["bytes"]
             try:
                 tests, assertions, anchor_gaps = _anchors(test, primary["text"])
             except SyntaxError as error:
                 blocked.append({"path": test, "reason": f"syntax_error:{error.lineno}"}); continue
-            dependencies = _ancestors(test, set(files)) + explicit
             imports, unresolved = _targets(test, set(files), primary["text"])
-            dependencies += imports
-            sources, gaps, total = [primary], ["dynamic fixtures, plugins, parametrization and callers may be unresolved", *anchor_gaps], primary["bytes"]
-            for path in sorted(set(dependencies)):
-                if path == test:
-                    continue
-                if _sensitive(path):
-                    gaps.append(f"sensitive_dependency_excluded:{path}"); continue
-                info = source.info(path)
-                if source_bytes + info.st_size > limits["source_bytes"]:
-                    gaps.append(f"source_read_budget_dependency:{path}"); continue
-                candidate, problem = _read_complete(source, path, limits["file_bytes"])
-                if problem:
-                    gaps.append(f"blocked_dependency:{path}:{problem['reason']}"); continue
-                source_bytes += candidate["bytes"]
-                if total + candidate["bytes"] > limits["packet_bytes"]:
-                    gaps.append(f"packet_budget_dependency:{path}"); continue
+            unresolved_gaps = [f"unresolved_import:{name}" for name in unresolved]
+            primary_gaps = ["dynamic fixtures, plugins, parametrization and callers may be unresolved", CLOSURE_GAP, *anchor_gaps, *unresolved_gaps]
+            if len(_json(_packet_payload(test, [primary], primary_gaps, {"tests": tests, "assertions": assertions}, primary["bytes"], "0" * 64)).encode()) > limits["packet_bytes"]:
+                units = _unit_fragments(test, primary)
+                if not units or any(unit["bytes"] > limits["packet_bytes"] for unit in units):
+                    blocked.append({"path": test, "reason": "oversized_unsplittable_logical_unit"}); continue
+                blocked.append({"path": test, "reason": "partial_logical_split"})
+                for unit in units:
+                    fragment = dict(primary, text=unit["text"], fragment={key: unit[key] for key in ("start_line", "end_line", "sha256", "bytes")})
+                    uncovered = [f"uncovered_source_unit:{test}:{start}:{end}" for start, end in [(1, unit["start_line"] - 1), (unit["end_line"] + 1, primary["text"].count("\n") + 1)] if start <= end]
+                    unit_assertions = [value for value in assertions if unit["start_line"] <= int(value[len(test) + 1:].split(":", 1)[0]) <= unit["end_line"]]
+                    packet_specs.append({"test": test, "sources": [fragment], "gaps": sorted(set(["dependency_closure_not_materialized_for_split", *anchor_gaps, *uncovered])), "anchors": {"tests": [row for row in tests if unit["start_line"] <= row["line"] <= unit["end_line"]], "assertions": unit_assertions}, "bytes": unit["bytes"]})
+                continue
+            dependencies = _ancestors(test, set(files)) + explicit
+            dependencies += _package_inits(test, set(files)) + imports
+            sources, gaps, total = [primary], list(primary_gaps), primary["bytes"]
+            # Exact payload sizing admits dependencies before publication.
+            used = [source_bytes]
+            closure, closure_gaps = _local_closure(source, files, sorted(set(dependencies) - {test}), limits, used, {"test": test, "sources": sources, "gaps": gaps, "anchors": {"tests": tests, "assertions": assertions}}, {test})
+            source_bytes = used[0]
+            for candidate in closure:
                 sources.append(candidate); total += candidate["bytes"]
-                imported, _ = _targets(path, set(files), candidate["text"])
-                if imported: gaps.append(f"dependency_imports_unexamined:{path}")
-            gaps.extend(f"unresolved_import:{name}" for name in unresolved)
+            gaps.extend(closure_gaps)
             packet_specs.append({"test": test, "sources": sources, "gaps": sorted(set(gaps)), "anchors": {"tests": tests, "assertions": assertions}, "bytes": total})
     scope_rows = [{"test": spec["test"], "sources": [{key: item[key] for key in ("path", "sha256", "bytes")} for item in spec["sources"]]} for spec in packet_specs]
     profile = "test-consolidation"
@@ -393,18 +499,15 @@ def plan(repository, *, scope="tests", output=None, include=(), limits=None, aut
             return {"campaign": str(campaign_dir), "campaign_id": campaign_id, "counts": existing["counts"], "resumed": True}
         packets = []
         for spec in packet_specs[:limits["packets"]]:
-            sources = [{k: value for k, value in item.items() if k != "text"} | {"start_line": 1, "end_line": item["text"].count("\n") + 1}
-                       for item in spec["sources"]]
-            identity = {"test": spec["test"], "sources": [{key: item[key] for key in ("path", "sha256", "bytes")} for item in sources], "scope_digest": scope_digest}
+            sources = [{k: value for k, value in item.items() if k != "text"} | {"start_line": item.get("fragment", {}).get("start_line", 1), "end_line": item.get("fragment", {}).get("end_line", item["text"].count("\n") + 1)} for item in spec["sources"]]
+            identity = {"test": spec["test"], "sources": [{key: item[key] for key in ("path", "sha256", "bytes", "start_line", "end_line")} | ({"fragment": item["fragment"]} if "fragment" in item else {}) for item in sources], "scope_digest": scope_digest}
             packet_id = _digest(identity)[:24]
-            packet = {"schema": SCHEMA, "packet_id": packet_id, "state": "planned", "test": spec["test"], "sources": sources, "review_scope": "materialized_source_only", "dependencies_complete": False,
-                      "source_text": [{"path": item["path"], "text": item["text"]} for item in spec["sources"]], "gaps": spec["gaps"],
-                      "anchors": spec["anchors"], "bytes": spec["bytes"], "actual_collected_parameter_count": "unknown", "scope_digest": scope_digest, "attempts": [], "result": None, "decision": None}
-            packet["payload_sha256"] = _digest(_packet_basis(packet))
+            packet = _packet_payload(spec["test"], spec["sources"], spec["gaps"], spec["anchors"], spec["bytes"], scope_digest, packet_id)
             if len(_json(packet).encode()) > limits["packet_bytes"]:
                 blocked.append({"path": spec["test"], "reason": "packet_serialized_budget"}); continue
             name = f"packet-{packet_id}.json"
-            boundary.write_json(name, packet)
+            immutable = {key: value for key, value in packet.items() if key not in {"state", "attempts", "result", "decision", "stale_reason"}}
+            boundary.write_json(name, immutable)
             packets.append({"packet_id": packet_id, "path": name, "payload_sha256": packet["payload_sha256"], "test": spec["test"], "state": "planned", "gaps": spec["gaps"],
                             "attempts": [], "result": None, "decision": None})
         if len(packet_specs) > limits["packets"]:
@@ -412,7 +515,8 @@ def plan(repository, *, scope="tests", output=None, include=(), limits=None, aut
         failed_total = inventory_coverage.get("failed", 0)
         failed_known = len(inventory_coverage.get("failures", []))
         requested_failed = len(failed_scope)
-        counts = {"inventory": len(files) + failed_total, "requested": len(requested) + requested_failed, "requested_count_knowledge": "exact" if failed_total == failed_known else "lower_bound", "eligible": len(packets), "excluded": len(files) - len(requested), "blocked": len(blocked), "packets": len(packets)}
+        partial = {item["path"] for item in blocked if item["reason"] == "partial_logical_split"}
+        counts = {"inventory": len(files) + failed_total, "requested": len(requested) + requested_failed, "requested_count_knowledge": "exact" if failed_total == failed_known else "lower_bound", "eligible": len({item["test"] for item in packets} - partial), "excluded": len(files) - len(requested), "blocked": len({item["path"] for item in blocked}), "blocked_reasons": len(blocked), "packets": len(packets)}
         campaign = {"schema": SCHEMA, "campaign_id": campaign_id, "profile": profile, "authority": authority, "repository": {"path": str(root), "binding": binding}, "scope": scope, "scope_digest": scope_digest, "limits": limits, "review_scope": "materialized_source_only", "dependencies_complete": False,
                     "inventory": {"coverage": inventory_coverage, "requested": requested, "excluded_reason": "outside_tests_scope", "blocked": blocked}, "counts": counts, "packets": packets}
         _save(boundary, campaign)
@@ -466,7 +570,7 @@ def _validate_result(packet, result, maximum):
         if type(entry) is not dict or set(entry) != {"path", "start_line", "end_line", "sha256"} or entry["path"] not in source:
             _fail("invalid reviewed range")
         item = source[entry["path"]]
-        if type(entry["start_line"]) is not int or type(entry["end_line"]) is not int or entry["sha256"] != item["sha256"] or not (1 <= entry["start_line"] <= entry["end_line"] <= item["end_line"]):
+        if type(entry["start_line"]) is not int or type(entry["end_line"]) is not int or entry["sha256"] != item["sha256"] or not (item["start_line"] <= entry["start_line"] <= entry["end_line"] <= item["end_line"]):
             _fail("reviewed range is outside packet identity")
     for finding in result["findings"]:
         if type(finding) is not dict or set(finding) != {"summary", "citations"} or not isinstance(finding["summary"], str) or len(finding["summary"]) > MAX_TEXT:
@@ -482,7 +586,7 @@ def _validate_result(packet, result, maximum):
         if not all(isinstance(item[key], str) and len(item[key]) <= MAX_TEXT for key in ("original", "evidence")):
             _fail("invalid assertion map text")
     if result["outcome"] == "completed":
-        required_ranges = {(item["path"], 1, item["end_line"], item["sha256"]) for item in packet["sources"]}
+        required_ranges = {(item["path"], item["start_line"], item["end_line"], item["sha256"]) for item in packet["sources"]}
         actual_ranges = {(item["path"], item["start_line"], item["end_line"], item["sha256"]) for item in result["reviewed_ranges"]}
         if actual_ranges != required_ranges:
             _fail("completed result must cover every materialized packet source")
@@ -548,6 +652,11 @@ def record(campaign, result):
         if packet["result"]:
             if packet["result"]["sha256"] != digest:
                 _fail("conflicting result for an immutable attempt")
+            try:
+                _result_artifact(boundary, state, packet)
+            except ValueError:
+                packet["state"] = "stale"; packet["stale_reason"] = "evidence_invalid"; _save_packet(boundary, reference, packet); _save(boundary, state)
+                return {"state": "stale", "reason": "evidence_invalid"}
             return {"state": packet["state"], "sha256": digest, "idempotent": True}
         boundary.write_json(f"result-{digest}.json", result)
         packet["result"] = {"sha256": digest, "path": f"result-{digest}.json"}; packet["state"] = "validated" if result["outcome"] == "completed" else result["outcome"]; attempt["state"] = packet["state"]; attempt["outcome"] = result["outcome"]

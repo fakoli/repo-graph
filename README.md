@@ -100,8 +100,9 @@ repo-graph review record CAMPAIGN --result RESULT.json
 repo-graph review status CAMPAIGN
 ```
 
-`plan` captures complete bounded test files and candidate fixture/implementation
-dependencies without importing source or invoking a model. The default cache is
+`plan` captures bounded test source and recursively follows local AST import
+candidates, including fixtures and package initialization, without importing
+source or invoking a model. The default cache is
 outside source under `~/.cache/repo-graph/reviews`. `next` assigns one packet and
 returns its source and result schema. `record` checks source identity, citations
 and assertion dispositions; independent acceptance binds the exact result digest
@@ -112,10 +113,15 @@ stale and blocked evidence with pagination. Configuration in
 repository configuration cannot expand source export. It contains no commands,
 provider settings or credentials.
 
-Completion covers materialized packet files; dependency closure remains unknown.
+Source reads obey the byte ceiling at the descriptor; failed decoding still
+consumes the campaign budget. Packet limits include JSON escaping and metadata.
+
+Completion covers the exact materialized ranges; dependency closure remains unknown.
 Status rechecks the requested page's source and result evidence and labels other
-pages' current freshness unknown. Oversized files and unresolved dependencies
-stay visible; logical-unit splitting is not implemented in the alpha. Static assertion
+pages' current freshness unknown. A reduced packet budget may split a fully read
+file into whole top-level test functions, including decorators and adjacent
+comments. Uncovered ranges remain blocked; class methods and oversized single
+units are not split. Files above the acquisition ceiling remain blocked. Static assertion
 anchors are not collected pytest cases, and validated citations do not prove
 semantic equivalence. Recommendations preserve distinct failure/recovery checks;
 test execution and source edits are a separate implementation scope. Logs help
@@ -124,6 +130,12 @@ qualification on the actual calling surface; a CLI installation smoke does not
 prove desktop worker permissions or model quality. Source-only packet review
 remains usable when delegation is unsupported. Other harness review adapters,
 Anvil evidence integration and automatic test edits are outside this slice.
+
+Schema v2 keeps packet payloads immutable and publishes lifecycle changes through
+one atomic campaign manifest. Descriptor locks reject concurrent coordinators
+and release on process exit; an interrupted assignment is never replayed.
+Earlier v1 records are refused explicitly and remain available as historical
+evidence. Native process cancellation and model completion remain unqualified.
 
 The [design](docs/review-workflow-design.md),
 [execution plan](docs/review-workflow-execution.md) and

@@ -184,6 +184,10 @@ changes before implementation validation. No new test reduction is measured here
 5. Bound the initial paid experiment by an operator-selected ceiling. Begin with
    a small calibration subset before the full matrix. Use order-balanced runs,
    then repeat only to resolve variability or a disputed result; retain failures.
+   Twelve paired families require at least 24 worker sessions and 12 independent
+   pair-grading sessions, plus native qualification and any failed attempts.
+   An eight- or 24-session ceiling therefore covers calibration only; it cannot
+   produce a complete comparison decision.
 6. Measure critical-behavior misses, unsafe removal recommendations, valid
    citation rate, assertion-map completeness, independent-review acceptance,
    input/output/reasoning tokens when available, dollars, wall time and tool calls.
@@ -232,12 +236,19 @@ and native gates at release, broadening only after changes or unresolved failure
   imports, with runtime dependencies explicit. Experimental graph queries are
   not required; this feature cannot accept earlier graph-analysis gates.
 - R1–R3: experimental packet alpha implemented. Independent source review
-  permits a source checkpoint after integrity, freshness, denominator and
-  bounded-record fixes. Five journey tests cover its core contracts. Oversized
-  logical-unit splitting, complete dependencies and operator recovery remain
-  incomplete; no full-plan completion is claimed. Follow-up implementation is
-  closing bounded recursive dependency selection, logical-unit packets and
-  interrupted publication without automatic worker replay.
+  permits the earlier source checkpoint after integrity, freshness, denominator
+  and bounded-record fixes. Follow-up v2 source adds recursive local import
+  candidates and whole top-level test-function fragments with full-file identity
+  and uncovered-range gaps. Partial files stay blocked; runtime dependency
+  completeness and class/integration splitting remain unqualified. Immutable
+  packets and one atomic lifecycle manifest remove split publication, and
+  descriptor locks release on coordinator exit. Assigned/uncertain workers are
+  never replayed. Fresh independent review cleared the frozen v2 runtime for
+  an experimental source checkpoint. Source descriptor caps count failed
+  decoding; serialized admission includes source escaping, metadata and gaps.
+  Known omissions have exact details when they fit, otherwise a bounded stop
+  summary and explicit lower-bound/unknown knowledge. No full-plan completion
+  is claimed.
 - R4: existing Codex skill extended and validated. Isolated installed Codex
   packet/result/independent-disposition/resume checks passed with synthetic
   results, including repository-config export refusal and reduced result limits.
@@ -261,14 +272,30 @@ and native gates at release, broadening only after changes or unresolved failure
   relabeling the first as a pass. Both initial CI runs reproduced that race.
   Source-response JSON capture now starts immediately on receipt; focused and
   full browser checks passed after the repair with all assertions preserved.
-  Repaired-source CI is pending.
+  Both repaired-source CI runs passed at `cf459c8ae574204c0bbdb784c23ee29fd03c065f`.
+  The subsequent v2 source passed 127 product tests, 203 structural checks,
+  eight evaluation contract checks, corpus integrity, isolated Codex/Claude/Pi
+  smokes and wheel construction. Its final source checkpoint requires fresh CI.
+  Receipts record checks at their source hashes; current PR checks are the
+  authority for its latest committed head.
 - R7: source checkpoint delivery is separate from feature release. Version pins
   and consumers remain unchanged while model/efficiency gates are unpassed.
-  [Source review](../evaluations/results/review-workflow/source-review.json) and
+  [V2 source review](../evaluations/results/review-workflow/source-review-v2.json) and
   [offline receipts](../evaluations/results/review-workflow/offline.json) retain
   the current qualification limits.
+- A real source-only preparation under eight-packet/1-MiB limits initially
+  produced zero packets, then one, before serialized admission was corrected.
+  The final attempt retains two planned packets from 470 requested files;
+  462 files are blocked by the packet limit and six by the read limit.
+  All attempts remain recorded. This executed no target tests or model calls
+  and establishes no review-quality, test-reduction or coverage result.
 - The live-pilot run ceiling is pending an operator answer. Offline checks and
   implementation proceed. No live-comparison or token-efficiency result exists.
+- [Native preparation](../evaluations/results/review-workflow/native-preparation.json)
+  records observed ephemeral/JSON/schema/tool-disable CLI controls. Their live
+  effects, provider readback, cancellation and usage remain unqualified. The
+  no-network standalone sandbox probe is provider-free and cannot wrap a model
+  invocation that needs provider transport.
 - Shared imported-memory access remains unavailable in this tool connection.
 
 ## Remaining decisions that can optimize the design

@@ -111,7 +111,7 @@ class SourceRoot:
             flags = (os.O_RDWR | os.O_CREAT | os.O_EXCL) if create else (
                 os.O_PATH if metadata and hasattr(os, 'O_PATH') else os.O_RDONLY)
             fd = os.open(parts[-1], flags | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=parent)
-            with os.fdopen(fd, 'rb') as stream:
+            with os.fdopen(fd, 'rb', buffering=0) as stream:
                 if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                     raise OSError(errno.EPERM, 'Source must be a regular file')
                 yield stream
@@ -139,11 +139,19 @@ class SourceRoot:
         measurements = _source_measurements(measurements)
         complete = False
         try:
+            if max_bytes is not None and (type(max_bytes) is not int or max_bytes < 0):
+                raise ValueError('Source read byte budget must be nonnegative')
             digest, prefix, consumed = hashlib.sha256(), bytearray(), 0
             with self.open(path) as stream:
                 if measurements is not None: measurements['open_operations'] = 1
                 before = os.fstat(stream.fileno())
-                while chunk := stream.read(64 * 1024 if hash_full else max(0, limit - len(prefix))):
+                required = before.st_size if hash_full else min(max(0, limit), before.st_size)
+                if max_bytes is not None and required > max_bytes:
+                    raise OSError(errno.EFBIG, 'Source read byte budget exceeded')
+                while True:
+                    size = 64 * 1024 if hash_full else max(0, limit - len(prefix))
+                    if max_bytes is not None: size = min(size, max_bytes - consumed)
+                    if size <= 0 or not (chunk := stream.read(size)): break
                     if measurements is not None: measurements['stream_bytes'] += len(chunk)
                     if cancel is not None and cancel():
                         raise InterruptedError('Source read cancelled')
@@ -158,6 +166,8 @@ class SourceRoot:
                 after = os.fstat(stream.fileno())
             if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
                 raise OSError(errno.EAGAIN, 'Source changed during read; retry the map')
+            if hash_full and consumed != after.st_size:
+                raise OSError(errno.EAGAIN, 'Complete source read required')
             result = bytes(prefix), digest.hexdigest(), after
             complete = True
             if measurements is not None:

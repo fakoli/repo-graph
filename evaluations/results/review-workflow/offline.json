@@ -164,6 +164,191 @@
       "error": "Network.getResponseBody response no longer available after navigation",
       "file": "tests/ux.mjs",
       "line": 148
+    },
+    {
+      "head": "cf459c8ae574204c0bbdb784c23ee29fd03c065f",
+      "url": "https://github.com/fakoli/repo-graph/actions/runs/38089838412",
+      "status": "passed",
+      "source_change": "Immediate source response JSON capture"
+    },
+    {
+      "head": "cf459c8ae574204c0bbdb784c23ee29fd03c065f",
+      "url": "https://github.com/fakoli/repo-graph/actions/runs/38089842021",
+      "status": "passed",
+      "source_change": "Immediate source response JSON capture"
     }
-  ]
+  ],
+  "v2_checkpoint": {
+    "status": "local_checks_and_independent_review_passed_before_new_commit_ci",
+    "schema": "repo-graph-review-v2",
+    "source_guard_sha256": {
+      "repo_graph/source.py": "b482d1fc3a659cf3583fb66b87cf953343471c5992c3b85aebe37b12cf6be625",
+      "tests/test_repo_graph.py": "b9e0f367bfb4a4499b1969b796fd76b6b491e95f0e43e9186de345d434d2530e"
+    },
+    "checks": [
+      {
+        "command": "uv run python -m unittest discover -s tests -p test_repo_graph.py -q",
+        "status": "passed",
+        "tests": 17
+      },
+      {
+        "command": "uv run python -m unittest discover -s evaluations/code-understanding -q",
+        "status": "passed",
+        "tests": 203,
+        "duration_seconds": 11.164,
+        "warnings": "Existing unclosed SQLite ResourceWarning observed."
+      },
+      {
+        "command": "uv run python -m unittest evaluations.test_human evaluations.test_review_workflow -q",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "command": "uv run python evaluations/review_workflow.py --validate-corpus",
+        "status": "passed",
+        "families": 12,
+        "keyed_assertions": 18
+      },
+      {
+        "check": "skill_creator_quick_validate",
+        "status": "passed"
+      },
+      {
+        "command": "uv run python -m unittest discover -s tests -q",
+        "status": "passed",
+        "tests": 127,
+        "duration_seconds": 32.208
+      },
+      {
+        "command": "uv run python tests/harness_smoke.py --harness codex",
+        "status": "passed",
+        "provider_calls": 0,
+        "result_kind": "synthetic_packet_result_disposition_resume"
+      },
+      {
+        "command": "uv run python tests/harness_smoke.py --harness claude",
+        "status": "passed",
+        "provider_calls": 0
+      },
+      {
+        "command": "uv run python tests/pi_smoke.py",
+        "status": "passed",
+        "provider_calls": 0
+      },
+      {
+        "command": "npm test",
+        "status": "passed"
+      },
+      {
+        "command": "uv build --wheel",
+        "status": "passed",
+        "release_published": false
+      },
+      {
+        "command": "uv run python -m py_compile repo_graph/review.py repo_graph/source.py",
+        "status": "passed"
+      },
+      {
+        "command": "REPO_GRAPH_PYTHON=.venv/bin/python npm run test:ux",
+        "status": "passed",
+        "browser_errors": 0
+      }
+    ],
+    "real_source_preparation": [
+      {
+        "attempt": 1,
+        "status": "no_packets_serialization_and_traversal_budget",
+        "source_head": "6a0956f717a066409d7b3b89d143c015b2a1d8e6",
+        "schema": "repo-graph-review-v2",
+        "limits": {
+          "packets": 8,
+          "source_bytes": 1048576
+        },
+        "counts": {
+          "inventory": 5854,
+          "requested": 470,
+          "requested_count_knowledge": "exact",
+          "eligible": 0,
+          "excluded": 5384,
+          "blocked": 470,
+          "blocked_reasons": 470,
+          "packets": 0
+        },
+        "model_requests": 0,
+        "source_execution": false,
+        "receipt_sha256": "86687fbfe50bd6f124907244d206261a9f6a988378e14364e228d8db6e840099",
+        "raw_receipt_location": "private operator cache; intentionally omitted from public source"
+      },
+      {
+        "attempt": 2,
+        "status": "one_packet_remaining_serialization_loss",
+        "source_head": "6a0956f717a066409d7b3b89d143c015b2a1d8e6",
+        "schema": "repo-graph-review-v2",
+        "limits": {
+          "packets": 8,
+          "source_bytes": 1048576
+        },
+        "counts": {
+          "inventory": 5854,
+          "requested": 470,
+          "requested_count_knowledge": "exact",
+          "eligible": 1,
+          "excluded": 5384,
+          "blocked": 469,
+          "blocked_reasons": 469,
+          "packets": 1
+        },
+        "model_requests": 0,
+        "source_execution": false,
+        "receipt_sha256": "f81ad1ad4a7bf97ff90f0382f1a4c91d9add77b6c187abe1e076b657003da403",
+        "raw_receipt_location": "private operator cache; intentionally omitted from public source"
+      },
+      {
+        "attempt": 3,
+        "status": "bounded_packets_retained",
+        "source_head": "6a0956f717a066409d7b3b89d143c015b2a1d8e6",
+        "source_dirty_knowledge": "not_rechecked",
+        "schema": "repo-graph-review-v2",
+        "limits": {
+          "packets": 8,
+          "source_bytes": 1048576
+        },
+        "counts": {
+          "inventory": 5854,
+          "requested": 470,
+          "requested_count_knowledge": "exact",
+          "eligible": 2,
+          "excluded": 5384,
+          "blocked": 468,
+          "blocked_reasons": 468,
+          "packets": 2
+        },
+        "blocked_reasons": {
+          "packet_limit": 462,
+          "source_read_budget": 6
+        },
+        "maximum_packet_bytes": 764936,
+        "model_requests": 0,
+        "source_execution": false,
+        "receipt_sha256": "9263995068b80fac589c0604e0f313e1bb3b27c1341dfc2e1ede92386a884134",
+        "raw_receipt_location": "private operator cache; intentionally omitted from public source"
+      }
+    ],
+    "model_requests": 0,
+    "target_test_execution": false,
+    "native_delegation_qualified": false,
+    "feature_release_qualified": false,
+    "runtime_sha256": {
+      "repo_graph/review.py": "a7989100f47099997b2b248f70daafc5c3d07fb7c4565e55b66fabb3a9a262dc",
+      "tests/test_review.py": "bdbf32ec711f8d39a30145c9ad0ee5324936fd9fb873b4b38d420a856a74d24d",
+      "repo_graph/source.py": "b482d1fc3a659cf3583fb66b87cf953343471c5992c3b85aebe37b12cf6be625",
+      "tests/test_repo_graph.py": "b9e0f367bfb4a4499b1969b796fd76b6b491e95f0e43e9186de345d434d2530e"
+    },
+    "check_command_repair": {
+      "command": "python -m py_compile repo_graph/review.py repo_graph/source.py",
+      "status": "not_run",
+      "reason": "unqualified python command absent; repeated with uv run python and passed"
+    },
+    "model_request_count_scope": "native qualification and comparative pilot; development collaboration is separate"
+  }
 }

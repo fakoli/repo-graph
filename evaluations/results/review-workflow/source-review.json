@@ -54,6 +54,8 @@
       "full_browser_ux",
       "git_diff_check"
     ],
-    "ci": "pending_repaired_commit"
-  }
+    "ci": "passed_at_cf459c8ae574204c0bbdb784c23ee29fd03c065f"
+  },
+  "historical_checkpoint": true,
+  "superseded_by": "source-review-v2.json"
 }

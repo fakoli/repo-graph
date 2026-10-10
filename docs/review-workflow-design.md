@@ -167,9 +167,12 @@ configuration cannot increase permissions, enroll a provider or expand export.
 3. Deduplicate overlapping source spans. Give each included dependency a
    reason, exact range and digest. Include setup, failure and teardown paths
    needed to interpret the selected positive tests.
-4. Fit complete units within the profile. The alpha blocks oversized files and
-   dependencies explicitly. Logical-unit splitting and integration packets still
-   require implementation and checks before an oversized scope can complete.
+4. Fit complete units within the profile. The alpha follows bounded recursive
+   local import candidates and can split a fully acquired test file into whole
+   top-level test functions. Decorators and adjacent comments stay with a unit;
+   full-file and fragment digests bind its exact range. Uncovered source remains
+   blocked. Classes, oversized single units and files above the acquisition
+   ceiling remain blocked; cross-file integration completeness is unqualified.
    Never drop a dependency or cut an arbitrary prefix to make a complete claim.
 5. Materialize the packet and provenance outside the source repository. Record
    redaction, clipping, unsupported syntax and omitted dependencies. Reviewers
@@ -235,7 +238,13 @@ excluded from commits. Reuse guarded atomic publication. Start with immutable
 JSON packet/result records and a small atomically replaced manifest, avoiding
 a second service or event database. Only one coordinator writes campaign state;
 workers return results and do not mutate the manifest. Concurrent coordinators
-are rejected. Recovery never assumes a lock's age proves its owner is dead.
+are rejected. Schema v2 uses a nonblocking descriptor lock on the campaign
+directory; the operating system releases it when the coordinator exits.
+Lifecycle publication replaces only the manifest, after immutable artifacts
+are written. An interruption before replacement preserves the prior state;
+an interruption after assignment publication leaves that attempt assigned.
+Neither case proves a model worker stopped or permits replay. Older v1 records
+are refused explicitly and retained for historical inspection.
 
 | Record | Minimum contract |
 | --- | --- |
@@ -263,8 +272,9 @@ The later Anvil evidence integration must use a stable external reference and su
 readback. If delivery is uncertain, reconcile that reference before retrying.
 
 The alpha labels completion `materialized_source_only` and always reports
-`dependencies_complete=false`. A completed result requires full ranges for
-every included file and every static primary-test assertion. An attributed
+`dependencies_complete=false`. A completed result requires the exact materialized
+ranges and every static primary-test assertion in those ranges. Split packets
+retain explicit uncovered ranges and a blocked partial-file denominator. An attributed
 independent disposition does not prove dependency closure or authorize deletion.
 Status checks source and result evidence only for its requested page; other
 pages retain unknown current freshness. Earlier decisions remain historical
