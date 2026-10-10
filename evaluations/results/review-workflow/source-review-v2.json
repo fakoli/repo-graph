@@ -72,5 +72,66 @@
   "automatic_delegation_qualified": false,
   "release_qualified": false,
   "ci": "new_checkpoint_commit_requires_its_own_exact_head_checks",
-  "prior_review": "source-review.json retains the earlier reviewed hashes and CI history."
+  "prior_review": "source-review.json retains the earlier reviewed hashes and CI history.",
+  "ux_repair_review": {
+    "reviewer": {
+      "model": "gpt-5.6-sol",
+      "reasoning": "high",
+      "role": "independent_read_only_reviewer"
+    },
+    "decision": "go_for_experimental_source_checkpoint_conditional_on_exact_head_ci",
+    "reviewed_sha256": {
+      "tests/ux.mjs": "5feb87d63a5a038cb644b242cb0593df6bd497724ba0bb73c7189d2eaaf45af6"
+    },
+    "root_cause": "Browser CDP response-body retention ended before retrieval; parse the real route-fetch APIResponse before browser delivery.",
+    "preserved_assertions": [
+      "rendered_text_equals_response",
+      "response_matches_raw_byte_range",
+      "enter_escape_focus_return",
+      "route_cleanup_before_witness_request"
+    ],
+    "independent_checks": [
+      "node_check",
+      "git_diff_check",
+      "documented_runtime_focused_browser_log_review"
+    ],
+    "runtime_hashes_changed": false,
+    "qualification_scope_changed": false,
+    "superseded_by": "ux_final_review"
+  },
+  "ux_final_review": {
+    "reviewer": {
+      "model": "gpt-5.6-sol",
+      "reasoning": "high",
+      "role": "independent_read_only_reviewer"
+    },
+    "decision": "go_for_experimental_source_checkpoint_conditional_on_exact_head_ci",
+    "reviewed_sha256": {
+      "tests/ux.mjs": "b061109f53092fc078b1e07371596fae233c98b901337e78b6cabe4dc2100902"
+    },
+    "root_cause": "Asynchronous browser response-body reads outlived CDP retention. Buffer real route-fetch APIResponses before browser fulfillment.",
+    "fixed_findings": [
+      "source_response_lifetime",
+      "contract_impact_response_lifetime",
+      "restore_impact_operation_filter"
+    ],
+    "preserved_assertions": [
+      "rendered_source_text",
+      "source_raw_byte_range",
+      "enter_escape_focus_return",
+      "impact_operation",
+      "impact_relation_selector_service_scope",
+      "nonempty_unqualified_impact_rows",
+      "finally_route_cleanup"
+    ],
+    "independent_checks": [
+      "node_check",
+      "git_diff_check",
+      "full_documented_runtime_browser_log_review"
+    ],
+    "browser_errors": 0,
+    "full_browser_log_sha256": "27247438831631ea2b09597fd9b314a0e1815febd24d0b7270222ba3aa2a7169",
+    "runtime_hashes_changed": false,
+    "qualification_scope_changed": false
+  }
 }

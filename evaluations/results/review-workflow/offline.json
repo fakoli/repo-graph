@@ -176,10 +176,28 @@
       "url": "https://github.com/fakoli/repo-graph/actions/runs/38089842021",
       "status": "passed",
       "source_change": "Immediate source response JSON capture"
+    },
+    {
+      "head": "09eefe6f38dd7bc0f1af861db6208eee2f30ba3e",
+      "url": "https://github.com/fakoli/repo-graph/actions/runs/38091501536",
+      "status": "failed",
+      "error": "CDP Network.getResponseBody unavailable despite immediate JSON callback",
+      "file": "tests/ux.mjs",
+      "line": 146,
+      "scope": "All pre-browser CI gates passed; earlier local browser pass retained."
+    },
+    {
+      "head": "09eefe6f38dd7bc0f1af861db6208eee2f30ba3e",
+      "url": "https://github.com/fakoli/repo-graph/actions/runs/38091504878",
+      "status": "failed",
+      "error": "CDP Network.getResponseBody unavailable despite immediate JSON callback",
+      "file": "tests/ux.mjs",
+      "line": 146,
+      "scope": "All pre-browser CI gates passed; earlier local browser pass retained."
     }
   ],
   "v2_checkpoint": {
-    "status": "local_checks_and_independent_review_passed_before_new_commit_ci",
+    "status": "local_checks_and_independent_source_review_passed_latest_test_repairs_await_exact_head_ci",
     "schema": "repo-graph-review-v2",
     "source_guard_sha256": {
       "repo_graph/source.py": "b482d1fc3a659cf3583fb66b87cf953343471c5992c3b85aebe37b12cf6be625",
@@ -350,5 +368,84 @@
       "reason": "unqualified python command absent; repeated with uv run python and passed"
     },
     "model_request_count_scope": "native qualification and comparative pilot; development collaboration is separate"
+  },
+  "ux_capture_repair": {
+    "source_sha256": {
+      "tests/ux.mjs": "5feb87d63a5a038cb644b242cb0593df6bd497724ba0bb73c7189d2eaaf45af6"
+    },
+    "change": "Read route-fetch APIResponse JSON before browser fulfillment; preserve raw-byte and focus checks and compare rendered source text.",
+    "runtime_source_changed": false,
+    "checks": [
+      {
+        "command": "REPO_GRAPH_UX_FOCUS=paths node tests/ux.mjs",
+        "status": "failed_before_browser",
+        "reason": "system Python lacks optional tree_sitter; fixture analysis exited 1"
+      },
+      {
+        "command": "REPO_GRAPH_PYTHON=.venv/bin/python REPO_GRAPH_UX_FOCUS=paths npm run test:ux",
+        "status": "passed",
+        "browser_errors": 0
+      },
+      {
+        "command": "node --check tests/ux.mjs",
+        "status": "passed"
+      },
+      {
+        "command": "git diff --check",
+        "status": "passed"
+      },
+      {
+        "command": "REPO_GRAPH_PYTHON=.venv/bin/python npm run test:ux",
+        "source_sha256": {
+          "tests/ux.mjs": "5feb87d63a5a038cb644b242cb0593df6bd497724ba0bb73c7189d2eaaf45af6"
+        },
+        "status": "failed",
+        "error": "contractImpactLane read an absent captured impact response (undefined.request)",
+        "file": "tests/ux.mjs",
+        "line": 245,
+        "scope": "Distinct response-capture failure; focused source-inspection pass remains retained. Root-cause investigation ongoing."
+      }
+    ],
+    "independent_review": "go_for_experimental_source_checkpoint_conditional_on_exact_head_ci",
+    "fresh_ci": "pending_new_commit"
+  },
+  "ux_contract_capture_repair": {
+    "cause": "The asynchronous browser response listener swallowed a response-body retrieval failure; visible UI status did not prove capture completion.",
+    "attempts": [
+      {
+        "source_sha256": {
+          "tests/ux.mjs": "f80995a3e0a0d6c69b5dcfc1fb61cc614299fe5abf7c7f3993490932db151b7a"
+        },
+        "change": "Buffer actual query APIResponse before browser fulfillment; retain request/response assertions and finally cleanup.",
+        "full_browser": "worker_reported_pass",
+        "independent_review": "hold",
+        "finding": "Temporary route captured every query operation, dropping the prior impact-operation filter."
+      },
+      {
+        "source_sha256": {
+          "tests/ux.mjs": "b061109f53092fc078b1e07371596fae233c98b901337e78b6cabe4dc2100902"
+        },
+        "change": "Preserve impact-operation selection and explicitly assert operation; buffer real APIResponse before browser delivery and clean up routes in finally.",
+        "checks": [
+          {
+            "command": "REPO_GRAPH_PYTHON=.venv/bin/python npm run test:ux",
+            "status": "passed",
+            "browser_errors": 0,
+            "log_sha256": "27247438831631ea2b09597fd9b314a0e1815febd24d0b7270222ba3aa2a7169"
+          },
+          {
+            "command": "node --check tests/ux.mjs",
+            "status": "passed"
+          },
+          {
+            "command": "git diff --check",
+            "status": "passed"
+          }
+        ],
+        "independent_review": "go_for_experimental_source_checkpoint_conditional_on_exact_head_ci"
+      }
+    ],
+    "runtime_source_changed": false,
+    "fresh_ci": "pending_new_commit"
   }
 }

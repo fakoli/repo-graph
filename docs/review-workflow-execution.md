@@ -275,7 +275,23 @@ and native gates at release, broadening only after changes or unresolved failure
   Both repaired-source CI runs passed at `cf459c8ae574204c0bbdb784c23ee29fd03c065f`.
   The subsequent v2 source passed 127 product tests, 203 structural checks,
   eight evaluation contract checks, corpus integrity, isolated Codex/Claude/Pi
-  smokes and wheel construction. Its final source checkpoint requires fresh CI.
+  smokes and wheel construction. Both CI runs at `09eefe6` passed those gates
+  but reproduced the browser response-body race despite immediate JSON capture.
+  The browser check now buffers the actual server API response through the
+  existing route-fetch pattern before delivering it to the browser. It also
+  checks rendered text against the captured response, preserves byte-range and
+  keyboard-focus assertions, and removes interception before witness requests.
+  Independent review cleared this test repair for the experimental checkpoint;
+  its new committed head still requires fresh CI. A focused invocation with
+  system Python failed before browser startup because the optional parser was
+  absent; the documented virtual-environment invocation passed.
+  The full browser run then exposed the same body-retention boundary in the
+  contract-impact response collector. Its temporary route now buffers the real
+  API response, retains the prior Impact-operation filter and all scope/response
+  assertions, and cleans up in `finally`. Independent review rejected an
+  intermediate repair that lost that operation filter. The corrected full
+  browser run passed with no browser errors; both failures and review correction
+  remain retained.
   Receipts record checks at their source hashes; current PR checks are the
   authority for its latest committed head.
 - R7: source checkpoint delivery is separate from feature release. Version pins
