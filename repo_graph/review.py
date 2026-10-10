@@ -31,6 +31,7 @@ MAX_FINDINGS = 100
 MAX_TEXT = 8_192
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
 PACKET_BASIS_KEYS = ("packet_id", "test", "sources", "source_text", "gaps", "anchors", "bytes", "actual_collected_parameter_count", "scope_digest", "review_scope", "dependencies_complete")
+PACKET_CONSTRUCTION = "split-closure-v1"
 CLOSURE_GAP = "closure_omissions_unknown;runtime_and_unvisited_edges_are_unqualified"
 
 
@@ -189,7 +190,7 @@ def _local_closure(source, files, initial, limits, used, packet, seen=()):
     pending, seen, found, gaps = list(initial), set(seen), [], []
     def fits(items, details):
         sources = [*packet["sources"], *items]
-        payload = _packet_payload(packet["test"], sources, [*packet["gaps"], *details], packet["anchors"], sum(row["bytes"] for row in sources), "0" * 64)
+        payload = _packet_payload(packet["test"], sources, [*packet["gaps"], *details], packet["anchors"], sum(row.get("fragment", {}).get("bytes", row["bytes"]) for row in sources), "0" * 64)
         return len(_json(payload).encode()) <= limits["packet_bytes"]
     def stop(reason):
         # The shorter summary replaces space reserved in every primary packet.
@@ -430,6 +431,8 @@ def plan(repository, *, scope="tests", output=None, include=(), limits=None, aut
     with SourceRoot(root) as source:
         binding = source.identity
         for test in selected:
+            if len(packet_specs) >= limits["packets"]:
+                blocked.append({"path": test, "reason": "packet_limit"}); continue
             if _sensitive(test):
                 blocked.append({"path": test, "reason": "sensitive_source_excluded"}); continue
             info = source.info(test)
@@ -449,19 +452,30 @@ def plan(repository, *, scope="tests", output=None, include=(), limits=None, aut
             imports, unresolved = _targets(test, set(files), primary["text"])
             unresolved_gaps = [f"unresolved_import:{name}" for name in unresolved]
             primary_gaps = ["dynamic fixtures, plugins, parametrization and callers may be unresolved", CLOSURE_GAP, *anchor_gaps, *unresolved_gaps]
+            dependencies = _ancestors(test, set(files)) + explicit
+            dependencies += _package_inits(test, set(files)) + imports
             if len(_json(_packet_payload(test, [primary], primary_gaps, {"tests": tests, "assertions": assertions}, primary["bytes"], "0" * 64)).encode()) > limits["packet_bytes"]:
                 units = _unit_fragments(test, primary)
                 if not units or any(unit["bytes"] > limits["packet_bytes"] for unit in units):
                     blocked.append({"path": test, "reason": "oversized_unsplittable_logical_unit"}); continue
                 blocked.append({"path": test, "reason": "partial_logical_split"})
+                used = [source_bytes]
                 for unit in units:
+                    if len(packet_specs) >= limits["packets"]:
+                        blocked.append({"path": test, "reason": "packet_limit"}); break
                     fragment = dict(primary, text=unit["text"], fragment={key: unit[key] for key in ("start_line", "end_line", "sha256", "bytes")})
                     uncovered = [f"uncovered_source_unit:{test}:{start}:{end}" for start, end in [(1, unit["start_line"] - 1), (unit["end_line"] + 1, primary["text"].count("\n") + 1)] if start <= end]
                     unit_assertions = [value for value in assertions if unit["start_line"] <= int(value[len(test) + 1:].split(":", 1)[0]) <= unit["end_line"]]
-                    packet_specs.append({"test": test, "sources": [fragment], "gaps": sorted(set(["dependency_closure_not_materialized_for_split", *anchor_gaps, *uncovered])), "anchors": {"tests": [row for row in tests if unit["start_line"] <= row["line"] <= unit["end_line"]], "assertions": unit_assertions}, "bytes": unit["bytes"]})
+                    anchors = {"tests": [row for row in tests if unit["start_line"] <= row["line"] <= unit["end_line"]], "assertions": unit_assertions}
+                    gaps = [*primary_gaps, *uncovered]
+                    if len(_json(_packet_payload(test, [fragment], gaps, anchors, unit["bytes"], "0" * 64)).encode()) > limits["packet_bytes"]:
+                        blocked.append({"path": test, "reason": "oversized_unsplittable_logical_unit"}); continue
+                    closure, closure_gaps = _local_closure(source, files, sorted(set(dependencies) - {test}), limits, used, {"test": test, "sources": [fragment], "gaps": gaps, "anchors": anchors}, {test})
+                    sources = [fragment, *closure]
+                    packet_specs.append({"test": test, "sources": sources, "gaps": sorted(set([*gaps, *closure_gaps])), "anchors": anchors,
+                                         "bytes": sum(item.get("fragment", {}).get("bytes", item["bytes"]) for item in sources)})
+                source_bytes = used[0]
                 continue
-            dependencies = _ancestors(test, set(files)) + explicit
-            dependencies += _package_inits(test, set(files)) + imports
             sources, gaps, total = [primary], list(primary_gaps), primary["bytes"]
             # Exact payload sizing admits dependencies before publication.
             used = [source_bytes]
@@ -471,11 +485,15 @@ def plan(repository, *, scope="tests", output=None, include=(), limits=None, aut
                 sources.append(candidate); total += candidate["bytes"]
             gaps.extend(closure_gaps)
             packet_specs.append({"test": test, "sources": sources, "gaps": sorted(set(gaps)), "anchors": {"tests": tests, "assertions": assertions}, "bytes": total})
-    scope_rows = [{"test": spec["test"], "sources": [{key: item[key] for key in ("path", "sha256", "bytes")} for item in spec["sources"]]} for spec in packet_specs]
+    scope_rows = []
+    for spec in packet_specs:
+        sources = [{k: value for k, value in item.items() if k != "text"} | {"start_line": item.get("fragment", {}).get("start_line", 1), "end_line": item.get("fragment", {}).get("end_line", item["text"].count("\n") + 1)} for item in spec["sources"]]
+        scope_rows.append({"test": spec["test"], "sources": sources, "gaps": spec["gaps"], "anchors": spec["anchors"], "bytes": spec["bytes"],
+                           "review_scope": "materialized_source_only", "dependencies_complete": False})
     profile = "test-consolidation"
-    scope_digest = _digest({"profile": profile, "scope": scope, "files": scope_rows, "include": sorted(set(explicit)), "limits": limits,
+    scope_digest = _digest({"construction": PACKET_CONSTRUCTION, "profile": profile, "scope": scope, "packets": scope_rows, "include": sorted(set(explicit)), "limits": limits,
                             "blocked": blocked, "source_bytes": source_bytes})
-    campaign_id = _digest({"schema": SCHEMA, "profile": profile, "scope": scope, "scope_digest": scope_digest, "authority": authority})[:24]
+    campaign_id = _digest({"schema": SCHEMA, "construction": PACKET_CONSTRUCTION, "profile": profile, "scope": scope, "scope_digest": scope_digest, "authority": authority})[:24]
     campaign_dir = destination / campaign_id
     campaign_dir.mkdir(mode=0o700, exist_ok=True)
     with _locked(campaign_dir) as boundary:
@@ -498,10 +516,11 @@ def plan(repository, *, scope="tests", output=None, include=(), limits=None, aut
             _save(boundary, existing)
             return {"campaign": str(campaign_dir), "campaign_id": campaign_id, "counts": existing["counts"], "resumed": True}
         packets = []
-        for spec in packet_specs[:limits["packets"]]:
+        for spec in packet_specs:
             sources = [{k: value for k, value in item.items() if k != "text"} | {"start_line": item.get("fragment", {}).get("start_line", 1), "end_line": item.get("fragment", {}).get("end_line", item["text"].count("\n") + 1)} for item in spec["sources"]]
-            identity = {"test": spec["test"], "sources": [{key: item[key] for key in ("path", "sha256", "bytes", "start_line", "end_line")} | ({"fragment": item["fragment"]} if "fragment" in item else {}) for item in sources], "scope_digest": scope_digest}
-            packet_id = _digest(identity)[:24]
+            basis = _packet_basis(_packet_payload(spec["test"], spec["sources"], spec["gaps"], spec["anchors"], spec["bytes"], scope_digest))
+            basis.pop("packet_id")
+            packet_id = _digest({"construction": PACKET_CONSTRUCTION, "basis": basis})[:24]
             packet = _packet_payload(spec["test"], spec["sources"], spec["gaps"], spec["anchors"], spec["bytes"], scope_digest, packet_id)
             if len(_json(packet).encode()) > limits["packet_bytes"]:
                 blocked.append({"path": spec["test"], "reason": "packet_serialized_budget"}); continue
@@ -510,8 +529,6 @@ def plan(repository, *, scope="tests", output=None, include=(), limits=None, aut
             boundary.write_json(name, immutable)
             packets.append({"packet_id": packet_id, "path": name, "payload_sha256": packet["payload_sha256"], "test": spec["test"], "state": "planned", "gaps": spec["gaps"],
                             "attempts": [], "result": None, "decision": None})
-        if len(packet_specs) > limits["packets"]:
-            blocked.extend({"path": spec["test"], "reason": "packet_limit"} for spec in packet_specs[limits["packets"]:])
         failed_total = inventory_coverage.get("failed", 0)
         failed_known = len(inventory_coverage.get("failures", []))
         requested_failed = len(failed_scope)

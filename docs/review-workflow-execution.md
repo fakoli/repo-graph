@@ -247,8 +247,15 @@ and native gates at release, broadening only after changes or unresolved failure
   an experimental source checkpoint. Source descriptor caps count failed
   decoding; serialized admission includes source escaping, metadata and gaps.
   Known omissions have exact details when they fit, otherwise a bounded stop
-  summary and explicit lower-bound/unknown knowledge. No full-plan completion
-  is claimed.
+  summary and explicit lower-bound/unknown knowledge. A follow-up fixes split
+  packets to reuse the same bounded fixture/package/import closure as whole
+  files. Admission counts the materialized fragment; dependency reads across
+  fragments share the campaign ceiling, and packet limits stop acquisition.
+  Uncovered same-file ranges and omitted dependencies stay explicit. Independent
+  review caught an old-v2 resume collision; construction identity now binds
+  exact packet semantics, fragment ranges, gaps and anchors. The actual prior
+  builder/current-builder probe preserved every old campaign byte and resumed
+  only the matching new construction. No full-plan completion is claimed.
 - R4: existing Codex skill extended and validated. Isolated installed Codex
   packet/result/independent-disposition/resume checks passed with synthetic
   results, including repository-config export refusal and reduced result limits.

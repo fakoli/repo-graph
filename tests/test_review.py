@@ -118,20 +118,42 @@ class ReviewTests(unittest.TestCase):
             self.assertTrue(any(row["path"] == "tests/test_linked.py" for row in report["inventory_blocked"]))
             bounded = review.plan(root, output=Path(temp.name) / "other-cache", limits={"source_bytes": 1})
             self.assertGreaterEqual(review.status(bounded["campaign"])["counts"]["blocked"], 1)
-            (root / "tests" / "test_split.py").write_text("blob = '" + "x" * 3000 + "'\n\ndef test_left():\n    assert True\n\n# second context\ndef test_right():\n    assert True\n")
-            split = review.plan(root, output=Path(temp.name) / "split-cache", limits={"packet_bytes": 2000})
-            self.assertGreaterEqual(split["counts"]["packets"], 2)
+            split_text = "from pkg.helper import value\nblob = '" + "x" * 3000 + "'\n\ndef tagged(fn): return fn\n\n@tagged\ndef test_left():\n    assert value() == 1\n\n# second context\ndef test_right():\n    assert value() == 1\n"
+            (root / "tests" / "test_split.py").write_text(split_text)
+            split = review.plan(root, scope="tests/test_split.py", output=Path(temp.name) / "split-cache", limits={"packet_bytes": 2400, "packets": 2})
+            self.assertEqual(2, split["counts"]["packets"])
             assigned_packets = [review.next_packet(split["campaign"]) for _ in range(split["counts"]["packets"])]
             split_assigned = next(value for value in assigned_packets if value["packet"]["sources"][0].get("fragment"))
             first = split_assigned["packet"]
             self.assertIn("uncovered_source_unit", " ".join(first["gaps"]))
+            self.assertIn("@tagged", first["source_text"][0]["text"])
+            self.assertEqual(first["sources"][0]["start_line"], first["sources"][0]["fragment"]["start_line"])
+            self.assertEqual({"tests/test_split.py", "tests/conftest.py", "pkg/__init__.py", "pkg/helper.py", "pkg/extra.py"}, {source["path"] for source in first["sources"]})
+            self.assertFalse(first["dependencies_complete"])
+            for packet_file in Path(split["campaign"]).glob("packet-*.json"):
+                self.assertLessEqual(len(packet_file.read_bytes()), 2400)
+            legacy_output = Path(temp.name) / "legacy-construction-cache"
+            with patch.object(review, "PACKET_CONSTRUCTION", "split-closure-v0"):
+                legacy = review.plan(root, scope="tests/test_split.py", output=legacy_output, limits={"packet_bytes": 2400, "packets": 2})
+            legacy_bytes = {path.relative_to(legacy["campaign"]): path.read_bytes() for path in Path(legacy["campaign"]).glob("*.json")}
+            rebuilt = review.plan(root, scope="tests/test_split.py", output=legacy_output, limits={"packet_bytes": 2400, "packets": 2})
+            self.assertFalse(rebuilt["resumed"])
+            self.assertNotEqual(legacy["campaign_id"], rebuilt["campaign_id"])
+            self.assertEqual(legacy_bytes, {path.relative_to(legacy["campaign"]): path.read_bytes() for path in Path(legacy["campaign"]).glob("*.json")})
+            self.assertTrue(review.plan(root, scope="tests/test_split.py", output=legacy_output, limits={"packet_bytes": 2400, "packets": 2})["resumed"])
             invalid = self.result_for(split_assigned); invalid["reviewed_ranges"][0]["start_line"] = 1
             with self.assertRaises(ValueError): review.record(split["campaign"], invalid)
             stored = review.record(split["campaign"], self.result_for(split_assigned))
             decision = {"kind": "independent_decision", "packet_id": first["packet_id"], "attempt_id": split_assigned["attempt"]["attempt_id"], "result_sha256": stored["sha256"], "reviewer_id": "independent", "disposition": "accepted", "provenance": {"model": "other", "surface": "codex", "reasoning": "high"}, "rationale": "range checked"}
             self.assertEqual("accepted", review.record(split["campaign"], decision)["state"])
+            self.assertGreater(first["sources"][0]["start_line"], 1)
             (root / "tests" / "test_split.py").write_text("changed = True\n" + (root / "tests" / "test_split.py").read_text())
             self.assertIn("stale", [row["state"] for row in review.status(split["campaign"], limit=100)["packets"]])
+            omitted = review.plan(root, scope="tests/test_split.py", output=Path(temp.name) / "split-omitted-cache", limits={"packet_bytes": 2400, "packets": 1, "source_bytes": len("changed = True\n" + split_text)})
+            self.assertEqual(1, omitted["counts"]["packets"])
+            omitted_packet = review.next_packet(omitted["campaign"])["packet"]
+            self.assertFalse(omitted_packet["dependencies_complete"])
+            self.assertIn("source_read_budget_dependency", " ".join(omitted_packet["gaps"]))
             (root / "tests" / "test_fanout.py").write_text("\n".join(f"from pkg.dep{i} import value" for i in range(12)) + "\ndef test_fanout():\n    assert True\n")
             for i in range(12): (root / "pkg" / f"dep{i}.py").write_text("value = '" + "\\\"" * 300 + "'\n")
             fanout = review.plan(root, output=Path(temp.name) / "fanout-cache", limits={"packet_bytes": 1400, "source_bytes": 20_000})

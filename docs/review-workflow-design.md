@@ -161,6 +161,9 @@ configuration cannot increase permissions, enroll a provider or expand export.
 1. Capture requested scope, exclusion policy, tool version and source identity.
    A Git commit alone is insufficient for a dirty checkout. Use file digests
    and a deterministic scope manifest; keep Git revision knowledge separately.
+   Construction identity binds source and fragment ranges, gaps, anchors and
+   packet semantics. Replanning a changed construction creates a separate
+   campaign and preserves earlier evidence.
 2. Select one behavior or related assertion family. Start from a complete test
    file plus fixtures, relevant implementation and required callers. Existing
    graph edges are candidate evidence; unresolved edges remain explicit gaps.
@@ -170,8 +173,11 @@ configuration cannot increase permissions, enroll a provider or expand export.
 4. Fit complete units within the profile. The alpha follows bounded recursive
    local import candidates and can split a fully acquired test file into whole
    top-level test functions. Decorators and adjacent comments stay with a unit;
-   full-file and fragment digests bind its exact range. Uncovered source remains
-   blocked. Classes, oversized single units and files above the acquisition
+   full-file and fragment digests bind its exact range. Each fragment also
+   follows the same bounded fixture, package and import candidates. Serialized
+   admission counts materialized fragment bytes; physical reads remain charged
+   to the shared campaign ceiling. Uncovered source remains blocked. Classes,
+   oversized single units and files above the acquisition
    ceiling remain blocked; cross-file integration completeness is unqualified.
    Never drop a dependency or cut an arbitrary prefix to make a complete claim.
 5. Materialize the packet and provenance outside the source repository. Record
