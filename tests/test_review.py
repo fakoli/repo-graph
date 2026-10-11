@@ -281,9 +281,37 @@ class ReviewTests(unittest.TestCase):
             saved = review.record(created["campaign"], result)
             with self.assertRaises(ValueError):
                 review.record(created["campaign"], dict(result, outcome="needs_source"))
+            decision = {"kind": "independent_decision", "packet_id": result["packet_id"], "attempt_id": result["attempt_id"],
+                        "result_sha256": saved["sha256"], "reviewer_id": "other", "disposition": "accepted",
+                        "provenance": {"model": "other", "surface": "codex", "reasoning": "high"}, "rationale": "independent source review"}
+            for blank in ("", " \t\n"):
+                with self.assertRaisesRegex(ValueError, "provenance and rationale required"):
+                    review.record(created["campaign"], dict(decision, rationale=blank))
+                for key in decision["provenance"]:
+                    with self.assertRaisesRegex(ValueError, "provenance and rationale required"):
+                        review.record(created["campaign"], dict(decision, provenance=dict(decision["provenance"], **{key: blank})))
+                for key in ("packet_id", "attempt_id", "result_sha256", "reviewer_id"):
+                    with self.assertRaisesRegex(ValueError, "identity fields required"):
+                        review.record(created["campaign"], dict(decision, **{key: blank}))
+                with self.assertRaisesRegex(ValueError, "worker identity required"):
+                    review.next_packet(created["campaign"], worker=blank)
             with self.assertRaises(ValueError):
-                review.record(created["campaign"], {"kind": "independent_decision", "packet_id": result["packet_id"], "attempt_id": result["attempt_id"],
-                    "result_sha256": saved["sha256"], "reviewer_id": "same", "disposition": "accepted", "provenance": {"model": "same", "surface": "codex", "reasoning": "high"}, "rationale": "no"})
+                review.record(created["campaign"], dict(decision, reviewer_id="same"))
+            self.assertEqual("validated", review.status(created["campaign"])["packets"][0]["state"])
+            # Earlier v4 validators could persist an accepted blank decision.
+            # Refuse it on resume/read as well, preserving the saved bytes.
+            manifest = Path(created["campaign"]) / "campaign.json"
+            historical = json.loads(manifest.read_bytes())
+            historical["packets"][0].update(state="accepted", decision=dict(decision, rationale=" \t\n"))
+            manifest.write_text(json.dumps(historical))
+            historical_bytes = manifest.read_bytes()
+            for observe in (lambda: review.status(created["campaign"]),
+                            lambda: review.next_packet(created["campaign"]),
+                            lambda: review.plan(root, output=Path(temp.name) / "cache"),
+                            lambda: review.record(created["campaign"], decision)):
+                with self.assertRaisesRegex(ValueError, "provenance and rationale required"):
+                    observe()
+                self.assertEqual(historical_bytes, manifest.read_bytes())
 
     def test_crashed_directory_lock_releases_without_replaying_an_attempt(self):
         temp, root = self.make_repo()

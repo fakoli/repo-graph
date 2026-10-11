@@ -305,6 +305,9 @@ def _load(boundary):
         raise ValueError("invalid campaign manifest") from error
     if value.get("schema") != SCHEMA:
         _fail("unsupported campaign schema")
+    for reference in value["packets"]:
+        if reference.get("decision") is not None:
+            _validate_decision(reference["decision"], value["limits"]["result_bytes"])
     return value
 
 
@@ -638,7 +641,7 @@ def _packet(campaign, packet_id):
 
 def next_packet(campaign, *, worker="codex"):
     path = _campaign_path(campaign)
-    if not isinstance(worker, str) or not worker or len(worker) > 256:
+    if not isinstance(worker, str) or not worker.strip() or len(worker) > 256:
         _fail("worker identity required")
     with _locked(path) as boundary:
         state = _load(boundary)
@@ -668,7 +671,7 @@ def _validate_result(packet, result, maximum):
         _fail("worker result has unknown or missing fields")
     if type(result["outcome"]) is not str or result["outcome"] not in {"completed", "needs_source", "uncertain", "cancelled"}:
         _fail("invalid worker outcome")
-    if not all(isinstance(result[key], str) and result[key] for key in ("packet_id", "attempt_id", "worker_id")):
+    if not all(isinstance(result[key], str) and result[key].strip() for key in ("packet_id", "attempt_id", "worker_id")):
         _fail("result identity fields must be non-empty strings")
     if type(result["reviewed_ranges"]) is not list or type(result["findings"]) is not list or type(result["assertion_map"]) is not list:
         _fail("result collections must be lists")
@@ -706,6 +709,18 @@ def _validate_result(packet, result, maximum):
     return _digest(result)
 
 
+def _validate_decision(result, maximum):
+    required = {"kind", "packet_id", "attempt_id", "result_sha256", "reviewer_id", "disposition", "provenance", "rationale"}
+    if type(result) is not dict or set(result) != required or result["kind"] != "independent_decision" or type(result["disposition"]) is not str or result["disposition"] not in {"accepted", "rejected", "needs_source"}:
+        _fail("invalid independent decision")
+    if type(result["provenance"]) is not dict or set(result["provenance"]) != {"model", "surface", "reasoning"} or not all(isinstance(value, str) and value.strip() for value in result["provenance"].values()) or not isinstance(result["rationale"], str) or not result["rationale"].strip() or len(result["rationale"]) > MAX_TEXT:
+        _fail("independent decision provenance and rationale required")
+    if not all(isinstance(result[key], str) and result[key].strip() for key in ("packet_id", "attempt_id", "result_sha256", "reviewer_id")):
+        _fail("independent decision identity fields required")
+    if len(_json(result).encode()) > maximum or any(len(result[key]) > 256 for key in ("packet_id", "attempt_id", "result_sha256", "reviewer_id")) or any(len(value) > 256 for value in result["provenance"].values()):
+        _fail("independent decision exceeds bounded record limits")
+
+
 def record(campaign, result):
     path = _campaign_path(campaign)
     if isinstance(result, (str, Path)):
@@ -716,15 +731,7 @@ def record(campaign, result):
     with _locked(path) as boundary:
         state = _load(boundary)
         if type(result) is dict and result.get("kind") == "independent_decision":
-            required = {"kind", "packet_id", "attempt_id", "result_sha256", "reviewer_id", "disposition", "provenance", "rationale"}
-            if set(result) != required or type(result["disposition"]) is not str or result["disposition"] not in {"accepted", "rejected", "needs_source"}:
-                _fail("invalid independent decision")
-            if type(result["provenance"]) is not dict or set(result["provenance"]) != {"model", "surface", "reasoning"} or not all(isinstance(value, str) and value for value in result["provenance"].values()) or not isinstance(result["rationale"], str) or not result["rationale"] or len(result["rationale"]) > MAX_TEXT:
-                _fail("independent decision provenance and rationale required")
-            if not all(isinstance(result[key], str) and result[key] for key in ("packet_id", "attempt_id", "result_sha256", "reviewer_id")):
-                _fail("independent decision identity fields required")
-            if len(_json(result).encode()) > state["limits"]["result_bytes"] or any(len(result[key]) > 256 for key in ("packet_id", "attempt_id", "result_sha256", "reviewer_id")) or any(len(value) > 256 for value in result["provenance"].values()):
-                _fail("independent decision exceeds bounded record limits")
+            _validate_decision(result, state["limits"]["result_bytes"])
             reference = _packet(state, result["packet_id"])
             packet = _load_packet(boundary, reference) if reference else None
             if not packet or not packet["result"] or packet["result"]["sha256"] != result["result_sha256"]:
