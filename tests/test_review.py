@@ -50,7 +50,7 @@ class ReviewTests(unittest.TestCase):
             self.assertEqual("accepted", review.record(created["campaign"], decision)["state"])
             self.assertTrue(review.record(created["campaign"], decision)["idempotent"])
             self.assertEqual("accepted", review.status(created["campaign"])["packets"][0]["state"])
-            (Path(created["campaign"]) / f"result-{saved['sha256']}.json").unlink()
+            (Path(created["campaign"]) / review.status(created["campaign"])["packets"][0]["result"]["path"]).unlink()
             stale = review.status(created["campaign"])["packets"][0]
             self.assertEqual("stale", stale["state"])
             self.assertEqual("evidence_invalid", stale["stale_reason"])
@@ -112,7 +112,7 @@ class ReviewTests(unittest.TestCase):
         with temp:
             created = review.plan(root, output=Path(temp.name) / "cache")
             manifest = Path(created["campaign"]) / "campaign.json"; manifest_original = manifest.read_bytes()
-            for schema in ("repo-graph-review-v1", "repo-graph-review-v2"):
+            for schema in ("repo-graph-review-v1", "repo-graph-review-v2", "repo-graph-review-v3"):
                 legacy = json.loads(manifest_original); legacy["schema"] = schema; manifest.write_text(json.dumps(legacy))
                 with self.assertRaisesRegex(ValueError, "unsupported campaign schema"):
                     review.next_packet(created["campaign"])
@@ -137,7 +137,7 @@ class ReviewTests(unittest.TestCase):
                 review.record(created["campaign"], dict(result, outcome=[]))
             saved = review.record(created["campaign"], result)
             self.assertEqual("validated", saved["state"])
-            (Path(created["campaign"]) / f"result-{saved['sha256']}.json").unlink()
+            (Path(created["campaign"]) / review.status(created["campaign"])["packets"][0]["result"]["path"]).unlink()
             self.assertEqual("stale", review.record(created["campaign"], result)["state"])
             # The result blob is durable before the sole manifest publication. A
             # failed publication leaves the assigned manifest and permits only
@@ -147,7 +147,19 @@ class ReviewTests(unittest.TestCase):
             with patch.object(review, "_save", side_effect=OSError("interrupted before manifest")):
                 with self.assertRaises(OSError): review.record(other["campaign"], pending_result)
             self.assertIsNone(review.next_packet(other["campaign"])["packet"])
-            self.assertEqual("validated", review.record(other["campaign"], pending_result)["state"])
+            artifacts = {path.name: path.read_bytes() for path in Path(other["campaign"]).glob("result-*.json")}
+            with self.assertRaisesRegex(ValueError, "conflicting result"):
+                review.record(other["campaign"], dict(pending_result, outcome="needs_source"))
+            self.assertEqual(artifacts, {path.name: path.read_bytes() for path in Path(other["campaign"]).glob("result-*.json")})
+            orphan = next(Path(other["campaign"]).glob("result-*.json"))
+            orphan.write_text("{}")
+            with self.assertRaises(ValueError):
+                review.record(other["campaign"], pending_result)
+            self.assertEqual("{}", orphan.read_text())
+            orphan.write_bytes(artifacts[orphan.name])
+            recovered = review.record(other["campaign"], pending_result)
+            self.assertEqual("validated", recovered["state"])
+            self.assertTrue(recovered["idempotent"])
 
     def test_source_change_and_uncertain_attempts_do_not_complete(self):
         temp, root = self.make_repo()
@@ -259,6 +271,13 @@ class ReviewTests(unittest.TestCase):
             created = review.plan(root, output=Path(temp.name) / "cache")
             assigned = review.next_packet(created["campaign"], worker="same")
             result = self.result_for(assigned)
+            for blank in ("", " \t"):
+                incomplete = dict(result, assertion_map=[dict(row, evidence=blank) for row in result["assertion_map"]])
+                with self.assertRaisesRegex(ValueError, "assertion map text"):
+                    review.record(created["campaign"], incomplete)
+                incomplete = dict(result, findings=[dict(result["findings"][0], summary=blank)])
+                with self.assertRaisesRegex(ValueError, "invalid finding"):
+                    review.record(created["campaign"], incomplete)
             saved = review.record(created["campaign"], result)
             with self.assertRaises(ValueError):
                 review.record(created["campaign"], dict(result, outcome="needs_source"))

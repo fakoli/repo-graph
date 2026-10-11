@@ -329,6 +329,23 @@ and native gates at release, broadening only after changes or unresolved failure
   no-network standalone sandbox probe is provider-free and cannot wrap a model
   invocation that needs provider transport.
 - Shared imported-memory access remains unavailable in this tool connection.
+- T001's original three-review HOLD found an interrupted-result conflict and
+  blank evidence/finding summaries. The v4 repair binds result artifacts to an
+  attempt and requires nonblank text. The repair expands the existing six
+  journeys without adding test cases. Local full tests passed 127 in 31.733 s
+  (31.897 s through the wrapper); the isolated Codex
+  install/group/result/resume synthetic provider-free smoke, one review-workflow
+  evaluation contract, frozen 12-family/18-anchor corpus, wheel/runtime hash
+  match, and skill validation/diff also passed locally. The expanded regression
+  first reproduced two failures before repair; failed proof and report history
+  remain retained. [The frozen public v4 receipt](../evaluations/results/review-workflow/source-review-v4-attempts.json)
+  is source-checkpoint-only and binds source code hashes with SHA256
+  `883904709bc4c7c67b53f533aadfc700919fc5ff4849f352b97ff875438b471e`;
+  corrective reviews and exact new-head CI remain pending at freeze. PR5 remains
+  draft; its prior `a301882` CI green is historical, not a GO or completion
+  result. R4-R7, the live-pilot ceiling, formal acceptance and release remain
+  pending. Historical v3 receipts and measurements remain evidence for their
+  frozen commit and are neither migrated nor replayed.
 
 ## Remaining decisions that can optimize the design
 

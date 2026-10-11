@@ -127,6 +127,9 @@ cannot add members. Automatic integration discovery remains unqualified.
 
 Source reads obey the byte ceiling at the descriptor; failed decoding still
 consumes the campaign budget. Packet limits include JSON escaping and metadata.
+Materialized source, result and packet budgets are bounded. The existing
+`repo_files` metadata inventory has no hard entry, byte or time ceiling, so full
+inventory scale remains unqualified.
 
 Completion covers the exact materialized ranges; dependency closure remains unknown.
 Status rechecks the requested page's source and result evidence and labels other
@@ -143,11 +146,18 @@ prove desktop worker permissions or model quality. Source-only packet review
 remains usable when delegation is unsupported. Other harness review adapters,
 Anvil evidence integration and automatic test edits are outside this slice.
 
-Schema v3 keeps packet payloads immutable and publishes lifecycle changes through
-one atomic campaign manifest. Descriptor locks reject concurrent coordinators
-and release on process exit; an interrupted assignment is never replayed.
-Earlier v1/v2 records are refused explicitly and remain available as historical
-evidence. Native process cancellation and model completion remain unqualified.
+Schema v4 keeps packet payloads immutable and publishes lifecycle changes through
+one atomic campaign manifest. Construction identity includes
+`integration-members-v2`. Result artifacts use a deterministic
+`hash(packet_id, attempt_id)` key rather than a payload digest. On retry, the
+coordinator strictly parses and validates that attempt's existing artifact and
+compares its result digest: an identical retry finalizes an interrupted manifest;
+a different or invalid retry is refused without overwrite. Assertion-map evidence
+for every original behavior and finding summaries must be nonblank. Descriptor
+locks reject concurrent coordinators and release on process exit; an interrupted
+assignment is never replayed. Earlier v1-v3 records are refused explicitly and
+remain available as historical evidence. Native process cancellation and model
+completion remain unqualified.
 
 The [design](docs/review-workflow-design.md),
 [execution plan](docs/review-workflow-execution.md) and

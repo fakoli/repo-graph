@@ -70,7 +70,7 @@ workflow must not turn merged experimental source into a release claim.
 
 | Existing seam | Reuse | Required new behavior |
 | --- | --- | --- |
-| `repo_graph/builder.py::repo_files` | Inventory and exclusion information | Campaign denominator accounts for requested files, exclusions and unknown counts, including files never admitted to analysis |
+| `repo_graph/builder.py::repo_files` | Inventory and exclusion information | Campaign denominator accounts for requested files, exclusions and unknown counts, including files never admitted to analysis; its metadata inventory has no hard entry, byte or time ceiling, so full-inventory scale remains unqualified |
 | `repo_graph/source.py::SourceRoot` | Root-bound reads, content hashing, change detection and atomic writes | Complete bounded file acquisition for packets, without executing repository code |
 | `repo_graph/analysis_queries.py::Queries` | Bounded symbol/caller/callee queries with explicit uncertainty | Candidate relationships for packet selection; graph results do not establish complete dependencies |
 | `repo_graph/search.py::captured_source` | Generation/range/digest affinity and bounded redacted excerpts | Excerpts remain partial evidence; they cannot be relabelled as complete-file review |
@@ -248,21 +248,23 @@ excluded from commits. Reuse guarded atomic publication. Start with immutable
 JSON packet/result records and a small atomically replaced manifest, avoiding
 a second service or event database. Only one coordinator writes campaign state;
 workers return results and do not mutate the manifest. Concurrent coordinators
-are rejected. Schema v3 uses a nonblocking descriptor lock on the campaign
+are rejected. Schema v4 uses a nonblocking descriptor lock on the campaign
 directory; the operating system releases it when the coordinator exits.
 Lifecycle publication replaces only the manifest, after immutable artifacts
 are written. An interruption before replacement preserves the prior state;
 an interruption after assignment publication leaves that attempt assigned.
-Neither case proves a model worker stopped or permits replay. Older v1/v2
-records are refused explicitly and retained for historical inspection; v3 seals
-test membership as part of the immutable packet contract.
+Neither case proves a model worker stopped or permits replay. Construction
+identity includes `integration-members-v2`, which seals explicit whole-file
+test membership as part of the immutable packet contract. Older v1-v3 records
+are refused explicitly and retained for historical inspection, with no
+migration or replay.
 
 | Record | Minimum contract |
 | --- | --- |
 | Campaign | Schema version, campaign ID, repository binding, scope digest, exclusions, policy/profile digest, authority, budget, adapter capabilities and packet references |
 | Packet | Content-derived packet ID/version, snapshot and file digests, exact byte/line ranges, intent, required dependencies, omissions, token/byte accounting and expected result contract |
 | Assignment | Packet ID, unique attempt ID, worker/session identity, selected model/settings, start/end/stop state and usage availability |
-| Result | Packet/attempt identity, reviewed ranges, findings with citations, assertion map, gaps, recommendation and usage references |
+| Result | Packet/attempt identity, reviewed ranges, findings with citations and nonblank summaries, assertion map with nonblank original-behavior evidence, gaps, recommendation and usage references |
 | Independent decision | Exact result digest, reviewer/model provenance, accepted/rejected/needs-source disposition and rationale |
 
 Packet IDs exclude timestamps and local absolute paths. Source-root capabilities
@@ -277,8 +279,11 @@ Cancellation, timeout and uncertain worker termination remain separate outcomes;
 they are not completed reviews. An accepted result becomes stale if its source
 basis changes. Prior records are retained as historical evidence.
 
-Duplicate submission of the same result digest is idempotent. A different
-result for the same attempt is a conflict; it cannot overwrite the first.
+Result artifacts are deterministically keyed by `hash(packet_id, attempt_id)`,
+not by a payload digest. On every retry, strictly parse and validate the
+existing attempt artifact before comparing its result digest. An identical retry
+may finalize an interrupted manifest; a different or invalid retry is a conflict
+and is refused without overwrite.
 The later Anvil evidence integration must use a stable external reference and supported
 readback. If delivery is uncertain, reconcile that reference before retrying.
 

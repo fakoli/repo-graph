@@ -21,7 +21,7 @@ except ImportError:
 from .builder import repo_files
 from .source import SourceRoot
 
-SCHEMA = "repo-graph-review-v3"
+SCHEMA = "repo-graph-review-v4"
 MAX_FILES = 2_000
 MAX_FILE_BYTES = 256 * 1024
 MAX_PACKET_BYTES = 768 * 1024
@@ -31,7 +31,7 @@ MAX_FINDINGS = 100
 MAX_TEXT = 8_192
 MAX_SOURCE_BYTES = 32 * 1024 * 1024
 PACKET_BASIS_KEYS = ("packet_id", "test", "test_members", "sources", "source_text", "gaps", "anchors", "bytes", "actual_collected_parameter_count", "scope_digest", "review_scope", "dependencies_complete")
-PACKET_CONSTRUCTION = "integration-members-v1"
+PACKET_CONSTRUCTION = "integration-members-v2"
 CLOSURE_GAP = "closure_omissions_unknown;runtime_and_unvisited_edges_are_unqualified"
 
 
@@ -682,7 +682,7 @@ def _validate_result(packet, result, maximum):
         if type(entry["start_line"]) is not int or type(entry["end_line"]) is not int or entry["sha256"] != item["sha256"] or not (item["start_line"] <= entry["start_line"] <= entry["end_line"] <= item["end_line"]):
             _fail("reviewed range is outside packet identity")
     for finding in result["findings"]:
-        if type(finding) is not dict or set(finding) != {"summary", "citations"} or not isinstance(finding["summary"], str) or len(finding["summary"]) > MAX_TEXT:
+        if type(finding) is not dict or set(finding) != {"summary", "citations"} or not isinstance(finding["summary"], str) or not finding["summary"].strip() or len(finding["summary"]) > MAX_TEXT:
             _fail("invalid finding")
         if type(finding["citations"]) is not list or not finding["citations"] or len(finding["citations"]) > 20:
             _fail("finding citations required")
@@ -692,7 +692,7 @@ def _validate_result(packet, result, maximum):
     for item in result["assertion_map"]:
         if type(item) is not dict or set(item) != {"original", "disposition", "evidence"} or type(item["disposition"]) is not str or item["disposition"] not in allowed:
             _fail("invalid assertion map")
-        if not all(isinstance(item[key], str) and len(item[key]) <= MAX_TEXT for key in ("original", "evidence")):
+        if not all(isinstance(item[key], str) and item[key].strip() and len(item[key]) <= MAX_TEXT for key in ("original", "evidence")):
             _fail("invalid assertion map text")
     if result["outcome"] == "completed":
         required_ranges = {(item["path"], item["start_line"], item["end_line"], item["sha256"]) for item in packet["sources"]}
@@ -767,11 +767,22 @@ def record(campaign, result):
                 packet["state"] = "stale"; packet["stale_reason"] = "evidence_invalid"; _save_packet(boundary, reference, packet); _save(boundary, state)
                 return {"state": "stale", "reason": "evidence_invalid"}
             return {"state": packet["state"], "sha256": digest, "idempotent": True}
-        boundary.write_json(f"result-{digest}.json", result)
-        packet["result"] = {"sha256": digest, "path": f"result-{digest}.json"}; packet["state"] = "validated" if result["outcome"] == "completed" else result["outcome"]; attempt["state"] = packet["state"]; attempt["outcome"] = result["outcome"]
+        # One durable slot per attempt also binds retries after a manifest-save crash.
+        name = f"result-{_digest([packet['packet_id'], attempt['attempt_id']])}.json"
+        try:
+            raw, _, _ = boundary.read(name, state["limits"]["result_bytes"], max_bytes=state["limits"]["result_bytes"])
+        except FileNotFoundError:
+            boundary.write_json(name, result)
+            recovered = False
+        else:
+            stored = _parse_json(raw, "recorded result")
+            if _validate_result(packet, stored, state["limits"]["result_bytes"]) != digest:
+                _fail("conflicting result for an immutable attempt")
+            recovered = True
+        packet["result"] = {"sha256": digest, "path": name}; packet["state"] = "validated" if result["outcome"] == "completed" else result["outcome"]; attempt["state"] = packet["state"]; attempt["outcome"] = result["outcome"]
         _save_packet(boundary, reference, packet)
         _save(boundary, state)
-        return {"state": packet["state"], "sha256": digest, "idempotent": False}
+        return {"state": packet["state"], "sha256": digest, "idempotent": recovered}
 
 
 def status(campaign, *, offset=0, limit=20):
