@@ -306,8 +306,17 @@ def _load(boundary):
     if value.get("schema") != SCHEMA:
         _fail("unsupported campaign schema")
     for reference in value["packets"]:
-        if reference.get("decision") is not None:
-            _validate_decision(reference["decision"], value["limits"]["result_bytes"])
+        decision = reference.get("decision")
+        if decision is not None:
+            _validate_decision(decision, value["limits"]["result_bytes"])
+            result = reference.get("result")
+            if type(result) is not dict or decision["packet_id"] != reference["packet_id"] or decision["result_sha256"] != result.get("sha256"):
+                _fail("stored decision does not bind its packet result")
+            attempts = [item for item in reference["attempts"] if item["attempt_id"] == decision["attempt_id"]]
+            if len(attempts) != 1 or attempts[0]["outcome"] != "completed" or attempts[0]["state"] != "validated" or decision["reviewer_id"] == attempts[0]["worker_id"]:
+                _fail("stored decision does not bind an independent completed attempt")
+            if reference["state"] != decision["disposition"] and (reference["state"] != "stale" or not isinstance(reference.get("stale_reason"), str) or not reference["stale_reason"].strip()):
+                _fail("stored decision does not match its disposition")
     return value
 
 

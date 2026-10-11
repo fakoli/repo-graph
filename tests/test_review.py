@@ -54,6 +54,7 @@ class ReviewTests(unittest.TestCase):
             stale = review.status(created["campaign"])["packets"][0]
             self.assertEqual("stale", stale["state"])
             self.assertEqual("evidence_invalid", stale["stale_reason"])
+            self.assertEqual("stale", review.status(created["campaign"])["packets"][0]["state"])
             # Explicit members form one atomic, source-only integration packet.
             # Shared closure is materialized once and both test files retain
             # their independent original assertion identities.
@@ -301,17 +302,29 @@ class ReviewTests(unittest.TestCase):
             # Earlier v4 validators could persist an accepted blank decision.
             # Refuse it on resume/read as well, preserving the saved bytes.
             manifest = Path(created["campaign"]) / "campaign.json"
-            historical = json.loads(manifest.read_bytes())
-            historical["packets"][0].update(state="accepted", decision=dict(decision, rationale=" \t\n"))
-            manifest.write_text(json.dumps(historical))
-            historical_bytes = manifest.read_bytes()
-            for observe in (lambda: review.status(created["campaign"]),
-                            lambda: review.next_packet(created["campaign"]),
-                            lambda: review.plan(root, output=Path(temp.name) / "cache"),
-                            lambda: review.record(created["campaign"], decision)):
-                with self.assertRaisesRegex(ValueError, "provenance and rationale required"):
-                    observe()
-                self.assertEqual(historical_bytes, manifest.read_bytes())
+            original = manifest.read_bytes()
+            attempt = json.loads(original)["packets"][0]["attempts"][0]
+            invalid = [{"decision": dict(decision, rationale=" \t\n")},
+                       {"decision": dict(decision, provenance=dict(decision["provenance"], model=" \t"))},
+                       *[{"decision": dict(decision, **{key: value})} for key, value in (
+                           ("packet_id", "other-packet"), ("result_sha256", "0" * 64),
+                           ("attempt_id", "other-attempt"), ("reviewer_id", "same"), ("disposition", "rejected"))],
+                       {"result": None}, {"attempts": [dict(attempt, outcome="uncertain")]},
+                       {"attempts": [dict(attempt, state="cancelled")]},
+                       {"attempts": [attempt, attempt]}, {"state": "stale", "stale_reason": None}]
+            for fields in invalid:
+                historical = json.loads(original)
+                historical["packets"][0].update(state="accepted", decision=decision)
+                historical["packets"][0].update(fields)
+                manifest.write_text(json.dumps(historical))
+                historical_bytes = manifest.read_bytes()
+                for observe in (lambda: review.status(created["campaign"]),
+                                lambda: review.next_packet(created["campaign"]),
+                                lambda: review.plan(root, output=Path(temp.name) / "cache"),
+                                lambda: review.record(created["campaign"], decision)):
+                    with self.assertRaises(ValueError):
+                        observe()
+                    self.assertEqual(historical_bytes, manifest.read_bytes())
 
     def test_crashed_directory_lock_releases_without_replaying_an_attempt(self):
         temp, root = self.make_repo()
