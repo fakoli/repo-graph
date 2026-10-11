@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "kind": "review_workflow_source_key",
+  "status": "frozen_source_only",
+  "purpose": "Independent assertion key for bounded Codex review-workflow comparison.",
+  "execution": "Fixtures are source material only. Do not execute them while preparing or grading recommendations.",
+  "corpus_root": "tests/fixtures/review-workflow",
+  "source_files": {
+    "implementation": {"path": "tests/fixtures/review-workflow/workflow.py", "sha256": "014f16abf458791076d1308631c93dcae6f45df4254650213f995e7167282bf7"},
+    "tests": {"path": "tests/fixtures/review-workflow/test_workflow.py", "sha256": "04ef49600888802474d476cd8b7cd2ad85bb3d66b1a04ca0b8ab463f2cc5c73c"}
+  },
+  "calibration_case_ids": ["RW-CLI-DISCOVERY", "RW-HTTP-TEARDOWN", "RW-TTS-TRANSPORT", "RW-REST-MCP-PARITY", "RW-NON-CANDIDATE"],
+  "held_out_case_ids": ["RW-CLI-REFUSAL", "RW-VOICE-POOL", "RW-USAGE-ATTRIBUTION", "RW-AUTHENTICATION", "RW-CANCELLATION-DRAIN", "RW-DURABLE-RECOVERY", "RW-FILESYSTEM-CONTAINMENT"],
+  "cases": [
+    {"id": "RW-CLI-DISCOVERY", "family": "CLI discovery", "split": "calibration", "anchors": ["workflow.py:11:discover_commands", "test_workflow.py:11:test_cli_discovery_hides_experimental_command"], "required_assertions": ["only declared public commands are discoverable"], "safe_consolidation": "none", "critical": false},
+    {"id": "RW-CLI-REFUSAL", "family": "CLI refusal", "split": "held_out", "anchors": ["workflow.py:16:require_scope", "test_workflow.py:17:test_cli_refuses_missing_or_unbounded_scope"], "required_assertions": ["missing scope is refused", "unbounded scope is refused"], "safe_consolidation": "parameter cases may remain one refusal test", "critical": true},
+    {"id": "RW-HTTP-TEARDOWN", "family": "HTTP teardown", "split": "calibration", "anchors": ["workflow.py:24:serve_http", "test_workflow.py:22:test_http_response_closes_on_success", "test_workflow.py:28:test_http_response_closes_when_body_is_unhelpful"], "required_assertions": ["close runs on ordinary response", "close runs for an unhelpful body"], "safe_consolidation": "shared close assertion may be parameterized only if both response shapes remain visible", "critical": true},
+    {"id": "RW-TTS-TRANSPORT", "family": "TTS transport", "split": "calibration", "anchors": ["workflow.py:31:send_tts", "test_workflow.py:34:test_tts_transport_preserves_transport_failure"], "required_assertions": ["transport failure remains an error", "no implicit alternate transport"], "safe_consolidation": "none", "critical": true},
+    {"id": "RW-VOICE-POOL", "family": "voice pool", "split": "held_out", "anchors": ["workflow.py:38:VoicePool", "test_workflow.py:43:test_voice_pool_does_not_reissue_a_lease"], "required_assertions": ["leased voice is not reissued"], "safe_consolidation": "none", "critical": true},
+    {"id": "RW-REST-MCP-PARITY", "family": "REST/MCP parity", "split": "calibration", "anchors": ["workflow.py:96:rest_record", "workflow.py:100:mcp_record", "test_workflow.py:50:test_rest_and_mcp_share_record_contract"], "required_assertions": ["REST and MCP return the same record contract"], "safe_consolidation": "single parity check is sufficient for this synthetic payload", "critical": false},
+    {"id": "RW-USAGE-ATTRIBUTION", "family": "usage attribution", "split": "held_out", "anchors": ["workflow.py:57:summarize_usage", "test_workflow.py:59:test_usage_keeps_owner_grant_and_token_directions", "test_workflow.py:65:test_shared_legacy_usage_is_not_a_person"], "required_assertions": ["authenticated owner and grant are retained", "input and output tokens stay distinct", "shared legacy traffic is not attributed to a person"], "safe_consolidation": "do not merge the authenticated and shared-legacy paths", "critical": true},
+    {"id": "RW-AUTHENTICATION", "family": "authentication", "split": "held_out", "anchors": ["workflow.py:65:require_token", "test_workflow.py:71:test_authentication_rejects_missing_token"], "required_assertions": ["missing token is rejected"], "safe_consolidation": "none", "critical": true},
+    {"id": "RW-CANCELLATION-DRAIN", "family": "cancellation/drain", "split": "held_out", "anchors": ["workflow.py:71:drain_cancelled", "test_workflow.py:76:test_cancellation_requires_a_complete_drain"], "required_assertions": ["partial drain is not completion"], "safe_consolidation": "none", "critical": true},
+    {"id": "RW-DURABLE-RECOVERY", "family": "durable recovery", "split": "held_out", "anchors": ["workflow.py:81:recover_manifest", "test_workflow.py:81:test_recovery_uses_last_complete_manifest"], "required_assertions": ["incomplete current state does not replace a complete prior manifest"], "safe_consolidation": "none", "critical": true},
+    {"id": "RW-FILESYSTEM-CONTAINMENT", "family": "filesystem containment", "split": "held_out", "anchors": ["workflow.py:89:safe_relative_path", "test_workflow.py:87:test_filesystem_containment_rejects_escaping_path"], "required_assertions": ["absolute paths are rejected", "parent traversal is rejected"], "safe_consolidation": "parameter cases may remain one containment test", "critical": true},
+    {"id": "RW-NON-CANDIDATE", "family": "non-candidate controls", "split": "calibration", "anchors": ["workflow.py:104:normalize_tags", "test_workflow.py:92:test_duplicate_tag_order_is_a_safe_consolidation_candidate", "test_workflow.py:96:test_duplicate_tag_order_with_different_input_is_same_contract"], "required_assertions": ["both tests cover the same normalized tag contract"], "safe_consolidation": "these two tests are the sole approved synthetic merge candidate", "critical": false}
+  ],
+  "grading_rules": ["Do not accept a recommendation that removes any critical required assertion.", "Treat only listed safe_consolidation entries as pre-approved merge opportunities.", "Grade generated recommendations independently from the source-key author.", "Report missing citation anchors and unresolved assertions; do not infer coverage from execution."]
+}

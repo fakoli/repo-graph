@@ -16,6 +16,8 @@ jobs:
       - run: uv run python -m unittest discover -s tests -v
       - run: uv run python -m unittest discover -s evaluations/code-understanding -v
       - run: uv run python -m unittest evaluations.test_human -v
+      - run: uv run python -m unittest evaluations.test_review_workflow -v
+      - run: uv run python evaluations/review_workflow.py --validate-corpus
       - run: uv build --wheel
       - run: npm ci --ignore-scripts
       - run: npm test

@@ -161,7 +161,23 @@ class RepoGraphTests(unittest.TestCase):
                 with self.assertRaises(OSError) as stopped:
                     owner.read('sample.py', 3, max_bytes=3, measurements=row)
                 self.assertEqual(stopped.exception.errno, errno.EFBIG)
-                self.assertEqual((row['stream_bytes'], row['hashed_bytes'], row['returned_prefix_bytes']), (65536, 0, 0))
+                self.assertEqual((row['stream_bytes'], row['hashed_bytes'], row['returned_prefix_bytes']), (0, 0, 0))
+                row = {}
+                with self.assertRaises(OSError) as prefix_stopped:
+                    owner.read('sample.py', 4, hash_full=False, max_bytes=3, measurements=row)
+                self.assertEqual(prefix_stopped.exception.errno, errno.EFBIG)
+                self.assertEqual(row['stream_bytes'], 0)
+                returned, _, _ = owner.read('sample.py', 3, hash_full=False, max_bytes=3)
+                self.assertEqual(returned, raw[:3])
+                path.write_bytes(b'abc'); row = {}
+                def grow():
+                    path.write_bytes(b'abc' + b'x' * 160)
+                    return False
+                with self.assertRaises(OSError) as grown:
+                    owner.read('sample.py', 3, max_bytes=3, cancel=grow, measurements=row)
+                self.assertEqual(grown.exception.errno, errno.EAGAIN)
+                self.assertEqual((row['stream_bytes'], row['hashed_bytes'], row['returned_prefix_bytes']), (3, 3, 0))
+                path.write_bytes(raw)
                 row, checks = {}, []
                 def change():
                     if not checks:

@@ -1,0 +1,161 @@
+{
+  "schema_version": 1,
+  "date": "2026-10-10",
+  "scope": "Experimental source checkpoint for bounded split dependency closure and construction-bound campaign identity.",
+  "reviewer": {
+    "model": "unverified",
+    "surface": "codex_collaboration",
+    "role": "independent_read_only_reviewer"
+  },
+  "decision": "go_for_experimental_source_checkpoint_conditional_on_exact_head_ci",
+  "reviewed_sha256": {
+    "repo_graph/review.py": "df87a1149f027d43e60afd59056b4db1c4eb52205ce9597ae990041ba0934504",
+    "tests/test_review.py": "37468f281135c4e4f60b30c5ac3168de742e7861c8ca7cb6fac216270a0fbfc1",
+    "skills/repo-graph/SKILL.md": "49b5e92df1f833669bf2960f30594630a6cf7187aafa623e99dd2cc0b4bcc52a",
+    "docs/review-workflow-design.md": "b72d4de2013d69230c0271acbd7f00446fd353fd6301e73e0bdfec9fa3c51c47",
+    "docs/review-workflow-execution.md": "dfa863851dcd57c7375ea6343fb96ad717b729ea04dab0b5254d2fa436f821fc"
+  },
+  "attempts": [
+    {
+      "reviewed_sha256": {
+        "repo_graph/review.py": "4c3f56c04bccbd7020f838b1e2d7dd458066f10a120e3ef363f2b67a4ddaa37e",
+        "tests/test_review.py": "f18417b8037f888fb834862b7f18154c80be0939eb0b529abfe5d957a562a344"
+      },
+      "decision": "hold",
+      "finding": "Unchanged source rows could silently resume an older schema-v2 split contract. Campaign identity omitted packet semantics and construction revision."
+    },
+    {
+      "reviewed_sha256": {
+        "repo_graph/review.py": "df87a1149f027d43e60afd59056b4db1c4eb52205ce9597ae990041ba0934504",
+        "tests/test_review.py": "37468f281135c4e4f60b30c5ac3168de742e7861c8ca7cb6fac216270a0fbfc1"
+      },
+      "decision": "go_for_experimental_source_checkpoint_conditional_on_checks",
+      "repair": "Construction revision and exact packet semantic basis separate new plans from older campaign evidence."
+    }
+  ],
+  "independent_checks": [
+    "six_focused_review_journeys",
+    "actual_prior_head_current_builder_separation",
+    "current_exact_replanning",
+    "fragment_and_decorator_ranges",
+    "fixture_package_recursive_import_inclusion",
+    "serialized_and_physical_read_caps",
+    "packet_limit_stops_acquisition",
+    "partial_denominator_and_explicit_omissions",
+    "full_file_staleness"
+  ],
+  "prior_builder_probe": {
+    "source_head": "aeb0694e31cb10d69f8cd26209c946ae4316da32",
+    "old_assigned_campaign_bytes_unchanged": true,
+    "current_campaign_distinct": true,
+    "current_exact_resume": true,
+    "log_sha256": "44e712437469d1ab576a47e687b363a71e608e369fb2040a6dfd07655f5b379d",
+    "target_source_execution": false
+  },
+  "local_checks": [
+    {
+      "check": "focused_review_journeys",
+      "status": "passed",
+      "tests": 6,
+      "log_sha256": "9b222d8c11d99df20fde2bec66a0128658394b8c0f7907dc0acf5a87e7fdebbc"
+    },
+    {
+      "check": "full_product",
+      "attempts": [
+        {
+          "status": "stalled_then_owned_runner_terminated",
+          "exit_code": 143,
+          "case": "test_captured_status_is_shared_without_source_git_or_backend_scan",
+          "cause": "unproven",
+          "log_sha256": "fcb4d88137c3822d2768ae670e9c75cb2db3c942c065ed8fe760fc6caca60700"
+        },
+        {
+          "status": "passed_single_case_diagnostic",
+          "tests": 1,
+          "duration_seconds": 0.264,
+          "log_sha256": "44f496574c82f6a232ee0647627b5cc6d6753a68f841310f8ed3937bb0ec8b67"
+        },
+        {
+          "status": "passed_bounded_full_suite",
+          "tests": 127,
+          "duration_seconds": 32.966,
+          "traceback_deadline_seconds": 90,
+          "exit_code": 0,
+          "log_sha256": "a078affc830a2341d3f3bceaeee11b3c67c914d4f94796fb86aa18f954894d42"
+        }
+      ]
+    },
+    {
+      "check": "evaluation_contracts_and_corpus",
+      "status": "passed",
+      "tests": 8,
+      "families": 12,
+      "keyed_assertions": 18,
+      "log_sha256": "9423c74174114299a68d6c8217dd804ade04a27731e005d63ad49edc4f41f590"
+    },
+    {
+      "check": "isolated_codex_installation",
+      "status": "passed",
+      "provider_calls": 0,
+      "log_sha256": "50efc63b726007cdb70a258fb9f76cf2e67bdfa7b1b304a34458fd042db15978"
+    },
+    {
+      "check": "isolated_claude_installation",
+      "status": "passed",
+      "provider_calls": 0,
+      "log_sha256": "029b830a210c992590109849bd2d9235f32747f5f48dc83149731d31aa6c52c1"
+    },
+    {
+      "check": "isolated_pi_installation",
+      "status": "passed",
+      "provider_calls": 0,
+      "log_sha256": "87140e50f026247c4f0fdd3d5d54b9cb9b208ffaae474e49c030d5846e51b1b6"
+    },
+    {
+      "check": "node_viewer",
+      "status": "passed",
+      "log_sha256": "84705793f805ab5b7cc899f8665224a42530497eaeb53277ef7243c709f489a1"
+    },
+    {
+      "check": "wheel",
+      "status": "passed",
+      "release_published": false,
+      "log_sha256": "ef1a939f5575698cc0d3161f4483df13c5b1e290645e1a0e61dfebe874157ed3"
+    },
+    {
+      "check": "skill_creator_quick_validate",
+      "status": "passed"
+    },
+    {
+      "check": "py_compile_and_diff",
+      "status": "passed"
+    }
+  ],
+  "ci": "new_checkpoint_commit_requires_its_own_exact_head_checks",
+  "prior_review": "source-review-v2.json preserves the previous reviewed hashes and browser repair evidence; its runtime hashes do not describe this follow-up. Earlier specific reviewer model labels are historical claims not verified by this follow-up.",
+  "unchanged_source_boundaries": {
+    "source_guard_and_viewer": "unchanged",
+    "target_tests_executed": false,
+    "target_tests_removed": 0,
+    "coverage_result": "not_measured"
+  },
+  "feature_qualified": false,
+  "automatic_delegation_qualified": false,
+  "release_qualified": false,
+  "remaining_holds": [
+    "native_worker_fresh_context_permissions_lifecycle_cancellation_usage",
+    "operator_selected_live_run_ceiling_pending",
+    "independently_graded_comparative_pilot",
+    "token_efficiency_unmeasured",
+    "class_integration_and_uncovered_source_scope",
+    "feature_release_and_consumer_delivery"
+  ],
+  "model_requests": 0,
+  "model_request_count_scope": "native qualification and comparative pilot; development collaboration is separate",
+  "goal_status": "active",
+  "review_independence": {
+    "separate_agent_from_author": true,
+    "separate_model_identity": "unverified",
+    "scope": "Source checkpoint review only; does not satisfy future independent-model quality acceptance."
+  }
+}

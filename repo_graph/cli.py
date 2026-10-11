@@ -104,6 +104,27 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description='Local diagrams and incremental repository search')
     subs = parser.add_subparsers(dest='command', required=True)
     subs.add_parser('map', help='Map a local repository or public HTTPS URL (map --help for flags)')
+    review = subs.add_parser('review', help='Prepare and track bounded source-only Codex test reviews')
+    reviews = review.add_subparsers(dest='review_command', required=True)
+    plan = reviews.add_parser('plan', help='Capture test packets without executing source or models')
+    plan.add_argument('repository', type=Path, nargs='?', default=Path('.'))
+    plan.add_argument('--scope', help='Repository-relative test path or directory (default: tests)')
+    plan.add_argument('--include', action='append', default=[], help='Explicit repository-relative dependency file')
+    plan.add_argument('--member', action='append', default=[], help='Additional test member; --scope must name one test file')
+    plan.add_argument('--output', type=Path, help='Cache directory outside the source repository')
+    plan.add_argument('--profile', choices=['test-consolidation'], default='test-consolidation')
+    plan.add_argument('--limits', help='JSON object reducing built-in source and result byte ceilings')
+    plan.add_argument('--authority', choices=['standalone', 'anvil'], default='standalone')
+    next_review = reviews.add_parser('next', help='Assign and return one complete pending packet')
+    next_review.add_argument('campaign', type=Path)
+    next_review.add_argument('--worker', default='codex', help='Distinct owned worker/session identity')
+    record_review = reviews.add_parser('record', help='Validate a worker result or independent decision')
+    record_review.add_argument('campaign', type=Path)
+    record_review.add_argument('--result', required=True, type=Path)
+    review_status = reviews.add_parser('status', help='Read bounded campaign progress and unresolved gaps')
+    review_status.add_argument('campaign', type=Path)
+    review_status.add_argument('--offset', type=int, default=0)
+    review_status.add_argument('--limit', type=int, default=20)
     analyze = subs.add_parser('analyze', help='Incrementally capture structural facts (requires the analysis extra)')
     analyze.add_argument('repository', type=Path)
     analyze.add_argument('--output', required=True, type=Path)
@@ -164,6 +185,49 @@ def main(argv=None):
         p.add_argument('--offline', action='store_true', help='Use only cached embedding model files')
     parsed = parser.parse_args(args)
     try:
+        if parsed.command == 'review':
+            from . import review as workflow
+            if parsed.review_command == 'plan':
+                policy = {}
+                from .source import SourceRoot
+                root = parsed.repository.expanduser().resolve(strict=True)
+                with SourceRoot(root) as owner:
+                    try:
+                        raw, _, _ = owner.read('repo-graph-review.json', 16384, max_bytes=16384)
+                    except FileNotFoundError:
+                        pass
+                    else:
+                        from .search import _json_record
+                        policy = _json_record(raw, maximum=16384)
+                if set(policy) - {'scope', 'limits'}:
+                    raise ValueError('Review configuration accepts only narrowing scope and reducing limits; use --include for explicit dependencies or --member for test members')
+                scope = parsed.scope if parsed.scope is not None else 'tests'
+                scope = workflow._relative(scope) if scope != '.' else '.'
+                if 'scope' in policy:
+                    narrower = policy['scope']
+                    if type(narrower) is not str:
+                        raise ValueError('Review scope must be a relative string')
+                    narrower = workflow._relative(narrower) if narrower != '.' else '.'
+                    if scope != '.' and narrower != scope and not narrower.startswith(scope + '/'):
+                        raise ValueError('Repository configuration cannot expand the requested review scope')
+                    scope = narrower
+                limits = policy.get('limits', {})
+                if type(limits) is not dict:
+                    raise ValueError('Review limits must be a JSON object')
+                if parsed.limits is not None:
+                    from .search import _json_record
+                    overrides = _json_record(parsed.limits, maximum=16384)
+                    limits = {**limits, **overrides}
+                result = workflow.plan(root, scope=scope, output=parsed.output,
+                                       include=parsed.include, members=parsed.member, limits=limits,
+                                       authority=parsed.authority)
+            elif parsed.review_command == 'next':
+                result = workflow.next_packet(parsed.campaign, worker=parsed.worker)
+            elif parsed.review_command == 'record':
+                result = workflow.record(parsed.campaign, parsed.result)
+            else:
+                result = workflow.status(parsed.campaign, offset=parsed.offset, limit=parsed.limit)
+            print(json.dumps(result, ensure_ascii=False)); return 0
         if parsed.command == 'init':
             from .installer import initialize
             result = initialize(harness=parsed.harness, scope=parsed.scope, source=parsed.source,

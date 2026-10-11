@@ -143,10 +143,14 @@ Path(target).write_text(json.dumps(context))`,framework,root,config]);
       pathCheck(framework+'_finite_pages',`${framework}: actual captured source declarations and unresolved stop points; fixed-snapshot one-row pages preserve unique facts and all five identities`,{snapshot:captured,page_count:pages+1,rows:rows.map(pathRow)});
       await tab.getByLabel('Entrypoint source path scope').fill(framework==='django' ? 'urls.py' : 'controllers.py');await tab.getByLabel('Entrypoint rows per page').selectOption('8');await find();
       const entry=tab.locator('.path-element').filter({has:tab.getByRole('button',{name:'Explore possible calls',exact:true})}).first();await entry.waitFor();
-      const registration=entry.getByRole('button',{name:'Inspect registration source',exact:true}),sourceResponse=tab.waitForResponse(response=>new URL(response.url()).pathname==='/api/source' && response.status()===200);
-      await registration.focus();await tab.keyboard.press('Enter');await tab.locator('.paths-panel .call-evidence pre').waitFor();
-      const inspected=await (await sourceResponse).json(),raw=readFileSync(resolve(root,inspected.handle.path));
-      assert.equal(inspected.text,raw.subarray(inspected.range.start_byte,inspected.range.end_byte).toString());await tab.keyboard.press('Escape');assert.equal(await registration.evaluate(button=>button===document.activeElement),true);
+      const registration=entry.getByRole('button',{name:'Inspect registration source',exact:true});let inspected;
+      await tab.route('**/api/source',async route=>{const response=await route.fetch();inspected=await response.json();await route.fulfill({response});});
+      try {
+        await registration.focus();await tab.keyboard.press('Enter');const evidence=tab.locator('.paths-panel .call-evidence pre');await evidence.waitFor();
+        assert.ok(inspected);assert.equal(await evidence.textContent(),inspected.text);
+        const raw=readFileSync(resolve(root,inspected.handle.path));
+        assert.equal(inspected.text,raw.subarray(inspected.range.start_byte,inspected.range.end_byte).toString());await tab.keyboard.press('Escape');assert.equal(await registration.evaluate(button=>button===document.activeElement),true);
+      } finally {await tab.unroute('**/api/source');}
       const witness=entry.getByRole('button',{name:/^Inspect witness /}).first();await witness.click();await tab.locator('.paths-panel .call-evidence pre').waitFor();await tab.keyboard.press('Escape');
       await Promise.all(reads);pathCheck(framework+'_source_inspection',`${framework}: physical registration and supporting witness source inspection verifies captured bytes; Enter/Escape returns focus`,{snapshot:captured,inspections:exchanges.filter(row=>row.endpoint==='/api/source').map(row=>({handle:row.response.handle,range:row.response.range,raw_digest:row.response.raw_digest,redacted:row.response.redacted,truncated:row.response.truncated,identities:row.response.identities})),focus_returned:true});
       await entry.getByRole('button',{name:'Explore possible calls',exact:true}).click();await tab.waitForFunction(()=>document.querySelector('.calls-panel .calls-status[role="status"]').textContent.includes('rows in this page'));
@@ -237,8 +241,12 @@ Path(sys.argv[2]).write_text(json.dumps(context),encoding='utf-8')`,root,config,
     const source=ct.locator('.path-element').first().getByRole('button',{name:'Inspect registration source',exact:true});await source.focus();await ct.keyboard.press('Enter');await ct.locator('.paths-panel .call-evidence pre').waitFor();await ct.keyboard.press('Escape');assert.equal(await source.evaluate(button=>button===document.activeElement),true);
     await Promise.all(reads);const contractPage=exchanges.find(row=>row.request.operation==='contract').response;
     pathCheck('contract_source_membership','actual imported contract source memberships and witnesses reuse bounded query/source inspection; no callable or deployment inference',{snapshot:Object.fromEntries(['generation','repository_identity','source_identity','analyzer_identity','config_identity'].map(key=>[key,contractPage[key]])),rows:contractPage.rows.map(pathRow),calls_shortcuts:0,source_focus_returned:true});pathsObservations.push({framework:'contract',exchanges:[...exchanges]});
-    const contractOrigin=contractPage.rows[0];await ct.locator('.path-element').first().getByRole('button',{name:'Explore contract impact',exact:true}).click();await ct.waitForFunction(()=>document.querySelector('.impact-panel .calls-status[role="status"]').textContent.includes('physical relations in this page'));await Promise.all(reads);
-    const imported=exchanges.filter(row=>row.request.operation==='impact').at(-1);assert.deepEqual(imported.request.relations,['contract']);assert.deepEqual(imported.request.selector,{kind:'source_area',paths:[contractOrigin.site.path]});assert.deepEqual(imported.request.services,[contractOrigin.service_id]);assert.ok(imported.response.rows.length>0);assert.ok(imported.response.rows.every(row=>row.runtime_qualified===false));
+    const contractOrigin=contractPage.rows[0];let imported;
+    await ct.route('**/api/query',async route=>{const request=route.request().postDataJSON(),response=await route.fetch(),body=await response.json();if(request.operation==='impact')imported={endpoint:'/api/query',request,response:body};await route.fulfill({response});});
+    try {
+      await ct.locator('.path-element').first().getByRole('button',{name:'Explore contract impact',exact:true}).click();await ct.waitForFunction(()=>document.querySelector('.impact-panel .calls-status[role="status"]').textContent.includes('physical relations in this page'));
+      assert.ok(imported);assert.equal(imported.request.operation,'impact');assert.deepEqual(imported.request.relations,['contract']);assert.deepEqual(imported.request.selector,{kind:'source_area',paths:[contractOrigin.site.path]});assert.deepEqual(imported.request.services,[contractOrigin.service_id]);assert.ok(imported.response.rows.length>0);assert.ok(imported.response.rows.every(row=>row.runtime_qualified===false));
+    } finally {await ct.unroute('**/api/query');}
     pathCheck('contract_possible_impact','source contract origin opens existing bounded Impact with explicit source, service/protocol/namespace scope and no runtime ordering',{snapshot:Object.fromEntries(['generation','repository_identity','source_identity','analyzer_identity','config_identity'].map(key=>[key,contractPage[key]])),request:imported.request,rows:imported.response.rows.map(pathRow),runtime_sequence_qualified:false});
     if(process.env.REPO_GRAPH_UX_FOCUS==='paths')return;
     await ct.click('#clear-saved-view');await ct.reload();

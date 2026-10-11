@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "source_schema": "repo-graph-review-v4",
+  "construction": "integration-members-v2",
+  "task_id": "codex-review:T001",
+  "prior_source_commit": "a301882e479fa04561f0e7be1631fe9e90c244f3",
+  "source_sha256": {
+    "repo_graph/review.py": "642e0cce0dcfded758ee43aad4d354699f985c0e196f1971ba4aa71e9cedd8f3",
+    "repo_graph/cli.py": "8483945c232b6aac71084b5c2e51609c792c5a5655333babc0a8d236bc997f85",
+    "repo_graph/source.py": "b482d1fc3a659cf3583fb66b87cf953343471c5992c3b85aebe37b12cf6be625",
+    "tests/test_review.py": "ffcd1e1461a1259e3432a7ecf7c67fa9a0f03d89c6218eac00412a79a037561e"
+  },
+  "prior_whole_task_reviews": [
+    {
+      "angle": "correctness",
+      "decision": "HOLD",
+      "report_sha256": "7460d6e023621359d5b357b53cbb45f3d3b6421af7732536a37c8ec6e829a87d"
+    },
+    {
+      "angle": "security",
+      "decision": "HOLD",
+      "report_sha256": "b0f38e20c20e8dbe74b095fe5826476c8e91af671edb710c8675c397f9ddfba6"
+    },
+    {
+      "angle": "integration",
+      "decision": "HOLD",
+      "report_sha256": "22bb64eb4cf2b73d7b6de858b092c36f635a884fd423a2fef84a4c6718f892dd"
+    }
+  ],
+  "prior_security_clarification": {
+    "sha256": "100fa095c51552a9e1be150a666b6dcb8f5d6061309f0eeb58ee3eb19e646328",
+    "auth_token_test_filename_finding": "withdrawn_as_unproven"
+  },
+  "regression_before_repair": {
+    "exact_command": "uv run python -m unittest discover -s tests -p test_review.py -v",
+    "exit_code": 1,
+    "tests": 6,
+    "failures": 2,
+    "output_sha256": "2510ec208129e83bc65e00342b726c2fa64ed6e176d979362f6a6d111ba61151"
+  },
+  "repair": [
+    "deterministic_per_attempt_result_artifact_prevents_conflicting_retry_after_interrupted_manifest_publication",
+    "strict_existing_artifact_validation_reconciles_only_identical_retry_without_overwrite",
+    "nonblank_assertion_evidence_and_finding_summaries",
+    "refuse_and_preserve_older_v1_v2_v3_campaigns_without_migration_or_worker_replay"
+  ],
+  "local_checks": [
+    {
+      "check": "product",
+      "status": "passed",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "26ede531a22eda13599b84cbc3b160fa1bfbb3105a79aa03449471836e1682c0",
+      "output_sha256": "26ede531a22eda13599b84cbc3b160fa1bfbb3105a79aa03449471836e1682c0",
+      "tests": 127,
+      "test_seconds": 31.733,
+      "wrapper_seconds": 31.897,
+      "traceback_deadline_seconds": 90
+    },
+    {
+      "check": "eval-contracts",
+      "status": "passed",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "41cfef72c8c75d16bf119f5ac3e5a6cd07a3378e03bebfdbf928d267dd32e84a",
+      "output_sha256": "41cfef72c8c75d16bf119f5ac3e5a6cd07a3378e03bebfdbf928d267dd32e84a",
+      "tests": 1
+    },
+    {
+      "check": "corpus",
+      "status": "passed",
+      "exit_code": 0,
+      "stdout_sha256": "d1a130f3ef655c8695e07b048dd994271cf735a2a524fc2dd20b6fe4188960d6",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "output_sha256": "d1a130f3ef655c8695e07b048dd994271cf735a2a524fc2dd20b6fe4188960d6",
+      "task_families": 12,
+      "keyed_assertions": 18,
+      "target_source_executed": false
+    },
+    {
+      "check": "codex-installation",
+      "status": "passed",
+      "exit_code": 0,
+      "stdout_sha256": "50efc63b726007cdb70a258fb9f76cf2e67bdfa7b1b304a34458fd042db15978",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "output_sha256": "50efc63b726007cdb70a258fb9f76cf2e67bdfa7b1b304a34458fd042db15978",
+      "provider_calls": 0,
+      "synthetic_results": true,
+      "native_model_worker_qualified": false
+    },
+    {
+      "check": "wheel",
+      "status": "passed",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "cfeefe707e4442587b3deab151851b8e23d9f780d439232a392d3a3c8c6bd1b3",
+      "output_sha256": "cfeefe707e4442587b3deab151851b8e23d9f780d439232a392d3a3c8c6bd1b3",
+      "wheel_sha256": "6bc868d841916404ddc2f09406bbb833dc4ef1076b61c2c91c51ff2bd33a7f43",
+      "runtime_cli_hashes_match": true,
+      "published": false
+    },
+    {
+      "check": "skill",
+      "status": "passed",
+      "exit_code": 0,
+      "stdout_sha256": "db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "output_sha256": "db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0"
+    },
+    {
+      "check": "diff",
+      "status": "passed",
+      "exit_code": 0,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "output_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "test_cases_added": 0,
+  "focused_journeys": 6,
+  "target_test_removals": 0,
+  "target_coverage_result": "not_measured",
+  "worker_model_identity": "unverified",
+  "corrective_whole_task_reviews": "pending_at_receipt_freeze",
+  "corrective_exact_head_ci": "pending_at_receipt_freeze",
+  "known_limits": [
+    "repository_metadata_inventory_has_no_hard_entry_byte_or_time_ceiling",
+    "static_sensitive_path_filter_is_imperfect_not_a_content_secret_audit",
+    "source_and_result_validation_does_not_prove_model_comprehension_or_semantic_equivalence"
+  ],
+  "remaining_holds": [
+    "operator_selected_live_session_ceiling",
+    "direct_native_worker_context_permissions_tools_provider_result_lifecycle_cancellation_usage",
+    "independently_graded_paired_comparison",
+    "formal_task_acceptance",
+    "canonical_release_and_consumer_delivery"
+  ],
+  "whole_goal_complete": false,
+  "feature_qualified": false,
+  "release_qualified": false
+}

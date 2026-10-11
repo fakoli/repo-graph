@@ -88,6 +88,83 @@ marketplace entry, update/reinstall that entry instead of adding a second copy
 through the canonical marketplace. Select one Repo Graph distribution per
 harness. Uninstall with the native manager.
 
+## Codex source reviews in development
+
+The development source adds bounded, resumable test-consolidation reviews through
+the existing `$repo-graph` skill. These commands are not in published 0.6.0:
+
+```bash
+repo-graph review plan . --scope tests
+repo-graph review next CAMPAIGN --worker SESSION
+repo-graph review record CAMPAIGN --result RESULT.json
+repo-graph review status CAMPAIGN
+```
+
+`plan` captures bounded test source and recursively follows local AST import
+candidates, including fixtures and package initialization, without importing
+source or invoking a model. The default cache is
+outside source under `~/.cache/repo-graph/reviews`. `next` assigns one packet and
+returns its source and result schema. `record` checks source identity, citations
+and assertion dispositions; independent acceptance binds the exact result digest
+and a distinct reviewer identity. `status` reports pending, validated, accepted,
+stale and blocked evidence with pagination. Configuration in
+`repo-graph-review.json` accepts a `scope` inside the requested scope and reducing
+`limits`. Additional dependency files require explicit `--include` arguments;
+repository configuration cannot expand source export. It contains no commands,
+provider settings or credentials.
+
+To review related test files together, name a primary file and explicit members:
+
+```bash
+repo-graph review plan . --scope tests/test_api.py --member tests/test_state.py
+```
+
+The group requires every member's assertion map, deduplicates shared dependencies
+and admits whole test files only. If a member is blocked or the group does not
+fit, no partial group is dispatched. `--include` supplies dependency context;
+`--member` declares another test for assertion accounting. Repository configuration
+cannot add members. Automatic integration discovery remains unqualified.
+
+Source reads obey the byte ceiling at the descriptor; failed decoding still
+consumes the campaign budget. Packet limits include JSON escaping and metadata.
+Materialized source, result and packet budgets are bounded. The existing
+`repo_files` metadata inventory has no hard entry, byte or time ceiling, so full
+inventory scale remains unqualified.
+
+Completion covers the exact materialized ranges; dependency closure remains unknown.
+Status rechecks the requested page's source and result evidence and labels other
+pages' current freshness unknown. A reduced packet budget may split a fully read
+file into whole top-level test functions, including decorators and adjacent
+comments. Uncovered ranges remain blocked; class methods and oversized single
+units are not split. Files above the acquisition ceiling remain blocked. Static assertion
+anchors are not collected pytest cases, and validated citations do not prove
+semantic equivalence. Recommendations preserve distinct failure/recovery checks;
+test execution and source edits are a separate implementation scope. Logs help
+diagnosis and do not replace assertions. Native Codex delegation requires
+qualification on the actual calling surface; a CLI installation smoke does not
+prove desktop worker permissions or model quality. Source-only packet review
+remains usable when delegation is unsupported. Other harness review adapters,
+Anvil evidence integration and automatic test edits are outside this slice.
+
+Schema v4 keeps packet payloads immutable and publishes lifecycle changes through
+one atomic campaign manifest. Construction identity includes
+`integration-members-v2`. Result artifacts use a deterministic
+`hash(packet_id, attempt_id)` key rather than a payload digest. On retry, the
+coordinator strictly parses and validates that attempt's existing artifact and
+compares its result digest: an identical retry finalizes an interrupted manifest;
+a different or invalid retry is refused without overwrite. Assertion-map evidence
+for every original behavior and finding summaries must be nonblank. Descriptor
+locks reject concurrent coordinators and release on process exit; an interrupted
+assignment is never replayed. Earlier v1-v3 records are refused explicitly and
+remain available as historical evidence. Native process cancellation and model
+completion remain unqualified.
+
+The [design](docs/review-workflow-design.md),
+[execution plan](docs/review-workflow-execution.md) and
+[decision](docs/adr/0007-bounded-review-workflow.md) specify qualification and
+limits. Comparative token savings remain unmeasured until independent pilot
+receipts pass their gates.
+
 ## Product architecture
 
 Repo Graph has one canonical source repository. Human diagrams and agent search
