@@ -311,6 +311,8 @@ class ReviewTests(unittest.TestCase):
                            ("attempt_id", "other-attempt"), ("reviewer_id", "same"), ("disposition", "rejected"))],
                        {"result": None}, {"attempts": [dict(attempt, outcome="uncertain")]},
                        {"attempts": [dict(attempt, state="cancelled")]},
+                       {"attempts": [attempt, dict(attempt, attempt_id="fake", worker_id="fake-worker")],
+                        "decision": dict(decision, attempt_id="fake", reviewer_id="same")},
                        {"attempts": [attempt, attempt]}, {"state": "stale", "stale_reason": None}]
             for fields in invalid:
                 historical = json.loads(original)

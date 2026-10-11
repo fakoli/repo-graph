@@ -317,6 +317,14 @@ def _load(boundary):
                 _fail("stored decision does not bind an independent completed attempt")
             if reference["state"] != decision["disposition"] and (reference["state"] != "stale" or not isinstance(reference.get("stale_reason"), str) or not reference["stale_reason"].strip()):
                 _fail("stored decision does not match its disposition")
+            packet = _load_packet(boundary, reference)
+            try:
+                stored = _result_artifact(boundary, value, packet)
+            except ValueError:
+                reference["state"] = "stale"; reference["stale_reason"] = "evidence_invalid"
+                continue
+            if (stored["packet_id"], stored["attempt_id"], stored["worker_id"], stored["outcome"]) != (reference["packet_id"], decision["attempt_id"], attempts[0]["worker_id"], "completed"):
+                _fail("stored decision does not bind its immutable result attempt")
     return value
 
 
